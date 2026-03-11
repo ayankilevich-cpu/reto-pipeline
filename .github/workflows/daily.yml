@@ -1,0 +1,104 @@
+# ReTo Pipeline - Ejecución diaria automatizada
+# ================================================
+# Se ejecuta cada día a las 07:00 UTC (09:00 España peninsular).
+# También se puede ejecutar manualmente desde GitHub > Actions > Run workflow.
+#
+# Las credenciales se configuran en:
+#   GitHub > Settings > Secrets and variables > Actions
+#
+# Secrets necesarios:
+#   DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, DB_SSLMODE
+#   OPENAI_API_KEY
+#   YOUTUBE_API_KEY
+#   RETO_SALT
+#   GOOGLE_DRIVE_CREDENTIALS_B64  (Service Account JSON codificado en base64)
+#   GOOGLE_DRIVE_FOLDER_ID
+
+name: ReTo Pipeline Diario
+
+on:
+  schedule:
+    - cron: '0 7 * * *'   # 07:00 UTC = 09:00 CEST
+  workflow_dispatch:       # Permite ejecución manual
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    env:
+      DB_HOST: ${{ secrets.DB_HOST }}
+      DB_PORT: ${{ secrets.DB_PORT }}
+      DB_NAME: ${{ secrets.DB_NAME }}
+      DB_USER: ${{ secrets.DB_USER }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      DB_SSLMODE: ${{ secrets.DB_SSLMODE }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+      RETO_SALT: ${{ secrets.RETO_SALT }}
+      GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+      PROJECT_ROOT: ${{ github.workspace }}
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Preparar credenciales de Google Drive
+        if: ${{ env.GOOGLE_DRIVE_CREDENTIALS_B64 != '' }}
+        env:
+          GOOGLE_DRIVE_CREDENTIALS_B64: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS_B64 }}
+        run: |
+          echo "$GOOGLE_DRIVE_CREDENTIALS_B64" | base64 -d > credentials.json
+          echo "GOOGLE_DRIVE_CREDENTIALS=credentials.json" >> $GITHUB_ENV
+
+      - name: Crear directorios de datos
+        run: |
+          mkdir -p X_Mensajes/data/raw
+          mkdir -p X_Mensajes/data/master
+          mkdir -p X_Mensajes/Anon
+          mkdir -p Medios/ML/etiquetado_llm/outputs
+
+      # --- Pipeline steps (cada uno tolera fallos del anterior) ---
+
+      - name: "[1/8] Sincronizar Drive"
+        if: ${{ env.GOOGLE_DRIVE_CREDENTIALS != '' }}
+        run: python X_Mensajes/sync_drive_csvs.py
+        continue-on-error: true
+
+      - name: "[2/8] Consolidar CSVs"
+        run: python X_Mensajes/consolidar_csv.py
+        continue-on-error: true
+
+      - name: "[3/8] Anonimizar y filtrar"
+        run: python X_Mensajes/Anon/filter_and_anonymize_x.py
+        continue-on-error: true
+
+      - name: "[4/8] Extraer YouTube"
+        if: ${{ env.YOUTUBE_API_KEY != '' }}
+        run: python Medios/youtube_extract_hate.py
+        continue-on-error: true
+
+      - name: "[5/8] Etiquetar YouTube (diccionario)"
+        run: python Medios/tag_youtube_hate_auto.py
+        continue-on-error: true
+
+      - name: "[6/8] Scoring baseline"
+        run: python Etiquetado_Modelos/score_baseline.py
+        continue-on-error: true
+
+      - name: "[7/8] Filtrar prioridad alta"
+        run: python Etiquetado_Modelos/scored_prioridad_alta.py
+        continue-on-error: true
+
+      - name: "[8/8] Cargar a PostgreSQL"
+        run: python automatizacion_diaria/load_to_db.py
+        continue-on-error: true

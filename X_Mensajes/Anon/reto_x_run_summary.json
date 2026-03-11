@@ -1,0 +1,51 @@
+{
+  "processed_at": "2026-03-11T09:25:48+00:00",
+  "in_file": "/Users/alejandroyankilevich/Documents/MASTER DATA SCIENCE/Clases/RETO/X_Mensajes/data/master/reto_x_master.csv",
+  "out_dir": "/Users/alejandroyankilevich/Documents/MASTER DATA SCIENCE/Clases/RETO/X_Mensajes/Anon",
+  "terms_file": "/Users/alejandroyankilevich/Documents/MASTER DATA SCIENCE/Clases/RETO/Medios/hate_terms_clean.csv",
+  "stopwords_file": "/Users/alejandroyankilevich/Documents/MASTER DATA SCIENCE/Clases/RETO/Medios/stopwords_extras.txt",
+  "stopwords_count": 281,
+  "terms_loaded": {
+    "single_terms": 1740,
+    "multi_terms": 2000
+  },
+  "total_rows": 72866,
+  "candidate_rows": 45878,
+  "candidate_share": 0.629621496994483,
+  "unique_sources": 0,
+  "top_sources": {},
+  "top_matched_terms_sample": {
+    "": 26988,
+    "personas": 385,
+    "proyecto": 342,
+    "vecinos": 282,
+    "viejo": 274,
+    "vieja": 247,
+    "subnormal": 220,
+    "partir": 207,
+    "pedro": 206,
+    "nuevos": 204,
+    "nacional": 204,
+    "parte": 200,
+    "mujer": 198,
+    "amarillo": 174,
+    "infantil": 170
+  },
+  "thresholds": {
+    "min_match": 1,
+    "min_match_with_strong": 1,
+    "candidates_only_spanish": false,
+    "use_strong_phrases": false
+  },
+  "exclude_phrases": [
+    "moro de guandules",
+    "guandules",
+    "telefono negro",
+    "en negro",
+    "vino tinto",
+    "moro de",
+    "moro con",
+    "arroz con",
+    "morcilla"
+  ]
+}

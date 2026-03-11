@@ -1,0 +1,24 @@
+# ReTo Pipeline - Dependencias
+# =============================
+
+# Core
+pandas>=2.0
+python-dotenv>=1.0
+
+# Base de datos (PostgreSQL / Neon)
+psycopg2-binary>=2.9
+
+# ML / NLP
+scikit-learn>=1.3
+joblib>=1.3
+
+# LLM (OpenAI)
+openai>=1.0
+
+# Google APIs (YouTube + Drive)
+google-api-python-client>=2.0
+google-auth>=2.0
+
+# Formatos
+PyYAML>=6.0
+openpyxl>=3.1

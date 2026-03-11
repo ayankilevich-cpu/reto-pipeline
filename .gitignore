@@ -1,0 +1,76 @@
+# =============================================================
+# ReTo Pipeline - .gitignore
+# =============================================================
+
+# --- Credenciales y secretos (NUNCA subir) ---
+.env
+.env_*
+*.env
+secrets.yaml
+credentials.json
+service-account*.json
+
+# --- Datos (CSVs grandes, modelos) ---
+*.csv
+*.xlsx
+*.xls
+*.joblib
+*.pickle
+*.pkl
+data/raw/
+data/master/
+outputs/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# --- Entorno virtual ---
+venv/
+.venv/
+env/
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- macOS ---
+.DS_Store
+.AppleDouble
+.LSOverride
+*.cannedSearch/
+*.plist
+
+# --- Apple / formatos binarios ---
+*.numbers
+*.pages
+*.docx
+
+# --- Logs ---
+logs/
+*.log
+
+# --- Backups e imágenes ---
+backups/
+*.png
+*.jpg
+*.jpeg
+
+# --- Docker ---
+.docker/
+
+# --- Estado de scripts (archivos de sincronización/caché) ---
+.consolidar_state.json
+.drive_sync_state.json
+youtube_extract_state.json
+etiquetado_cache.json
+relevancia_cache.json

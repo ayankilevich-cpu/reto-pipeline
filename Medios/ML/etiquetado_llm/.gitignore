@@ -1,0 +1,24 @@
+# Archivos de entorno y credenciales
+.env
+*.env
+
+# Directorio de salida
+outputs/
+*.jsonl
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+
+
+

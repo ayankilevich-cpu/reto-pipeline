@@ -1,0 +1,130 @@
+# ReTo Pipeline - Docker Compose
+# ================================
+# Uso:
+#   docker compose run sync-drive        # Sincronizar CSVs desde Google Drive
+#   docker compose run consolidar        # Consolidar CSVs crudos en master
+#   docker compose run anonymize         # Anonimizar y filtrar candidatos
+#   docker compose run tag-youtube       # Etiquetar comentarios YouTube
+#   docker compose run extract-youtube   # Extraer comentarios YouTube
+#   docker compose run terms-sheet       # Detectar términos de odio (X)
+#   docker compose run score-baseline    # Scoring con modelo baseline
+#   docker compose run score-filter      # Filtrar prioridad alta
+#   docker compose run llm-tag           # Etiquetado con LLM
+#   docker compose run llm-relevance     # Filtrar relevancia YouTube
+#   docker compose run load-db           # Cargar todo a PostgreSQL
+#
+# Pipeline completo:
+#   docker compose run pipeline
+
+services:
+
+  # --- Paso 1: Sincronizar CSVs desde Google Drive ---
+  sync-drive:
+    build: .
+    env_file: .env
+    volumes:
+      - reto-data:/app/data
+    command: python X_Mensajes/sync_drive_csvs.py
+
+  # --- Paso 2: Consolidar CSVs en master ---
+  consolidar:
+    build: .
+    env_file: .env
+    volumes:
+      - reto-data:/app/data
+    command: python X_Mensajes/consolidar_csv.py
+
+  # --- Paso 3: Anonimizar y filtrar candidatos ---
+  anonymize:
+    build: .
+    env_file: .env
+    volumes:
+      - reto-data:/app/data
+    command: python X_Mensajes/Anon/filter_and_anonymize_x.py
+
+  # --- Paso 4: Extraer comentarios YouTube ---
+  extract-youtube:
+    build: .
+    env_file: .env
+    volumes:
+      - reto-data:/app/data
+    command: python Medios/youtube_extract_hate.py
+
+  # --- Paso 5: Etiquetar YouTube con diccionario ---
+  tag-youtube:
+    build: .
+    env_file: .env
+    volumes:
+      - reto-data:/app/data
+    command: python Medios/tag_youtube_hate_auto.py
+
+  # --- Paso 6: Detectar términos de odio (X) ---
+  terms-sheet:
+    build: .
+    env_file: .env
+    volumes:
+      - reto-data:/app/data
+    command: python Medios/X_terms_sheet.py
+
+  # --- Paso 7: Scoring modelo baseline ---
+  score-baseline:
+    build: .
+    env_file: .env
+    volumes:
+      - reto-data:/app/data
+    command: python Etiquetado_Modelos/score_baseline.py
+
+  # --- Paso 8: Filtrar prioridad alta ---
+  score-filter:
+    build: .
+    env_file: .env
+    volumes:
+      - reto-data:/app/data
+    command: python Etiquetado_Modelos/scored_prioridad_alta.py
+
+  # --- Paso 9: Etiquetado con LLM ---
+  llm-tag:
+    build: .
+    env_file: .env
+    volumes:
+      - reto-data:/app/data
+    command: python Medios/ML/etiquetado_llm/etiquetar_completo_llm.py
+
+  # --- Paso 10: Filtrar relevancia YouTube (LLM) ---
+  llm-relevance:
+    build: .
+    env_file: .env
+    volumes:
+      - reto-data:/app/data
+    command: python Medios/ML/etiquetado_llm/filtrar_relevancia_youtube.py
+
+  # --- Paso 11: Cargar todo a PostgreSQL ---
+  load-db:
+    build: .
+    env_file: .env
+    volumes:
+      - reto-data:/app/data
+    command: python automatizacion_diaria/load_to_db.py
+
+  # --- Pipeline completo (ejecuta todos los pasos en orden) ---
+  pipeline:
+    build: .
+    env_file: .env
+    volumes:
+      - reto-data:/app/data
+    command: >
+      sh -c "
+        echo '=== ReTo Pipeline ===' &&
+        echo '[1/8] Sincronizando Drive...' && python X_Mensajes/sync_drive_csvs.py &&
+        echo '[2/8] Consolidando CSVs...' && python X_Mensajes/consolidar_csv.py &&
+        echo '[3/8] Anonimizando...' && python X_Mensajes/Anon/filter_and_anonymize_x.py &&
+        echo '[4/8] Extrayendo YouTube...' && python Medios/youtube_extract_hate.py &&
+        echo '[5/8] Etiquetando YouTube...' && python Medios/tag_youtube_hate_auto.py &&
+        echo '[6/8] Scoring baseline...' && python Etiquetado_Modelos/score_baseline.py &&
+        echo '[7/8] Filtro prioridad alta...' && python Etiquetado_Modelos/scored_prioridad_alta.py &&
+        echo '[8/8] Cargando a PostgreSQL...' && python automatizacion_diaria/load_to_db.py &&
+        echo '=== Pipeline completado ==='
+      "
+
+volumes:
+  reto-data:
