@@ -67,6 +67,26 @@ jobs:
           mkdir -p X_Mensajes/Anon
           mkdir -p Medios/ML/etiquetado_llm/outputs
 
+      # --- Restaurar cachés y datos de ejecuciones anteriores ---
+      - name: Restaurar caché LLM y estado
+        uses: actions/cache@v4
+        with:
+          path: |
+            Medios/ML/etiquetado_llm/outputs
+            Medios/youtube_extract_state.json
+            Medios/youtube_hatemedia_comments_30d.csv
+            Medios/youtube_hatemedia_comments_30d_tagged_full.csv
+            X_Mensajes/data/raw/.drive_sync_state.json
+            X_Mensajes/data/raw/*.csv
+            X_Mensajes/data/master/*.csv
+            X_Mensajes/Anon/reto_x_master_anon.csv
+            Medios/x_manual_label_for_sheets_tagged.csv
+            Etiquetado_Modelos/x_manual_label_scored.csv
+            Etiquetado_Modelos/x_manual_label_scored_prioridad_alta.csv
+          key: reto-pipeline-data-${{ github.run_number }}
+          restore-keys: |
+            reto-pipeline-data-
+
       # --- Pipeline steps (cada uno tolera fallos del anterior) ---
 
       - name: "[1/8] Sincronizar Drive"
