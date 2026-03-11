@@ -99,6 +99,16 @@ jobs:
         run: python Etiquetado_Modelos/scored_prioridad_alta.py
         continue-on-error: true
 
-      - name: "[8/8] Cargar a PostgreSQL"
+      - name: "[8/10] Etiquetado LLM (OpenAI)"
+        if: ${{ env.OPENAI_API_KEY != '' }}
+        run: python Medios/ML/etiquetado_llm/etiquetar_completo_llm.py
+        continue-on-error: true
+
+      - name: "[9/10] Filtrar relevancia YouTube (LLM)"
+        if: ${{ env.OPENAI_API_KEY != '' }}
+        run: python Medios/ML/etiquetado_llm/filtrar_relevancia_youtube.py
+        continue-on-error: true
+
+      - name: "[10/10] Cargar a PostgreSQL"
         run: python automatizacion_diaria/load_to_db.py
         continue-on-error: true
