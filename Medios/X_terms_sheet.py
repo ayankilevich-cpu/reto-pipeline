@@ -125,11 +125,12 @@ if "Lemas" not in hate_df_clean.columns:
 
 hate_df_clean["lemma_norm"] = (
     hate_df_clean["Lemas"]
+    .fillna("")
     .astype(str)
     .str.lower()
     .str.strip()
 )
-hate_df_clean = hate_df_clean[hate_df_clean["lemma_norm"] != ""]
+hate_df_clean = hate_df_clean[~hate_df_clean["lemma_norm"].isin(["", "nan"])]
 print(f"  - Términos cargados de hate_terms_clean.csv: {len(hate_df_clean)}")
 
 # Cargar hate_general_terms.csv (columna "term")
@@ -139,11 +140,12 @@ if "term" not in hate_df_general.columns:
 
 hate_df_general["lemma_norm"] = (
     hate_df_general["term"]
+    .fillna("")
     .astype(str)
     .str.lower()
     .str.strip()
 )
-hate_df_general = hate_df_general[hate_df_general["lemma_norm"] != ""]
+hate_df_general = hate_df_general[~hate_df_general["lemma_norm"].isin(["", "nan"])]
 print(f"  - Términos cargados de hate_general_terms.csv: {len(hate_df_general)}")
 
 # Combinar ambos DataFrames
