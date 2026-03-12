@@ -311,18 +311,33 @@ def apply_defaults(df: pd.DataFrame, args: argparse.Namespace) -> pd.DataFrame:
     return df
 
 
+USEFUL_COLUMNS: set = set(COLUMN_ALIASES.keys())
+
+
+def _detect_usecols(csv_path: Path) -> Optional[List[str]]:
+    """Read only the header to pick columns we actually need (Apify CSVs can have 2000+ cols)."""
+    try:
+        header_df = pd.read_csv(csv_path, nrows=0)
+        keep = [c for c in header_df.columns if c in USEFUL_COLUMNS]
+        return keep if keep else None
+    except Exception:
+        return None
+
+
 def read_input_csvs_from_list(csv_files: List[Path]) -> pd.DataFrame:
-    """Lee solo los CSVs de la lista proporcionada."""
+    """Lee solo los CSVs de la lista proporcionada, cargando únicamente columnas relevantes."""
     print(f"Leyendo {len(csv_files)} archivos CSV...")
     frames: List[pd.DataFrame] = []
     for p in csv_files:
         try:
-            print(f"  - Leyendo: {p.name}")
-            df = pd.read_csv(p, dtype=str, keep_default_na=False)
+            usecols = _detect_usecols(p)
+            print(f"  - Leyendo: {p.name} ({len(usecols) if usecols else 'todas'} cols)")
+            df = pd.read_csv(p, dtype=str, keep_default_na=False, usecols=usecols)
             print(f"    ✓ {len(df)} filas leídas")
         except UnicodeDecodeError:
             print(f"  - Leyendo (con encoding utf-8): {p.name}")
-            df = pd.read_csv(p, dtype=str, keep_default_na=False, encoding="utf-8", errors="replace")
+            df = pd.read_csv(p, dtype=str, keep_default_na=False, encoding="utf-8",
+                             errors="replace", usecols=usecols)
             print(f"    ✓ {len(df)} filas leídas")
         except Exception as e:
             print(f"  ✗ Error al leer {p.name}: {e}", file=sys.stderr)
