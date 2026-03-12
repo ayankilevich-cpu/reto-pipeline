@@ -206,8 +206,8 @@ def load_terms(terms_file: Path, stopwords: Optional[Set[str]] = None) -> Tuple[
     stopwords_set = stopwords or set()
     
     for t in raw:
-        t = t.strip()
-        if not t:
+        t = str(t).strip()
+        if not t or t == "nan":
             continue
         t_norm = normalize_text_for_match(t)
         if not t_norm:

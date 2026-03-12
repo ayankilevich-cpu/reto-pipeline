@@ -89,37 +89,41 @@ jobs:
 
       # --- Pipeline steps (cada uno tolera fallos del anterior) ---
 
-      - name: "[1/8] Sincronizar Drive"
+      - name: "[1/9] Sincronizar Drive"
         if: ${{ env.GOOGLE_DRIVE_CREDENTIALS != '' }}
         run: python X_Mensajes/sync_drive_csvs.py
         continue-on-error: true
 
-      - name: "[2/8] Consolidar CSVs"
+      - name: "[2/9] Consolidar CSVs"
         run: python X_Mensajes/consolidar_csv.py
         continue-on-error: true
 
-      - name: "[3/8] Anonimizar y filtrar"
+      - name: "[3/9] Anonimizar y filtrar"
         run: python X_Mensajes/Anon/filter_and_anonymize_x.py
         continue-on-error: true
 
-      - name: "[4/8] Extraer YouTube"
+      - name: "[4/9] Etiquetar X con diccionario de odio"
+        run: python Medios/X_terms_sheet.py
+        continue-on-error: true
+
+      - name: "[5/9] Extraer YouTube"
         if: ${{ env.YOUTUBE_API_KEY != '' }}
         run: python Medios/youtube_extract_hate.py
         continue-on-error: true
 
-      - name: "[5/8] Etiquetar YouTube (diccionario)"
+      - name: "[6/9] Etiquetar YouTube (diccionario)"
         run: python Medios/tag_youtube_hate_auto.py
         continue-on-error: true
 
-      - name: "[6/8] Scoring baseline"
+      - name: "[7/9] Scoring baseline"
         run: python Etiquetado_Modelos/score_baseline.py
         continue-on-error: true
 
-      - name: "[7/8] Filtrar prioridad alta"
+      - name: "[8/9] Filtrar prioridad alta"
         run: python Etiquetado_Modelos/scored_prioridad_alta.py
         continue-on-error: true
 
-      - name: "[8/8] Cargar a PostgreSQL"
+      - name: "[9/9] Cargar a PostgreSQL"
         run: python automatizacion_diaria/load_to_db.py
         continue-on-error: true
 
