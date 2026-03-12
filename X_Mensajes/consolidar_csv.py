@@ -174,7 +174,7 @@ def _filter_new_csvs(csv_files: List[Path], state: Dict[str, Dict]) -> List[Path
 
 def parse_args() -> argparse.Namespace:
     script_dir = Path(__file__).parent
-    default_in_dir = Path(os.getenv("DATA_RAW_DIR", "/Users/alejandroyankilevich/Documents/MASTER DATA SCIENCE/Data/raw"))
+    default_in_dir = Path(os.getenv("DATA_RAW_DIR", str(script_dir / "data" / "raw")))
     default_out_file = Path(os.getenv("CONSOLIDAR_OUT_FILE", str(script_dir / "data" / "master" / "reto_x_master.csv")))
     
     p = argparse.ArgumentParser(description="Consolidar CSVs de Apify a un master normalizado")

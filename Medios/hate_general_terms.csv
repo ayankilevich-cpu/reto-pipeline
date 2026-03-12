@@ -1,0 +1,209 @@
+term,category,notes
+inútil,insulto_directo,insulto general
+inútiles,insulto_directo,insulto general
+estúpido,insulto_directo,insulto general
+estúpida,insulto_directo,insulto general
+idiota,insulto_directo,insulto general
+bobo,insulto_directo,insulto general
+bobos,insulto_directo,insulto general
+tonto,insulto_directo,insulto general
+tonta,insulto_directo,insulto general
+tontos,insulto_directo,insulto general
+ignorante,insulto_directo,insulto general
+incompetente,insulto_directo,insulto general
+incapaz,insulto_directo,insulto general
+ridículo,insulto_directo,insulto general
+patético,insulto_directo,insulto general
+imbécil,insulto_directo,insulto general
+burro,insulto_directo,insulto general
+torpe,insulto_directo,insulto general
+tarado,insulto_directo,insulto general
+tarada,insulto_directo,insulto general
+payaso,insulto_directo,insulto general
+payasa,insulto_directo,insulto general
+pelotudo,insulto_directo,insulto general
+pelotuda,insulto_directo,insulto general
+zopenco,insulto_directo,insulto general
+mamarracho,insulto_directo,insulto general
+caradura,insulto_directo,insulto general
+parásito,insulto_directo,insulto general
+parásitos,insulto_directo,insulto general
+miserable,insulto_directo,insulto general
+vago,insulto_directo,insulto general
+vagos,insulto_directo,insulto general
+zángano,insulto_directo,insulto general
+vividor,insulto_directo,insulto general
+maleducado,insulto_directo,insulto general
+inmaduro,insulto_directo,insulto general
+simplón,insulto_directo,insulto general
+cretino,insulto_directo,insulto general
+majadero,insulto_directo,insulto general
+necio,insulto_directo,insulto general
+tarúpido,insulto_directo,insulto general
+baboso,insulto_directo,insulto general
+picapleitos,insulto_directo,insulto general
+
+rata,deshumanizacion,animalización
+ratas,deshumanizacion,animalización
+cucaracha,deshumanizacion,animalización
+gusano,deshumanizacion,animalización
+gusanos,deshumanizacion,animalización
+escoria,deshumanizacion,desprecio extremo
+basura,deshumanizacion,desprecio extremo
+alimaña,deshumanizacion,animalización
+sabandija,deshumanizacion,animalización
+despojo,deshumanizacion,cosificación
+desecho,deshumanizacion,cosificación
+ameba,deshumanizacion,animalización
+plaga,deshumanizacion,desprecio colectivo
+peste,deshumanizacion,desprecio colectivo
+morralla,deshumanizacion,desprecio colectivo
+
+asqueroso,hostilidad_social,hostilidad fuerte
+asquerosa,hostilidad_social,hostilidad fuerte
+repugnante,hostilidad_social,hostilidad fuerte
+despreciable,hostilidad_social,hostilidad fuerte
+detestable,hostilidad_social,hostilidad fuerte
+indeseable,hostilidad_social,hostilidad fuerte
+lacra,hostilidad_social,hostilidad fuerte
+gentuza,hostilidad_social,hostilidad fuerte
+chusma,hostilidad_social,hostilidad fuerte
+mugre,hostilidad_social,hostilidad fuerte
+podrido,hostilidad_social,hostilidad fuerte
+malnacido,hostilidad_social,hostilidad fuerte
+vergonzoso,hostilidad_social,hostilidad fuerte
+mediocre,hostilidad_social,hostilidad fuerte
+escuálidos,hostilidad_social,hostilidad fuerte
+desgraciado,hostilidad_social,hostilidad fuerte
+desgraciada,hostilidad_social,hostilidad fuerte
+arrastrado,hostilidad_social,hostilidad fuerte
+rastrero,hostilidad_social,hostilidad fuerte
+canalla,hostilidad_social,hostilidad fuerte
+
+"que se vayan",lenguaje_violento,hostilidad colectiva
+"que los echen",lenguaje_violento,incitación leve
+"que desaparezcan",lenguaje_violento,incitación leve
+"que los borren",lenguaje_violento,incitación leve
+"que los eliminen",lenguaje_violento,incitación leve
+"que los revienten",lenguaje_violento,incitación leve
+"que los barran",lenguaje_violento,incitación leve
+"fuera ya",lenguaje_violento,hostilidad
+"que se callen",lenguaje_violento,hostilidad
+"no deberían existir",lenguaje_violento,hostilidad extrema
+
+comegambas,desprecio_politico,ataque político no protegido
+enchufado,desprecio_politico,ataque político no protegido
+enchufados,desprecio_politico,ataque político no protegido
+corrupto,desprecio_politico,ataque político
+corruptos,desprecio_politico,ataque político
+chupóptero,desprecio_politico,ataque político
+castuza,desprecio_politico,ataque político
+casta,desprecio_politico,ataque político
+vendido,desprecio_politico,ataque político
+vendidos,desprecio_politico,ataque político
+inepto,desprecio_politico,ataque político
+ineptos,desprecio_politico,ataque político
+inútiles_políticos,desprecio_politico,ataque político
+"politiquillos baratos",desprecio_politico,ataque político
+"payasos del congreso",desprecio_politico,ataque político
+
+periodistas_vendidos,ofensiva_profesiones,ataque a profesión
+prensa_basura,ofensiva_profesiones,ataque a profesión
+periodistas_manipuladores,ofensiva_profesiones,ataque a profesión
+funcionarios_vagos,ofensiva_profesiones,ataque a profesión
+jueces_ineptos,ofensiva_profesiones,ataque a profesión
+medicos_incompetentes,ofensiva_profesiones,ataque a profesión
+profesores_adoctrinadores,ofensiva_profesiones,ataque a profesión
+políticos_inútiles,ofensiva_profesiones,ataque a rol público
+
+"peor que animales",comparaciones_degradantes,degradación
+"no valen nada",comparaciones_degradantes,degradación
+"no sirven para nada",comparaciones_degradantes,degradación
+"dan vergüenza ajena",comparaciones_degradantes,degradación
+"peor que basura",comparaciones_degradantes,degradación
+"ni para calzar",comparaciones_degradantes,degradación
+"moverían más siendo muebles",comparaciones_degradantes,desprecio
+
+minusválido,insulto_discapacidad,insulto capacitista
+minusválidos,insulto_discapacidad,insulto capacitista
+tullido,insulto_discapacidad,insulto capacitista
+atrofiado,insulto_discapacidad,insulto capacitista
+retrasado,insulto_discapacidad,insulto capacitista
+
+"otro iluminado",ironia_hostil,ironía degradante
+"otro campeón",ironia_hostil,ironía degradante
+"como siempre llorando",ironia_hostil,ironía degradante
+"es de manual",ironia_hostil,ironía degradante
+"estos genios",ironia_hostil,ironía degradante
+"siempre igual",ironia_hostil,ironía degradante
+"pobrecitos estos",ironia_hostil,ironía degradante
+"otro figura",ironia_hostil,ironía degradante
+
+invadir,odio_etnico_religioso,narrativa xenófoba (invasión)
+invaden,odio_etnico_religioso,narrativa xenófoba (invasión)
+ilegal,odio_etnico_religioso,criminalización de migrantes
+ilegales,odio_etnico_religioso,criminalización de migrantes
+avalancha,odio_etnico_religioso,metáfora de amenaza colectiva
+sudaca,odio_etnico_religioso,desprecio étnico
+sudacas,odio_etnico_religioso,desprecio étnico
+moro,odio_etnico_religioso,desprecio cultural/religioso
+moros,odio_etnico_religioso,desprecio cultural/religioso
+yihadista,odio_etnico_religioso,estigma religioso
+yihadistas,odio_etnico_religioso,estigma religioso
+islamista,odio_etnico_religioso,estigma religioso
+islamistas,odio_etnico_religioso,estigma religioso
+burka,odio_etnico_religioso,referencia despectiva religiosa/cultural
+enemigo del jamón,odio_etnico_religioso,burla cultural
+enemiga del jamón,odio_etnico_religioso,burla cultural
+enemigos del jamón,odio_etnico_religioso,burla cultural
+
+bollera,odio_genero_identidad,insulto LGTBIQ
+bolleras,odio_genero_identidad,insulto LGTBIQ
+hermafrodita,odio_genero_identidad,uso peyorativo
+hermafroditas,odio_genero_identidad,uso peyorativo
+feminazi,odio_genero_identidad,ataque a feminismo
+feminazis,odio_genero_identidad,ataque a feminismo
+heterosensual,odio_genero_identidad,insulto contextual
+heterosensuales,odio_genero_identidad,insulto contextual
+fluido,odio_genero_identidad,posible uso peyorativo
+fluidos,odio_genero_identidad,posible uso peyorativo
+maricón,odio_genero_identidad,insulto homófobo
+maricones,odio_genero_identidad,insulto homófobo
+marica,odio_genero_identidad,insulto homófobo
+maricas,odio_genero_identidad,insulto homófobo
+parguela,odio_genero_identidad,jerga insultante
+parguelas,odio_genero_identidad,jerga insultante
+
+mendigo,hostilidad_social,estigmatización social
+mendigos,hostilidad_social,estigmatización social
+chatarrero,hostilidad_social,estigma socioeconómico
+chatarreros,hostilidad_social,estigma socioeconómico
+gorrón,hostilidad_social,estigma social
+gorrones,hostilidad_social,estigma social
+sucio,hostilidad_social,insulto social
+sucios,hostilidad_social,insulto social
+ladrón,hostilidad_social,acusación insultante
+ladrones,hostilidad_social,acusación insultante
+
+comunista,desprecio_politico,uso como insulto
+comunistas,desprecio_politico,uso como insulto
+chavista,desprecio_politico,uso como insulto
+chavistas,desprecio_politico,uso como insulto
+facha,desprecio_politico,uso como insulto
+fachas,desprecio_politico,uso como insulto
+nazi,desprecio_politico,uso como ataque ideológico
+nazis,desprecio_politico,uso como ataque ideológico
+rojo,desprecio_politico,uso como insulto
+rojos,desprecio_politico,uso como insulto
+progre,desprecio_politico,uso como insulto
+progres,desprecio_politico,uso como insulto
+deficiente,insulto_discapacidad,uso capacitista
+deficientes,insulto_discapacidad,uso capacitista
+incapacitado,insulto_discapacidad,uso capacitista
+incapacitados,insulto_discapacidad,uso capacitista
+enfermito,insulto_discapacidad,insulto peyorativo
+enfermitos,insulto_discapacidad,insulto peyorativo
+mongui,insulto_discapacidad,insulto capacitista
+monguis,insulto_discapacidad,insulto capacitista
+carca,odio_personal_generacional,insulto generacional
+carcas,odio_personal_generacional,insulto generacional

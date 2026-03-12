@@ -10,7 +10,7 @@ secrets.yaml
 credentials.json
 service-account*.json
 
-# --- Datos (CSVs grandes, modelos) ---
+# --- Datos generados (CSVs, Excel, modelos - por defecto ignorados) ---
 *.csv
 *.xlsx
 *.xls
@@ -20,6 +20,13 @@ service-account*.json
 data/raw/
 data/master/
 outputs/
+
+# --- EXCEPCIONES: archivos de referencia esenciales para el pipeline ---
+!Medios/hate_terms_clean.csv
+!Medios/hate_general_terms.csv
+!Medios/Medios_con_YouTube.xlsx
+!Etiquetado_Modelos/vectorizer.joblib
+!Etiquetado_Modelos/model.joblib
 
 # --- Python ---
 __pycache__/

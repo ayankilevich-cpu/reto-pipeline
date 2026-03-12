@@ -20,7 +20,7 @@ import joblib
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Ruta del CSV de entrada
-INPUT_CSV = os.getenv("SCORE_BASELINE_INPUT_CSV", "/Users/alejandroyankilevich/Documents/MASTER DATA SCIENCE/Clases/RETO/Medios/x_manual_label_for_sheets_tagged.csv")
+INPUT_CSV = os.getenv("SCORE_BASELINE_INPUT_CSV", os.path.join(SCRIPT_DIR, "..", "Medios", "x_manual_label_for_sheets_tagged.csv"))
 
 # Rutas del modelo y vectorizador (joblib)
 VECTORIZER_PATH = os.path.join(SCRIPT_DIR, "vectorizer.joblib")
