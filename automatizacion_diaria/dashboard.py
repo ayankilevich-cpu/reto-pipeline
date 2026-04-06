@@ -19,10 +19,11 @@ Uso:
 from __future__ import annotations
 
 import base64
+import json
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import pandas as pd
 import plotly.express as px
@@ -53,6 +54,8 @@ CATEGORIAS_LABELS = {
     "odio_profesiones_roles_publicos": "Profesiones / Roles Públicos",
 }
 
+EXCLUDED_SOURCE_MEDIA = {"grok", "Podcast"}
+
 COLORS = {
     "primary": "#1F4E79",
     "accent": "#4F81BD",
@@ -73,10 +76,138 @@ PLATFORM_DISPLAY = {
     "youtube": "YouTube",
 }
 
+# "twitter" y "x" son la misma plataforma en distintas épocas de scraping
+_PLATFORM_ALIASES = {"x": ("x", "twitter"), "twitter": ("x", "twitter")}
+
+# ============================================================
+# AUTH — roles y acceso
+# ============================================================
+_ALL_SECTIONS = [
+    "Proyecto ReTo",
+    "Panel general",
+    "Categorías de odio",
+    "Ranking de medios",
+    "Análisis contextual",
+    "Comparativa modelos",
+    "Calidad LLM",
+    "Términos frecuentes",
+    "Dataset Gold",
+    "Análisis Art. 510",
+    "Anotación y validación",
+    "Delitos de odio (oficial)",
+]
+
+_RESTRICTED_SECTIONS: Dict[str, set] = {
+    "admin": set(),
+    "editor": {"Comparativa modelos", "Calidad LLM"},
+    "viewer": {"Comparativa modelos", "Calidad LLM", "Anotación y validación"},
+}
+
+_ROLE_DISPLAY = {"admin": "Administrador", "editor": "Editor", "viewer": "Visualización"}
+
+
+_FALLBACK_USERS: Dict[str, Dict[str, str]] = {
+    "Admin": {"password": "2026", "role": "admin"},
+    "Reto": {"password": "2026", "role": "editor"},
+    "usuario1": {"password": "2026", "role": "viewer"},
+}
+
+
+def _load_users() -> Dict[str, Dict[str, str]]:
+    """Lee credenciales de st.secrets['users'], con fallback hardcoded."""
+    try:
+        users_section = st.secrets["users"]
+        return {
+            user: {"password": str(data["password"]), "role": str(data["role"])}
+            for user, data in users_section.items()
+        }
+    except Exception:
+        return _FALLBACK_USERS
+
+
+def _check_auth() -> bool:
+    """Retorna True si hay sesión activa con un rol válido."""
+    return st.session_state.get("user_role") in _RESTRICTED_SECTIONS
+
+
+def _render_login():
+    """Pantalla de login."""
+    st.markdown(
+        "<h1 style='text-align:center;'>🛡️ ReTo — Dashboard</h1>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<p style='text-align:center;'>Red de Tolerancia contra los delitos de odio</p>",
+        unsafe_allow_html=True,
+    )
+
+    logo_path = Path(__file__).parent / "logo_reto.png"
+    if logo_path.exists():
+        col_l, col_c, col_r = st.columns([1, 1, 1])
+        with col_c:
+            st.image(str(logo_path), width=200)
+
+    st.markdown("---")
+
+    users = _load_users()
+
+    with st.form("login_form"):
+        username = st.text_input("Usuario", placeholder="Ingresá tu usuario")
+        password = st.text_input("Contraseña", type="password", placeholder="Ingresá tu contraseña")
+        submitted = st.form_submit_button("Ingresar", type="primary", use_container_width=True)
+
+    if submitted:
+        if not username or not password:
+            st.error("Completá usuario y contraseña.")
+            return
+
+        user_data = users.get(username)
+        if user_data and user_data["password"] == password:
+            st.session_state["user_role"] = user_data["role"]
+            st.session_state["user_name"] = username
+            st.rerun()
+        else:
+            st.error("Usuario o contraseña incorrectos.")
+
+
+def _get_sections_for_role(role: str) -> List[str]:
+    """Retorna las secciones visibles para un rol."""
+    restricted = _RESTRICTED_SECTIONS.get(role, set())
+    return [s for s in _ALL_SECTIONS if s not in restricted]
+
 
 def platform_label(val: str) -> str:
     """Convierte el valor interno de plataforma a su nombre visible."""
     return PLATFORM_DISPLAY.get(val, val)
+
+
+def _expand_platforms(platforms: Optional[List[str]]) -> Optional[List[str]]:
+    """Expande aliases de plataforma para que 'x' incluya 'twitter' en SQL."""
+    if not platforms:
+        return platforms
+    expanded: set = set()
+    for p in platforms:
+        if p in _PLATFORM_ALIASES:
+            expanded.update(_PLATFORM_ALIASES[p])
+        else:
+            expanded.add(p)
+    return sorted(expanded)
+
+
+_MEDIOS_JSON_PATH = Path(__file__).resolve().parent / "medios_validos.json"
+
+
+@st.cache_data(ttl=3600)
+def _load_valid_media_map() -> Tuple[Set[str], Dict[str, str]]:
+    """Carga el JSON con los medios válidos y el mapeo handle → nombre.
+    El JSON se genera a partir del Excel maestro y se despliega junto a la app.
+    """
+    import json
+    with open(_MEDIOS_JSON_PATH, encoding="utf-8") as f:
+        data = json.load(f)
+    valid_names: Set[str] = set(data["valid_names"])
+    handle_to_name: Dict[str, str] = data["handle_to_name"]
+    return valid_names, handle_to_name
 
 
 # ============================================================
@@ -97,6 +228,7 @@ def build_where(
     conditions = []
     params = []
 
+    platforms = _expand_platforms(platforms)
     if platforms:
         conditions.append(f"{prefix}platform IN %s")
         params.append(tuple(platforms))
@@ -132,14 +264,20 @@ def load_filter_options() -> dict:
         platforms_raw = pd.read_sql(
             "SELECT DISTINCT platform FROM raw.mensajes WHERE platform IS NOT NULL ORDER BY platform", conn
         )["platform"].tolist()
-        platforms = platforms_raw
+        platforms = sorted({PLATFORM_DISPLAY.get(p, p) for p in platforms_raw})
+        platform_internal = sorted({
+            "x" if p in ("twitter", "x") else p for p in platforms_raw
+        })
+        platforms = platform_internal
 
         medios = pd.read_sql(
             "SELECT source_media FROM processed.mensajes "
             "WHERE source_media IS NOT NULL AND source_media != '' "
+            "  AND source_media NOT IN %s "
             "GROUP BY source_media "
             "HAVING COUNT(*) >= 100 "
-            "ORDER BY source_media", conn
+            "ORDER BY source_media", conn,
+            params=[tuple(EXCLUDED_SOURCE_MEDIA)],
         )["source_media"].tolist()
 
         prioridades = pd.read_sql(
@@ -170,7 +308,7 @@ def load_kpis(
     platforms: Optional[Tuple] = None,
     medios: Optional[Tuple] = None,
 ) -> dict:
-    platforms = list(platforms) if platforms else None
+    platforms = _expand_platforms(list(platforms) if platforms else None)
     medios = list(medios) if medios else None
 
     with get_conn() as conn:
@@ -233,14 +371,17 @@ def load_kpis(
         total_odio_llm = row2[1] or 0
 
         # medios count (solo medios reales con >= 100 mensajes)
+        _excl_params = [tuple(EXCLUDED_SOURCE_MEDIA)]
+        _excl_cond = " AND source_media NOT IN %s"
         cur.execute(
             "SELECT count(*) FROM ("
             "  SELECT source_media FROM processed.mensajes "
             "  WHERE source_media IS NOT NULL AND source_media != ''"
+            + _excl_cond
             + (f" AND platform IN %s" if platforms else "")
             + "  GROUP BY source_media HAVING COUNT(*) >= 100"
             ") sub",
-            [tuple(platforms)] if platforms else [],
+            _excl_params + ([tuple(platforms)] if platforms else []),
         )
         total_medios = cur.fetchone()[0]
 
@@ -303,24 +444,43 @@ def load_kpis(
 
 @st.cache_data(ttl=300)
 def load_llm_stats() -> dict:
-    """Total de mensajes procesados por LLM y agregados en la última actualización."""
+    """Total de mensajes procesados por LLM, desglosado por plataforma."""
     with get_conn() as conn:
         row = pd.read_sql("""
             SELECT
                 COUNT(*)                                           AS total_procesados,
-                MAX(etiquetado_date::date)                         AS ultima_fecha,
+                MAX(e.etiquetado_date::date)                       AS ultima_fecha,
                 COUNT(*) FILTER (
-                    WHERE etiquetado_date::date = (
+                    WHERE e.etiquetado_date::date = (
                         SELECT MAX(etiquetado_date::date)
                         FROM processed.etiquetas_llm
                     )
-                )                                                  AS agregados_ultima
-            FROM processed.etiquetas_llm
+                )                                                  AS agregados_ultima,
+                COUNT(*) FILTER (WHERE pm.platform IN ('x','twitter'))  AS total_x,
+                COUNT(*) FILTER (WHERE pm.platform = 'youtube')         AS total_yt,
+                COUNT(*) FILTER (
+                    WHERE e.etiquetado_date::date = (
+                        SELECT MAX(etiquetado_date::date)
+                        FROM processed.etiquetas_llm
+                    ) AND pm.platform IN ('x','twitter')
+                )                                                  AS agregados_x,
+                COUNT(*) FILTER (
+                    WHERE e.etiquetado_date::date = (
+                        SELECT MAX(etiquetado_date::date)
+                        FROM processed.etiquetas_llm
+                    ) AND pm.platform = 'youtube'
+                )                                                  AS agregados_yt
+            FROM processed.etiquetas_llm e
+            JOIN processed.mensajes pm USING (message_uuid)
         """, conn).iloc[0]
     return {
         "total_procesados": int(row["total_procesados"]),
         "ultima_fecha": row["ultima_fecha"],
         "agregados_ultima": int(row["agregados_ultima"]),
+        "total_x": int(row["total_x"]),
+        "total_yt": int(row["total_yt"]),
+        "agregados_x": int(row["agregados_x"]),
+        "agregados_yt": int(row["agregados_yt"]),
     }
 
 
@@ -330,7 +490,7 @@ def load_categorias(
     medios: Optional[Tuple] = None,
     intensidades: Optional[Tuple] = None,
 ) -> pd.DataFrame:
-    platforms = list(platforms) if platforms else None
+    platforms = _expand_platforms(list(platforms) if platforms else None)
     medios = list(medios) if medios else None
     intensidades = list(intensidades) if intensidades else None
 
@@ -367,7 +527,7 @@ def load_intensidad_por_categoria(
     medios: Optional[Tuple] = None,
     categorias: Optional[Tuple] = None,
 ) -> pd.DataFrame:
-    platforms = list(platforms) if platforms else None
+    platforms = _expand_platforms(list(platforms) if platforms else None)
     medios = list(medios) if medios else None
     categorias = list(categorias) if categorias else None
 
@@ -398,17 +558,58 @@ def load_intensidad_por_categoria(
     return df
 
 
+def load_muestra_ultima_corrida_llm(limit: int = 20) -> Tuple[pd.DataFrame, Optional[object]]:
+    """
+    Hasta `limit` mensajes elegidos al azar entre los etiquetados por LLM
+    en la misma fecha calendario que load_llm_stats (última actualización).
+    El texto viene de processed.mensajes (contenido ya anonimizado en pipeline).
+
+    No usa @st.cache_data: la muestra aleatoria debe poder variar entre ejecuciones.
+    """
+    with get_conn() as conn:
+        df_meta = pd.read_sql(
+            """
+            SELECT MAX(etiquetado_date::date) AS ultima_fecha
+            FROM processed.etiquetas_llm
+            """,
+            conn,
+        )
+        ultima = df_meta.iloc[0]["ultima_fecha"]
+        if pd.isna(ultima):
+            return pd.DataFrame(), None
+
+        df = pd.read_sql(
+            f"""
+            SELECT * FROM (
+                SELECT DISTINCT ON (e.message_uuid)
+                    e.message_uuid,
+                    e.clasificacion_principal,
+                    e.categoria_odio_pred,
+                    e.intensidad_pred,
+                    e.resumen_motivo,
+                    e.etiquetado_date,
+                    pm.content_original,
+                    pm.platform,
+                    pm.source_media
+                FROM processed.etiquetas_llm e
+                INNER JOIN processed.mensajes pm USING (message_uuid)
+                WHERE e.etiquetado_date::date = %s
+                ORDER BY e.message_uuid, e.etiquetado_date DESC NULLS LAST
+            ) t
+            ORDER BY random()
+            LIMIT {int(limit)}
+            """,
+            conn,
+            params=[ultima],
+        )
+    return df, ultima
+
+
 @st.cache_data(ttl=300)
-def load_ranking_medios(
-    platforms: Optional[Tuple] = None,
-) -> pd.DataFrame:
-    platforms = list(platforms) if platforms else None
-
-    conds = ["pm.source_media IS NOT NULL AND pm.source_media != ''"]
-    params: list = []
-    if platforms:
-        conds.append("pm.platform IN %s"); params.append(tuple(platforms))
-
+def _load_ranking_medios_raw(min_msgs: int = 100) -> pd.DataFrame:
+    conds = ["pm.source_media IS NOT NULL AND pm.source_media != ''",
+             "pm.source_media NOT IN %s"]
+    params: list = [tuple(EXCLUDED_SOURCE_MEDIA)]
     where = " AND ".join(conds)
 
     with get_conn() as conn:
@@ -437,9 +638,20 @@ def load_ranking_medios(
             LEFT JOIN processed.gold_dataset g USING (message_uuid)
             WHERE {where}
             GROUP BY pm.source_media, pm.platform
-            HAVING COUNT(DISTINCT pm.message_uuid) >= 100
+            HAVING COUNT(DISTINCT pm.message_uuid) >= {int(min_msgs)}
             ORDER BY total_mensajes DESC
         """, conn, params=params)
+    return df
+
+
+@st.cache_data(ttl=300)
+def load_ranking_medios(
+    platforms: Optional[Tuple] = None,
+) -> pd.DataFrame:
+    df = _load_ranking_medios_raw(min_msgs=100)
+    if platforms:
+        platforms_list = list(platforms)
+        df = df[df["platform"].isin(platforms_list)]
     return df
 
 
@@ -450,7 +662,7 @@ def load_comparativa(
     categorias: Optional[Tuple] = None,
     prioridades: Optional[Tuple] = None,
 ) -> pd.DataFrame:
-    platforms = list(platforms) if platforms else None
+    platforms = _expand_platforms(list(platforms) if platforms else None)
     medios = list(medios) if medios else None
     categorias = list(categorias) if categorias else None
     prioridades = list(prioridades) if prioridades else None
@@ -542,7 +754,7 @@ def load_terminos(
     solo_candidatos: bool = True,
     ultimas_horas: Optional[int] = None,
 ) -> pd.DataFrame:
-    platforms = list(platforms) if platforms else None
+    platforms = _expand_platforms(list(platforms) if platforms else None)
     medios = list(medios) if medios else None
     categorias = list(categorias) if categorias else None
 
@@ -578,37 +790,41 @@ def load_terminos(
 # SIDEBAR
 # ============================================================
 def render_sidebar():
+    role = st.session_state.get("user_role", "admin")
+    user_name = st.session_state.get("user_name", "")
+
     logo_path = Path(__file__).parent / "logo_reto.png"
     if logo_path.exists():
         st.sidebar.image(str(logo_path), width=180)
     else:
         st.sidebar.title("ReTo")
     st.sidebar.caption("Red de Tolerancia contra los delitos de odio")
+
+    st.sidebar.markdown(
+        f"**{user_name}** · {_ROLE_DISPLAY.get(role, role)}"
+    )
+
+    def _do_logout():
+        for k in list(st.session_state.keys()):
+            del st.session_state[k]
+
+    st.sidebar.button("Cerrar sesión", key="logout_btn", on_click=_do_logout)
+
     st.sidebar.markdown("---")
 
-    section = st.sidebar.radio(
-        "Sección",
-        [
-            "Proyecto ReTo",
-            "Panel general",
-            "Categorías de odio",
-            "Ranking de medios",
-            "Comparativa modelos",
-            "Calidad LLM",
-            "Términos frecuentes",
-            "Dataset Gold",
-            "Análisis Art. 510",
-            "Anotación y validación",
-            "Delitos de odio (oficial)",
-        ],
-        index=0,
-    )
+    sections = _get_sections_for_role(role)
+    section = st.sidebar.radio("Sección", sections, index=0)
 
     st.sidebar.markdown("---")
     st.sidebar.caption("Datos: PostgreSQL (reto_db)")
     if st.sidebar.button("Refrescar datos"):
         st.cache_data.clear()
         st.rerun()
+
+    eu_logo = Path(__file__).parent / "logos" / "07_eu.png"
+    if eu_logo.exists():
+        st.sidebar.markdown("---")
+        st.sidebar.image(str(eu_logo), use_container_width=True)
 
     return section
 
@@ -819,7 +1035,7 @@ def _load_panel_combined(
 
     Gold tiene prioridad: si un mensaje está en gold Y en LLM, se usa gold.
     """
-    platforms_l = list(platforms) if platforms else None
+    platforms_l = _expand_platforms(list(platforms) if platforms else None)
     medios_l = list(medios) if medios else None
 
     conds = [
@@ -874,6 +1090,7 @@ def render_categorias():
     st.markdown("Clasificación del LLM en las 6 categorías del proyecto ReTo.")
 
     llm_stats = load_llm_stats()
+
     kc1, kc2, kc3 = st.columns(3)
     kc1.metric("Total mensajes procesados", f"{llm_stats['total_procesados']:,}")
     kc2.metric(
@@ -884,6 +1101,62 @@ def render_categorias():
         "Última actualización",
         llm_stats["ultima_fecha"].strftime("%d/%m/%Y") if llm_stats["ultima_fecha"] else "—",
     )
+
+    kp1, kp2, kp3, kp4 = st.columns(4)
+    kp1.metric("X — Total", f"{llm_stats['total_x']:,}")
+    kp2.metric("X — Últimos agregados", f"{llm_stats['agregados_x']:,}")
+    kp3.metric("YouTube — Total", f"{llm_stats['total_yt']:,}")
+    kp4.metric("YouTube — Últimos agregados", f"{llm_stats['agregados_yt']:,}")
+
+    st.markdown("### Muestra de la última corrida LLM")
+    st.caption(
+        "Hasta 20 mensajes elegidos al azar entre los etiquetados el mismo día que la "
+        "«última actualización» de arriba. El texto es el de **processed.mensajes** "
+        "(anonimizado en el pipeline: sin usuarios identificables)."
+    )
+    c_btn, _ = st.columns([1, 4])
+    if c_btn.button("Nueva muestra aleatoria", key="cat_llm_muestra_reroll"):
+        st.rerun()
+
+    df_muestra, fecha_muestra = load_muestra_ultima_corrida_llm(limit=20)
+    if fecha_muestra is None:
+        st.info("No hay etiquetas LLM en la base para mostrar una muestra.")
+    elif df_muestra.empty:
+        st.info(
+            "Hay fecha de última actualización pero no se pudo armar la muestra "
+            "(¿falta join con processed.mensajes?)."
+        )
+    else:
+        if hasattr(fecha_muestra, "strftime"):
+            fecha_txt = fecha_muestra.strftime("%d/%m/%Y")
+        else:
+            fecha_txt = str(fecha_muestra)
+        st.caption(
+            f"Muestra del **{fecha_txt}** — {len(df_muestra)} mensaje(s) mostrado(s)."
+        )
+        for _, row in df_muestra.iterrows():
+            plat = platform_label(str(row.get("platform") or ""))
+            medio = (row.get("source_media") or "").strip() or "—"
+            clasif = (row.get("clasificacion_principal") or "—").strip()
+            raw_cat = (row.get("categoria_odio_pred") or "").strip()
+            cat_label = CATEGORIAS_LABELS.get(raw_cat, raw_cat or "—")
+            intens = (row.get("intensidad_pred") or "").strip() or "—"
+            motivo = (row.get("resumen_motivo") or "").strip()
+            texto = str(row.get("content_original") or "").strip()
+            if len(texto) > 4000:
+                texto = texto[:4000] + "…"
+
+            with st.container(border=True):
+                st.markdown(f"**{plat}** · Medio: `{medio}`")
+                st.markdown(
+                    f"**Clasificación:** `{clasif}` · **Categoría:** {cat_label} · "
+                    f"**Intensidad:** `{intens}`"
+                )
+                if motivo:
+                    st.markdown(f"*Resumen (LLM):* {motivo}")
+                st.markdown("**Mensaje (anonimizado)**")
+                st.text(texto)
+
     st.markdown("---")
 
     opts = load_filter_options()
@@ -1024,6 +1297,196 @@ def _render_ranking_simple(df: pd.DataFrame, top_n: int, key_suffix: str):
     )
 
 
+def _render_explorar_medio():
+    """Pestaña exploratoria: seleccionar un medio y plataforma para ver sus métricas."""
+    st.markdown("Seleccioná un medio y una plataforma para ver sus métricas de odio.")
+
+    valid_names, handle_to_name = _load_valid_media_map()
+
+    df_raw = _load_ranking_medios_raw(min_msgs=1)
+    if df_raw.empty:
+        st.warning("No hay datos de medios.")
+        return
+
+    df_raw = df_raw.copy()
+    df_raw["source_media"] = df_raw["source_media"].map(
+        lambda sm: handle_to_name.get(sm, sm)
+    )
+
+    df_explore = df_raw[df_raw["source_media"].isin(valid_names)].copy()
+    if df_explore.empty:
+        st.warning("No hay datos de medios reconocidos.")
+        return
+
+    num_cols = [
+        "total_mensajes", "candidatos_dict", "odio_baseline",
+        "odio_llm", "odio_gold", "odio_cualquiera",
+    ]
+    agg_map = {c: "sum" for c in num_cols}
+    agg_map["score_promedio"] = "mean"
+    df_explore = df_explore.groupby(
+        ["source_media", "platform"], as_index=False,
+    ).agg(agg_map)
+    df_explore = _prepare_ranking_df(df_explore)
+
+    df_consol = df_explore.groupby("source_media", as_index=False).agg(
+        {c: "sum" for c in num_cols}
+    )
+    df_consol["platform"] = "consolidado"
+    df_consol = _prepare_ranking_df(df_consol)
+    df_full = pd.concat([df_explore, df_consol], ignore_index=True)
+
+    _TODOS = "Todos"
+    all_medios = [_TODOS] + sorted(df_full["source_media"].unique())
+
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        medio_sel = st.selectbox(
+            "Medio", all_medios,
+            index=0, key="explore_medio_sel",
+        )
+    with col_f2:
+        plat_opts = ["Consolidado", "X", "YouTube"]
+        plat_sel = st.selectbox(
+            "Plataforma", plat_opts,
+            index=0, key="explore_plat_sel",
+        )
+
+    plat_map = {"Consolidado": "consolidado", "X": "x", "YouTube": "youtube"}
+    plat_key = plat_map[plat_sel]
+
+    if medio_sel == _TODOS:
+        if plat_key == "consolidado":
+            agg_row = df_consol[num_cols].sum()
+        else:
+            plat_slice = df_explore[df_explore["platform"] == plat_key]
+            if plat_slice.empty:
+                st.info(f"No hay datos en **{plat_sel}**.")
+                return
+            agg_row = plat_slice[num_cols].sum()
+        total = int(agg_row["total_mensajes"])
+        odio = int(agg_row["odio_cualquiera"])
+        pct = round(odio / max(total, 1) * 100, 1)
+
+        st.markdown("---")
+        k1, k2, k3 = st.columns(3)
+        k1.metric("Total mensajes", f"{total:,}")
+        k2.metric("Mensajes con odio", f"{odio:,}")
+        k3.metric("% Odio", f"{pct}%")
+
+        st.markdown("---")
+        detail_data = {
+            "Métrica": [
+                "Candidatos (diccionario)",
+                "Odio — Baseline",
+                "Odio — LLM",
+                "Odio — Gold (validado)",
+                "Odio — Cualquier fuente",
+            ],
+            "Cantidad": [
+                int(agg_row["candidatos_dict"]),
+                int(agg_row["odio_baseline"]),
+                int(agg_row["odio_llm"]),
+                int(agg_row["odio_gold"]),
+                odio,
+            ],
+            "% del total": [
+                f"{round(agg_row['candidatos_dict'] / max(total, 1) * 100, 1)}%",
+                f"{round(agg_row['odio_baseline'] / max(total, 1) * 100, 1)}%",
+                f"{round(agg_row['odio_llm'] / max(total, 1) * 100, 1)}%",
+                f"{round(agg_row['odio_gold'] / max(total, 1) * 100, 1)}%",
+                f"{pct}%",
+            ],
+        }
+        st.dataframe(
+            pd.DataFrame(detail_data),
+            use_container_width=True, hide_index=True,
+            key="explore_detail_table",
+        )
+
+        if plat_key == "consolidado":
+            top_medios = df_consol.sort_values("total_mensajes", ascending=False).head(15)
+            fig = px.bar(
+                top_medios, x="total_mensajes", y="source_media", orientation="h",
+                color="pct_odio_any", color_continuous_scale="Reds",
+                labels={"total_mensajes": "Total mensajes", "source_media": "", "pct_odio_any": "% Odio"},
+                title="Top 15 medios reconocidos — Volumen (color = % Odio)",
+            )
+            fig.update_layout(height=500, yaxis=dict(autorange="reversed"))
+            st.plotly_chart(fig, use_container_width=True, key="explore_todos_chart")
+        return
+
+    row = df_full[
+        (df_full["source_media"] == medio_sel) & (df_full["platform"] == plat_key)
+    ]
+
+    if row.empty:
+        st.info(f"No hay datos de **{medio_sel}** en **{plat_sel}**.")
+        return
+
+    r = row.iloc[0]
+    total = int(r["total_mensajes"])
+    odio = int(r["odio_cualquiera"])
+    pct = round(odio / max(total, 1) * 100, 1)
+
+    st.markdown("---")
+
+    k1, k2, k3 = st.columns(3)
+    k1.metric("Total mensajes", f"{total:,}")
+    k2.metric("Mensajes con odio", f"{odio:,}")
+    k3.metric("% Odio", f"{pct}%")
+
+    st.markdown("---")
+
+    detail_data = {
+        "Métrica": [
+            "Candidatos (diccionario)",
+            "Odio — Baseline",
+            "Odio — LLM",
+            "Odio — Gold (validado)",
+            "Odio — Cualquier fuente",
+            "Score promedio (baseline)",
+        ],
+        "Cantidad": [
+            int(r["candidatos_dict"]),
+            int(r["odio_baseline"]),
+            int(r["odio_llm"]),
+            int(r["odio_gold"]),
+            odio,
+            r["score_promedio"] if pd.notna(r.get("score_promedio")) else "—",
+        ],
+        "% del total": [
+            f"{r['pct_dict']}%",
+            f"{r['pct_odio_baseline']}%",
+            f"{r['pct_odio_llm']}%",
+            f"{r['pct_odio_gold']}%",
+            f"{pct}%",
+            "—",
+        ],
+    }
+    st.dataframe(
+        pd.DataFrame(detail_data),
+        use_container_width=True, hide_index=True,
+        key="explore_detail_table",
+    )
+
+    plats_disponibles = df_explore[df_explore["source_media"] == medio_sel]["platform"].unique()
+    if len(plats_disponibles) > 1:
+        plat_data = df_explore[df_explore["source_media"] == medio_sel].copy()
+        plat_data["plataforma"] = plat_data["platform"].map(PLATFORM_DISPLAY).fillna(plat_data["platform"])
+        fig = px.bar(
+            plat_data, x="plataforma", y=["total_mensajes", "odio_cualquiera"],
+            barmode="group",
+            labels={"value": "Mensajes", "variable": "", "plataforma": ""},
+            title=f"{medio_sel} — Comparativa por plataforma",
+        )
+        fig.update_layout(height=350)
+        fig.for_each_trace(lambda t: t.update(
+            name="Total" if "total" in t.name else "Odio"
+        ))
+        st.plotly_chart(fig, use_container_width=True, key="explore_plat_chart")
+
+
 def render_ranking_medios():
     st.title("Ranking de medios")
     st.markdown("Top 10 medios de comunicación por volumen de mensajes y porcentaje de odio.")
@@ -1049,7 +1512,7 @@ def render_ranking_medios():
     df_consol["platform"] = "consolidado"
     df_consol = _prepare_ranking_df(df_consol)
 
-    tab_all, tab_x, tab_yt = st.tabs(["Consolidado", "X", "YouTube"])
+    tab_all, tab_x, tab_yt, tab_explore = st.tabs(["Consolidado", "X", "YouTube", "Explorar medio"])
 
     with tab_all:
         _render_ranking_simple(df_consol, top_n, "all")
@@ -1065,6 +1528,278 @@ def render_ranking_medios():
             st.info("No hay datos de medios en YouTube.")
         else:
             _render_ranking_simple(df_yt, top_n, "yt")
+
+    with tab_explore:
+        _render_explorar_medio()
+
+
+# ============================================================
+# ANÁLISIS CONTEXTUAL SEMANAL
+# ============================================================
+@st.cache_data(ttl=600)
+def load_analisis_semanal() -> pd.DataFrame:
+    with get_conn() as conn:
+        df = pd.read_sql("""
+            SELECT *
+            FROM processed.analisis_semanal
+            ORDER BY semana_inicio
+        """, conn)
+    return df
+
+
+CATEGORIAS_DISPLAY = {
+    "odio_etnico_cultural_religioso": "Étnico / Cultural / Religioso",
+    "odio_genero_identidad_orientacion": "Género / Identidad / Orientación",
+    "odio_condicion_social_economica_salud": "Condición Social / Económica / Salud",
+    "odio_ideologico_politico": "Ideológico / Político",
+    "odio_personal_generacional": "Personal / Generacional",
+    "odio_profesiones_roles_publicos": "Profesiones / Roles Públicos",
+}
+
+
+def _parse_json_col(val) -> dict:
+    if isinstance(val, dict):
+        return val
+    if isinstance(val, str):
+        try:
+            return json.loads(val)
+        except Exception:
+            return {}
+    return {}
+
+
+def render_analisis_contextual():
+    st.title("Análisis contextual semanal")
+    st.markdown(
+        "Evolución semanal del discurso de odio con detección de **alertas**, "
+        "identificación de **targets** y **temas dominantes**, "
+        "y análisis contextual generado por IA."
+    )
+    st.info(
+        "📌 Esta sección analiza exclusivamente mensajes de **X (Twitter)** "
+        "clasificados por el modelo **LLM**. Los datos de YouTube con "
+        "clasificación LLM se visualizan en la sección **Categorías de odio**."
+    )
+
+    df = load_analisis_semanal()
+    if df.empty:
+        st.warning("No hay datos de análisis semanal. Ejecutá `analisis_contexto_semanal.py` para generar el histórico.")
+        return
+
+    MIN_MSGS_CHART = 100
+    df_chart = df[df["total_mensajes"] >= MIN_MSGS_CHART].copy()
+
+    df_chart["semana_label"] = df_chart["semana_inicio"].apply(
+        lambda d: d.strftime("%d/%m/%y") if hasattr(d, "strftime") else str(d)
+    )
+
+    # --- Timeline ---
+    st.subheader("Evolución semanal del % de odio")
+
+    avg_pct = float(df_chart["pct_odio"].mean()) if not df_chart.empty else 0
+    spike_threshold = avg_pct * 1.5
+
+    colors = [
+        COLORS["danger"] if row["es_spike"] else COLORS["accent"]
+        for _, row in df_chart.iterrows()
+    ]
+    text_labels = [
+        f"{row['pct_odio']}%" if row["es_spike"] or row["pct_odio"] >= avg_pct else ""
+        for _, row in df_chart.iterrows()
+    ]
+
+    fig_timeline = go.Figure()
+    fig_timeline.add_trace(go.Bar(
+        x=df_chart["semana_label"],
+        y=df_chart["pct_odio"],
+        marker_color=colors,
+        text=text_labels,
+        textposition="outside",
+        textfont=dict(size=11),
+        hovertemplate=(
+            "<b>Semana %{x}</b><br>"
+            "% Odio: %{y:.1f}%<br>"
+            "Total: %{customdata[0]:,} mensajes<br>"
+            "Odio: %{customdata[1]:,} mensajes<extra></extra>"
+        ),
+        customdata=df_chart[["total_mensajes", "total_odio"]].values,
+    ))
+    fig_timeline.add_hline(
+        y=avg_pct, line_dash="dash", line_color=COLORS["muted"],
+        annotation_text=f"Promedio: {avg_pct:.1f}%",
+        annotation_position="top left",
+    )
+    fig_timeline.add_hline(
+        y=spike_threshold, line_dash="dot", line_color=COLORS["danger"],
+        annotation_text=f"Umbral alerta: >{spike_threshold:.1f}%",
+        annotation_position="top right",
+    )
+    fig_timeline.update_layout(
+        height=420,
+        xaxis_title="",
+        yaxis_title="% Odio",
+        showlegend=False,
+        xaxis=dict(tickangle=-45, tickfont=dict(size=10)),
+        margin=dict(b=80),
+    )
+    st.plotly_chart(fig_timeline, use_container_width=True, key="ctx_timeline")
+
+    st.caption(
+        f"Barras rojas = semanas con alerta (>{spike_threshold:.1f}%) · "
+        f"Barras azules = semanas normales · "
+        f"Solo semanas con {MIN_MSGS_CHART}+ mensajes"
+    )
+
+    st.markdown("---")
+
+    # --- Week selector ---
+    st.subheader("Detalle semanal")
+
+    df_selectable = df[df["total_mensajes"] >= MIN_MSGS_CHART].copy()
+    if df_selectable.empty:
+        st.info("No hay semanas con suficientes datos para mostrar detalle.")
+        return
+
+    week_options = []
+    for _, row in df_selectable.sort_values("semana_inicio", ascending=False).iterrows():
+        spike_mark = " ⚠️ ALERTA" if row["es_spike"] else ""
+        label = (
+            f"{row['semana_inicio'].strftime('%d/%m/%Y')} — "
+            f"{row['semana_fin'].strftime('%d/%m/%Y')}"
+            f" | {int(row['total_mensajes']):,} msgs"
+            f" | {row['pct_odio']}% odio{spike_mark}"
+        )
+        week_options.append((label, row["semana_inicio"]))
+
+    selected_label = st.selectbox(
+        "Seleccionar semana",
+        [w[0] for w in week_options],
+        index=0,
+        key="ctx_week_sel",
+    )
+    selected_start = dict(week_options)[selected_label]
+    row = df[df["semana_inicio"] == selected_start].iloc[0]
+
+    # --- KPIs ---
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Total mensajes", f"{int(row['total_mensajes']):,}")
+    k2.metric("Mensajes de odio", f"{int(row['total_odio']):,}")
+    k3.metric("% Odio", f"{row['pct_odio']}%")
+    alerta_label = "Sí ⚠️" if row["es_spike"] else "No"
+    k4.metric("Alerta", alerta_label)
+
+    st.markdown("---")
+
+    # --- Context summary ---
+    if row.get("resumen_contexto"):
+        st.subheader("Resumen contextual")
+        st.info(row["resumen_contexto"])
+
+    if row.get("eventos_relacionados"):
+        st.subheader("Eventos relacionados")
+        st.markdown(row["eventos_relacionados"])
+
+    st.markdown("---")
+
+    # --- Categories & Targets side by side ---
+    col_cat, col_tgt = st.columns(2)
+
+    with col_cat:
+        st.subheader("Categorías de odio")
+        cats = _parse_json_col(row.get("categorias"))
+        if cats:
+            cat_df = pd.DataFrame([
+                {"Categoría": CATEGORIAS_DISPLAY.get(k, k), "Mensajes": v}
+                for k, v in cats.items()
+            ]).sort_values("Mensajes", ascending=False)
+            fig_cat = px.bar(
+                cat_df, x="Mensajes", y="Categoría", orientation="h",
+                color="Mensajes", color_continuous_scale="Reds",
+            )
+            fig_cat.update_layout(height=300, showlegend=False, yaxis=dict(autorange="reversed"))
+            st.plotly_chart(fig_cat, use_container_width=True, key="ctx_cats")
+        else:
+            st.info("Sin datos de categorías.")
+
+    with col_tgt:
+        st.subheader("Colectivos atacados")
+        targets = _parse_json_col(row.get("targets"))
+        if targets:
+            top_targets = dict(list(targets.items())[:10])
+            tgt_df = pd.DataFrame([
+                {"Target": k, "Menciones": v}
+                for k, v in top_targets.items()
+            ]).sort_values("Menciones", ascending=False)
+            fig_tgt = px.bar(
+                tgt_df, x="Menciones", y="Target", orientation="h",
+                color="Menciones", color_continuous_scale="Oranges",
+            )
+            fig_tgt.update_layout(height=300, showlegend=False, yaxis=dict(autorange="reversed"))
+            st.plotly_chart(fig_tgt, use_container_width=True, key="ctx_targets")
+        else:
+            st.info("Sin datos de targets.")
+
+    st.markdown("---")
+
+    # --- Topics & Intensity ---
+    col_tem, col_int = st.columns(2)
+
+    with col_tem:
+        st.subheader("Temas detectados")
+        temas = _parse_json_col(row.get("temas"))
+        if temas:
+            top_temas = dict(list(temas.items())[:10])
+            tema_df = pd.DataFrame([
+                {"Tema": k, "Menciones": v}
+                for k, v in top_temas.items()
+            ]).sort_values("Menciones", ascending=False)
+            fig_tema = px.bar(
+                tema_df, x="Menciones", y="Tema", orientation="h",
+                color="Menciones", color_continuous_scale="Blues",
+            )
+            fig_tema.update_layout(height=300, showlegend=False, yaxis=dict(autorange="reversed"))
+            st.plotly_chart(fig_tema, use_container_width=True, key="ctx_temas")
+        else:
+            st.info("Sin datos de temas.")
+
+    with col_int:
+        st.subheader("Intensidad del odio")
+        intensidad = _parse_json_col(row.get("intensidad"))
+        if intensidad:
+            int_labels = {"1": "Leve (ironía, burla)", "2": "Ofensivo (insultos)", "3": "Hostil (incitación)"}
+            int_df = pd.DataFrame([
+                {"Nivel": int_labels.get(k, k), "Mensajes": v}
+                for k, v in intensidad.items() if v > 0
+            ])
+            if not int_df.empty:
+                fig_int = px.pie(
+                    int_df, names="Nivel", values="Mensajes",
+                    color="Nivel",
+                    color_discrete_map={
+                        "Leve (ironía, burla)": "#F4D03F",
+                        "Ofensivo (insultos)": "#E67E22",
+                        "Hostil (incitación)": "#C0392B",
+                    },
+                )
+                fig_int.update_traces(
+                    textinfo="percent+label",
+                    textfont_size=12,
+                    marker=dict(line=dict(color="#FFFFFF", width=2)),
+                )
+                fig_int.update_layout(height=300)
+                st.plotly_chart(fig_int, use_container_width=True, key="ctx_intensidad")
+            else:
+                st.info("Sin datos de intensidad.")
+        else:
+            st.info("Sin datos de intensidad.")
+
+    # --- Peak day ---
+    if row.get("dia_pico"):
+        st.markdown("---")
+        st.caption(
+            f"📅 **Día pico de la semana**: {row['dia_pico']} — "
+            f"{int(row['dia_pico_odio'])} mensajes de odio ({row['dia_pico_pct']}%)"
+        )
 
 
 def render_comparativa():
@@ -2171,6 +2906,7 @@ def load_art510_data(
     """Carga datos de evaluación Art. 510 con filtros."""
     conditions = []
     params: list = []
+    platforms = _expand_platforms(list(platforms) if platforms else None)
 
     if solo_delitos:
         conditions.append("ea.es_potencial_delito = TRUE")
@@ -2247,13 +2983,64 @@ def load_art510_summary() -> dict:
             conn.rollback()
             total_validados = 0
 
+        total_confirmados = 0
+        total_rechazados = 0
+        try:
+            cur.execute("""
+                SELECT validacion_humana, COUNT(*)
+                FROM processed.validacion_art510_humana
+                GROUP BY validacion_humana
+            """)
+            for val, cnt in cur.fetchall():
+                if val == "confirmado":
+                    total_confirmados = cnt
+                elif val == "rechazado":
+                    total_rechazados = cnt
+        except Exception:
+            conn.rollback()
+
         cur.close()
 
     return {
         "total_evaluados": total_evaluados,
         "total_delitos": total_delitos,
         "total_validados": total_validados,
+        "total_confirmados": total_confirmados,
+        "total_rechazados": total_rechazados,
     }
+
+
+@st.cache_data(ttl=300)
+def load_art510_validaciones_humanas() -> pd.DataFrame:
+    """Carga validaciones humanas de Art. 510 cruzadas con la evaluación LLM."""
+    with get_conn() as conn:
+        df = pd.read_sql("""
+            SELECT
+                vh.message_uuid,
+                vh.validacion_humana,
+                vh.apartado_510_final,
+                vh.grupo_protegido_final,
+                vh.conducta_final,
+                vh.comentario,
+                vh.annotator_id,
+                vh.annotation_date,
+                ea.es_potencial_delito   AS llm_potencial_delito,
+                ea.apartado_510          AS llm_apartado,
+                ea.conducta_detectada    AS llm_conducta,
+                ea.grupo_protegido       AS llm_grupo,
+                ea.confianza             AS llm_confianza,
+                ea.justificacion         AS llm_justificacion,
+                pm.content_original,
+                pm.platform,
+                pm.source_media
+            FROM processed.validacion_art510_humana vh
+            LEFT JOIN processed.evaluacion_art510 ea USING (message_uuid)
+            LEFT JOIN processed.mensajes pm USING (message_uuid)
+            ORDER BY vh.validacion_humana DESC, vh.annotation_date DESC
+        """, conn)
+    if not df.empty:
+        df["platform_label"] = df["platform"].map(PLATFORM_DISPLAY).fillna(df["platform"])
+    return df
 
 
 @st.cache_data(ttl=300)
@@ -2267,6 +3054,7 @@ def load_art510_candidates(
     Mensajes ODIO cuya categoría mapea a grupos protegidos del Art. 510.
     Se usa como vista previa cuando aún no se ha ejecutado evaluar_art510.py.
     """
+    platforms = _expand_platforms(list(platforms) if platforms else None)
     dfs = []
 
     with get_conn() as conn:
@@ -2655,6 +3443,110 @@ def _render_art510_preview(sel_platforms, sel_sources):
             st.rerun()
 
 
+def _render_art510_validacion_humana(summary: dict):
+    """Sub-sección: resultado de validaciones humanas Art. 510."""
+    total_val = summary.get("total_validados", 0)
+    if total_val == 0:
+        return
+
+    st.markdown("---")
+    st.markdown("### Validación humana")
+    st.markdown(
+        "Resultado de la revisión manual por expertos de los mensajes "
+        "pre-seleccionados por el LLM como potenciales delitos Art. 510."
+    )
+
+    confirmados = summary.get("total_confirmados", 0)
+    rechazados = summary.get("total_rechazados", 0)
+    tasa_precision = (confirmados / total_val * 100) if total_val else 0
+
+    v1, v2, v3, v4 = st.columns(4)
+    v1.metric("Revisados por humano", f"{total_val}")
+    v2.metric("Confirmados como delito", f"{confirmados}")
+    v3.metric("Rechazados", f"{rechazados}")
+    v4.metric("Precisión del LLM", f"{tasa_precision:.0f}%")
+
+    df_vh = load_art510_validaciones_humanas()
+    if df_vh.empty:
+        return
+
+    tab_conf, tab_rech, tab_all = st.tabs([
+        f"Confirmados ({confirmados})",
+        f"Rechazados ({rechazados})",
+        "Todos",
+    ])
+
+    with tab_conf:
+        df_c = df_vh[df_vh["validacion_humana"] == "confirmado"]
+        if df_c.empty:
+            st.info("No hay mensajes confirmados como delito.")
+        else:
+            for _, r in df_c.iterrows():
+                with st.container():
+                    st.markdown(f"> {r['content_original']}")
+                    c1, c2, c3 = st.columns(3)
+                    c1.markdown(f"**Apartado:** {r['apartado_510_final'] or '—'}")
+                    c2.markdown(f"**Grupo protegido:** {r['grupo_protegido_final'] or '—'}")
+                    c3.markdown(f"**Revisor:** {r['annotator_id'] or '—'}")
+                    if r.get("conducta_final"):
+                        st.markdown(f"**Conducta:** {r['conducta_final']}")
+                    if r.get("comentario"):
+                        st.markdown(f"**Comentario del experto:** {r['comentario']}")
+
+                    with st.expander("Comparar con evaluación LLM"):
+                        lc1, lc2, lc3 = st.columns(3)
+                        lc1.markdown(f"LLM apartado: `{r['llm_apartado'] or '—'}`")
+                        lc2.markdown(f"LLM grupo: `{r['llm_grupo'] or '—'}`")
+                        lc3.markdown(f"LLM confianza: `{r['llm_confianza'] or '—'}`")
+                        if r.get("llm_justificacion"):
+                            st.markdown(f"LLM justificación: {r['llm_justificacion']}")
+                    st.markdown("---")
+
+    with tab_rech:
+        df_r = df_vh[df_vh["validacion_humana"] == "rechazado"]
+        if df_r.empty:
+            st.info("No hay mensajes rechazados.")
+        else:
+            st.caption(
+                "Estos mensajes fueron evaluados como potencial delito por el LLM "
+                "pero descartados por el experto humano."
+            )
+            display_cols_r = ["content_original", "llm_confianza", "llm_grupo", "annotator_id"]
+            available = [c for c in display_cols_r if c in df_r.columns]
+            rename_r = {
+                "content_original": "Mensaje",
+                "llm_confianza": "Confianza LLM",
+                "llm_grupo": "Grupo (LLM)",
+                "annotator_id": "Revisor",
+            }
+            st.dataframe(
+                df_r[available].rename(columns=rename_r),
+                use_container_width=True, hide_index=True, height=400,
+            )
+
+    with tab_all:
+        all_cols = [
+            "validacion_humana", "content_original", "apartado_510_final",
+            "grupo_protegido_final", "conducta_final", "comentario",
+            "llm_confianza", "annotator_id",
+        ]
+        available_all = [c for c in all_cols if c in df_vh.columns]
+        rename_all = {
+            "validacion_humana": "Decisión humana",
+            "content_original": "Mensaje",
+            "apartado_510_final": "Apartado (humano)",
+            "grupo_protegido_final": "Grupo (humano)",
+            "conducta_final": "Conducta (humano)",
+            "comentario": "Comentario",
+            "llm_confianza": "Confianza LLM",
+            "annotator_id": "Revisor",
+        }
+        st.dataframe(
+            df_vh[available_all].rename(columns=rename_all),
+            use_container_width=True, hide_index=True, height=400,
+        )
+
+
 def _render_art510_full(summary, sel_platforms, sel_sources, solo_delitos):
     """Vista completa con evaluaciones LLM Art. 510 ya procesadas."""
     df = load_art510_data(
@@ -2687,10 +3579,6 @@ def _render_art510_full(summary, sel_platforms, sel_sources, solo_delitos):
     k4.metric("Art. 510.1a", f"{n_1a:,}")
     k5.metric("Art. 510.1b", f"{n_1b:,}")
     k6.metric("Art. 510.1c", f"{n_1c:,}")
-
-    validated = summary["total_validados"]
-    if validated > 0:
-        st.caption(f"Validaciones humanas realizadas: {validated:,}")
 
     if solo_delitos and len(df) < total_evaluados_db:
         st.caption(
@@ -2825,6 +3713,9 @@ def _render_art510_full(summary, sel_platforms, sel_sources, solo_delitos):
             }
             df_display = df_delitos[display_cols].rename(columns=rename_map)
             st.dataframe(df_display, use_container_width=True, hide_index=True, height=500)
+
+    # ── Validación humana ──
+    _render_art510_validacion_humana(summary)
 
     # ── Evaluar nuevos mensajes (expander discreto) ──
     already_done = _art510_get_already_evaluated()
@@ -3528,11 +4419,8 @@ def _load_annotation_kpis(annotator_id: str) -> dict:
             SELECT COUNT(*) FROM processed.mensajes pm
             WHERE pm.platform = 'youtube'
               AND pm.relevante_llm = 'SI'
-              AND pm.message_uuid NOT IN (
-                  SELECT message_uuid FROM processed.validaciones_manuales
-              )
         """)
-        pendientes = cur.fetchone()[0]
+        total_relevantes = cur.fetchone()[0]
 
         cur.execute("""
             SELECT COUNT(*) FROM processed.validaciones_manuales vm
@@ -3540,6 +4428,8 @@ def _load_annotation_kpis(annotator_id: str) -> dict:
             WHERE pm.platform = 'youtube'
         """)
         total_anotados = cur.fetchone()[0]
+
+        pendientes = total_relevantes - total_anotados
 
         cur.execute("""
             SELECT COUNT(*) FROM processed.validaciones_manuales vm
@@ -3559,11 +4449,15 @@ def _load_annotation_kpis(annotator_id: str) -> dict:
 
         cur.close()
 
+    pct_avance = (total_anotados / total_relevantes * 100) if total_relevantes else 0
+
     return {
+        "total_relevantes": total_relevantes,
         "pendientes": pendientes,
         "total_anotados": total_anotados,
         "anotados_hoy": anotados_hoy,
         "por_anotador": por_anotador,
+        "pct_avance": pct_avance,
     }
 
 
@@ -3826,11 +4720,13 @@ def _render_anotacion_youtube(annotator: str):
 
     # --- KPIs de progreso ---
     kpis = _load_annotation_kpis(annotator)
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Pendientes", f"{kpis['pendientes']:,}")
-    k2.metric("Total anotados (YT)", f"{kpis['total_anotados']:,}")
-    k3.metric("Anotados hoy", f"{kpis['anotados_hoy']:,}")
-    k4.metric(f"Por {annotator}", f"{kpis['por_anotador']:,}")
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k1.metric("Total relevantes (YT)", f"{kpis['total_relevantes']:,}")
+    k2.metric("Anotados", f"{kpis['total_anotados']:,}")
+    k3.metric("Pendientes", f"{kpis['pendientes']:,}")
+    k4.metric("Anotados hoy", f"{kpis['anotados_hoy']:,}")
+    k5.metric(f"Por {annotator}", f"{kpis['por_anotador']:,}")
+    st.progress(kpis["pct_avance"] / 100, text=f"Avance: {kpis['pct_avance']:.1f}%")
 
     st.divider()
 
@@ -4172,12 +5068,713 @@ def _render_validacion_art510(annotator: str):
         st.rerun()
 
 
+# ============================================================
+# VALIDACIÓN ETIQUETADO LLM YOUTUBE
+# ============================================================
+
+def _load_vllm_yt_queue(clasif_filter: Optional[str] = None) -> pd.DataFrame:
+    """Carga muestra aleatoria de mensajes YT con etiqueta LLM pendientes de validación humana."""
+    try:
+        with get_conn() as conn:
+            clasif_cond = ""
+            params: list = []
+            if clasif_filter:
+                clasif_cond = "AND e.clasificacion_principal = %s"
+                params.append(clasif_filter)
+
+            df = pd.read_sql(f"""
+                SELECT DISTINCT ON (pm.content_original)
+                       pm.message_uuid, pm.content_original, pm.source_media,
+                       pm.created_at, rm.tweet_id AS video_id,
+                       e.clasificacion_principal, e.categoria_odio_pred,
+                       e.intensidad_pred, e.resumen_motivo
+                FROM processed.etiquetas_llm e
+                JOIN processed.mensajes pm USING (message_uuid)
+                LEFT JOIN raw.mensajes rm USING (message_uuid)
+                WHERE pm.platform = 'youtube'
+                  AND pm.message_uuid NOT IN (
+                      SELECT message_uuid FROM processed.validaciones_manuales
+                  )
+                  {clasif_cond}
+                ORDER BY pm.content_original, pm.created_at DESC
+            """, conn, params=params)
+    except Exception:
+        return pd.DataFrame()
+
+    df = df.sample(frac=1).head(100).reset_index(drop=True)
+
+    skipped = st.session_state.get("vllm_yt_skipped", set())
+    if skipped and not df.empty:
+        df = df[~df["message_uuid"].astype(str).isin(skipped)]
+
+    return df
+
+
+def _load_vllm_yt_kpis(annotator_id: str, clasif_filter: Optional[str] = None) -> dict:
+    """KPIs de validación de etiquetado LLM en YouTube."""
+    try:
+        with get_conn() as conn:
+            cur = conn.cursor()
+
+            clasif_cond = ""
+            params_pending: list = []
+            if clasif_filter:
+                clasif_cond = "AND e.clasificacion_principal = %s"
+                params_pending.append(clasif_filter)
+
+            cur.execute(f"""
+                SELECT COUNT(*) FROM processed.etiquetas_llm e
+                JOIN processed.mensajes pm USING (message_uuid)
+                WHERE pm.platform = 'youtube'
+                  AND pm.message_uuid NOT IN (
+                      SELECT message_uuid FROM processed.validaciones_manuales
+                  )
+                  {clasif_cond}
+            """, params_pending)
+            pendientes = cur.fetchone()[0]
+
+            cur.execute("""
+                SELECT COUNT(*) FROM processed.etiquetas_llm e
+                JOIN processed.mensajes pm USING (message_uuid)
+                WHERE pm.platform = 'youtube'
+            """)
+            total_etiquetados_llm = cur.fetchone()[0]
+
+            cur.execute("""
+                SELECT COUNT(*) FROM processed.validaciones_manuales vm
+                JOIN processed.mensajes pm USING (message_uuid)
+                JOIN processed.etiquetas_llm e USING (message_uuid)
+                WHERE pm.platform = 'youtube'
+            """)
+            total_validados = cur.fetchone()[0]
+
+            cur.execute("""
+                SELECT COUNT(*) FROM processed.validaciones_manuales vm
+                JOIN processed.mensajes pm USING (message_uuid)
+                JOIN processed.etiquetas_llm e USING (message_uuid)
+                WHERE pm.platform = 'youtube'
+                  AND vm.annotation_date = CURRENT_DATE
+            """)
+            validados_hoy = cur.fetchone()[0]
+
+            cur.execute("""
+                SELECT COUNT(*) FROM processed.validaciones_manuales vm
+                JOIN processed.mensajes pm USING (message_uuid)
+                JOIN processed.etiquetas_llm e USING (message_uuid)
+                WHERE pm.platform = 'youtube'
+                  AND vm.annotator_id = %s
+            """, (annotator_id,))
+            por_anotador = cur.fetchone()[0]
+
+            cur.close()
+
+        pct = (total_validados / total_etiquetados_llm * 100) if total_etiquetados_llm else 0
+        return {
+            "total_etiquetados_llm": total_etiquetados_llm,
+            "pendientes": pendientes,
+            "total_validados": total_validados,
+            "validados_hoy": validados_hoy,
+            "por_anotador": por_anotador,
+            "pct_avance": pct,
+        }
+    except Exception:
+        return {
+            "total_etiquetados_llm": 0, "pendientes": 0,
+            "total_validados": 0, "validados_hoy": 0,
+            "por_anotador": 0, "pct_avance": 0,
+        }
+
+
+def _save_vllm_yt_validation(
+    message_uuid: str,
+    odio_flag: Optional[bool],
+    categoria_odio: Optional[str],
+    intensidad: Optional[int],
+    humor_flag: bool,
+    annotator_id: str,
+    coincide_con_llm: bool,
+) -> bool:
+    """Guarda validación de etiquetado LLM YT en validaciones_manuales y gold_dataset."""
+    import random
+    from datetime import date
+
+    if odio_flag is True:
+        y_odio_final = "Odio"
+        y_odio_bin = 1
+    elif odio_flag is False:
+        y_odio_final = "No Odio"
+        y_odio_bin = 0
+    else:
+        y_odio_final = "Dudoso"
+        y_odio_bin = None
+
+    y_categoria = categoria_odio if odio_flag else None
+    y_intensidad = intensidad if odio_flag else None
+    split_val = "TRAIN" if random.random() < 0.85 else "TEST"
+
+    try:
+        with get_conn() as conn:
+            cur = conn.cursor()
+
+            cur.execute("""
+                INSERT INTO processed.validaciones_manuales
+                (message_uuid, odio_flag, categoria_odio, intensidad,
+                 humor_flag, annotator_id, annotation_date, coincide_con_llm)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (message_uuid) DO UPDATE SET
+                    odio_flag = EXCLUDED.odio_flag,
+                    categoria_odio = EXCLUDED.categoria_odio,
+                    intensidad = EXCLUDED.intensidad,
+                    humor_flag = EXCLUDED.humor_flag,
+                    annotator_id = EXCLUDED.annotator_id,
+                    annotation_date = EXCLUDED.annotation_date,
+                    coincide_con_llm = EXCLUDED.coincide_con_llm
+            """, (
+                message_uuid, odio_flag, categoria_odio, intensidad,
+                humor_flag, annotator_id, date.today(), coincide_con_llm,
+            ))
+
+            cur.execute("""
+                INSERT INTO processed.gold_dataset
+                (message_uuid, y_odio_final, y_odio_bin, y_categoria_final,
+                 y_intensidad_final, label_source, split)
+                VALUES (%s, %s, %s, %s, %s, 'llm_validated', %s)
+                ON CONFLICT (message_uuid) DO UPDATE SET
+                    y_odio_final = EXCLUDED.y_odio_final,
+                    y_odio_bin = EXCLUDED.y_odio_bin,
+                    y_categoria_final = EXCLUDED.y_categoria_final,
+                    y_intensidad_final = EXCLUDED.y_intensidad_final,
+                    label_source = EXCLUDED.label_source
+            """, (
+                message_uuid, y_odio_final, y_odio_bin,
+                y_categoria, y_intensidad, split_val,
+            ))
+
+            cur.close()
+
+        return True
+    except Exception as e:
+        st.error(f"Error guardando validación LLM YT: {e}")
+        return False
+
+
+@st.cache_data(ttl=120)
+def _load_vllm_yt_corrections() -> pd.DataFrame:
+    """Carga todas las validaciones humanas de etiquetado LLM en YouTube."""
+    try:
+        with get_conn() as conn:
+            df = pd.read_sql("""
+                SELECT pm.message_uuid,
+                       pm.content_original,
+                       pm.source_media,
+                       e.clasificacion_principal AS llm_clasif,
+                       e.categoria_odio_pred     AS llm_categoria,
+                       e.intensidad_pred         AS llm_intensidad,
+                       e.resumen_motivo          AS llm_motivo,
+                       CASE WHEN v.odio_flag = TRUE THEN 'ODIO'
+                            WHEN v.odio_flag = FALSE THEN 'NO_ODIO'
+                            ELSE 'DUDOSO' END    AS humano_clasif,
+                       v.categoria_odio          AS humano_categoria,
+                       v.intensidad              AS humano_intensidad,
+                       v.humor_flag              AS humano_humor,
+                       v.coincide_con_llm,
+                       v.annotator_id,
+                       v.annotation_date
+                FROM processed.validaciones_manuales v
+                JOIN processed.mensajes pm USING (message_uuid)
+                JOIN processed.etiquetas_llm e USING (message_uuid)
+                WHERE pm.platform = 'youtube'
+                ORDER BY v.annotation_date DESC
+            """, conn)
+    except Exception:
+        return pd.DataFrame()
+    return df
+
+
+def _render_vllm_yt_error_analysis():
+    """Panel de análisis de concordancia LLM vs Humano para YouTube."""
+    df = _load_vllm_yt_corrections()
+
+    if df.empty or len(df) < 3:
+        st.info(
+            f"Se necesitan al menos 3 validaciones para mostrar el análisis "
+            f"(actualmente: {len(df)})."
+        )
+        return
+
+    total = len(df)
+    coincide_col = df["coincide_con_llm"]
+    n_coincide = int(coincide_col.sum()) if coincide_col.notna().any() else 0
+    n_corregidos = total - n_coincide
+    accuracy = n_coincide / total * 100 if total else 0
+
+    corrigio_clasif = (df["llm_clasif"] != df["humano_clasif"]).sum()
+    pct_corr_clasif = corrigio_clasif / total * 100
+
+    df_ambos_odio = df[
+        (df["llm_clasif"] == "ODIO") & (df["humano_clasif"] == "ODIO")
+    ]
+    corrigio_cat = 0
+    corrigio_int = 0
+    if not df_ambos_odio.empty:
+        corrigio_cat = (
+            df_ambos_odio["llm_categoria"].fillna("") !=
+            df_ambos_odio["humano_categoria"].fillna("")
+        ).sum()
+        corrigio_int = (
+            df_ambos_odio["llm_intensidad"].astype(str).fillna("") !=
+            df_ambos_odio["humano_intensidad"].astype(str).fillna("")
+        ).sum()
+
+    # ── KPIs ──
+    st.markdown("#### Resumen de concordancia")
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Validaciones", f"{total:,}")
+    m2.metric("Concordancia total", f"{accuracy:.1f}%")
+    m3.metric("Corrigió clasificación", f"{corrigio_clasif:,} ({pct_corr_clasif:.0f}%)")
+    m4.metric("Corrigió categoría", f"{corrigio_cat:,}" if not df_ambos_odio.empty else "—")
+    m5.metric("Corrigió intensidad", f"{corrigio_int:,}" if not df_ambos_odio.empty else "—")
+
+    # ── Matriz de confusión: clasificación ──
+    st.markdown("---")
+    col_cm1, col_cm2 = st.columns(2)
+
+    with col_cm1:
+        st.markdown("##### Matriz de confusión — Clasificación")
+        labels_order = ["ODIO", "NO_ODIO", "DUDOSO"]
+        ct = pd.crosstab(
+            df["llm_clasif"], df["humano_clasif"],
+            rownames=["LLM"], colnames=["Humano"],
+        ).reindex(index=labels_order, columns=labels_order, fill_value=0)
+
+        fig_cm = go.Figure(data=go.Heatmap(
+            z=ct.values,
+            x=ct.columns.tolist(),
+            y=ct.index.tolist(),
+            text=ct.values,
+            texttemplate="%{text}",
+            colorscale="RdYlGn_r",
+            showscale=False,
+        ))
+        fig_cm.update_layout(
+            xaxis_title="Humano (gold)", yaxis_title="LLM (predicción)",
+            height=340, margin=dict(t=10),
+        )
+        st.plotly_chart(fig_cm, use_container_width=True)
+
+    with col_cm2:
+        st.markdown("##### Tasa de corrección por dimensión")
+        corr_data = pd.DataFrame({
+            "Dimensión": ["Clasificación", "Categoría", "Intensidad"],
+            "% Corregido": [
+                pct_corr_clasif,
+                (corrigio_cat / len(df_ambos_odio) * 100) if len(df_ambos_odio) else 0,
+                (corrigio_int / len(df_ambos_odio) * 100) if len(df_ambos_odio) else 0,
+            ],
+        })
+        corr_data["% Coincide"] = 100 - corr_data["% Corregido"]
+
+        fig_corr = go.Figure()
+        fig_corr.add_trace(go.Bar(
+            x=corr_data["Dimensión"], y=corr_data["% Coincide"],
+            name="Coincide", marker_color=COLORS["success"],
+        ))
+        fig_corr.add_trace(go.Bar(
+            x=corr_data["Dimensión"], y=corr_data["% Corregido"],
+            name="Corregido", marker_color=COLORS["danger"],
+        ))
+        fig_corr.update_layout(
+            barmode="stack", yaxis_title="%", height=340,
+            margin=dict(t=10),
+            legend=dict(orientation="h", yanchor="bottom", y=-0.3),
+        )
+        st.plotly_chart(fig_corr, use_container_width=True)
+
+    # ── Matriz de confusión: categoría (solo casos donde ambos = ODIO) ──
+    if not df_ambos_odio.empty and corrigio_cat > 0:
+        st.markdown("---")
+        st.markdown("##### Confusión de categorías (donde LLM y humano = ODIO)")
+
+        df_cat_cm = df_ambos_odio.dropna(subset=["llm_categoria", "humano_categoria"])
+        if not df_cat_cm.empty:
+            cat_order = list(CATEGORIAS_LABELS.keys())
+            ct_cat = pd.crosstab(
+                df_cat_cm["llm_categoria"], df_cat_cm["humano_categoria"],
+                rownames=["LLM"], colnames=["Humano"],
+            ).reindex(index=cat_order, columns=cat_order, fill_value=0)
+            ct_cat = ct_cat.loc[
+                ct_cat.sum(axis=1) > 0, ct_cat.sum(axis=0) > 0
+            ]
+
+            cat_display = {k: v.split("/")[0].strip() for k, v in CATEGORIAS_LABELS.items()}
+            fig_cat = go.Figure(data=go.Heatmap(
+                z=ct_cat.values,
+                x=[cat_display.get(c, c) for c in ct_cat.columns],
+                y=[cat_display.get(c, c) for c in ct_cat.index],
+                text=ct_cat.values,
+                texttemplate="%{text}",
+                colorscale="RdYlGn_r",
+                showscale=False,
+            ))
+            fig_cat.update_layout(
+                xaxis_title="Humano", yaxis_title="LLM",
+                height=380, margin=dict(t=10),
+                xaxis_tickangle=-25,
+            )
+            st.plotly_chart(fig_cat, use_container_width=True)
+
+    # ── Sesgo de intensidad ──
+    if not df_ambos_odio.empty:
+        df_int = df_ambos_odio.dropna(subset=["llm_intensidad", "humano_intensidad"]).copy()
+        if not df_int.empty:
+            st.markdown("---")
+            st.markdown("##### Sesgo de intensidad")
+            df_int["llm_int"] = pd.to_numeric(df_int["llm_intensidad"], errors="coerce")
+            df_int["hum_int"] = pd.to_numeric(df_int["humano_intensidad"], errors="coerce")
+            df_int["diff"] = df_int["llm_int"] - df_int["hum_int"]
+            mean_diff = df_int["diff"].mean()
+
+            bias_text = (
+                "sin sesgo" if abs(mean_diff) < 0.1
+                else f"**sobreestima** en {mean_diff:.2f} puntos" if mean_diff > 0
+                else f"**subestima** en {abs(mean_diff):.2f} puntos"
+            )
+            st.markdown(f"Sesgo medio del LLM: {bias_text} (media diff = {mean_diff:+.2f})")
+
+            int_ct = pd.crosstab(
+                df_int["llm_int"].astype(int), df_int["hum_int"].astype(int),
+                rownames=["LLM"], colnames=["Humano"],
+            ).reindex(index=[1, 2, 3], columns=[1, 2, 3], fill_value=0)
+
+            fig_int = go.Figure(data=go.Heatmap(
+                z=int_ct.values,
+                x=["1 Leve", "2 Ofensivo", "3 Hostil"],
+                y=["1 Leve", "2 Ofensivo", "3 Hostil"],
+                text=int_ct.values,
+                texttemplate="%{text}",
+                colorscale="YlOrRd",
+                showscale=False,
+            ))
+            fig_int.update_layout(
+                xaxis_title="Humano", yaxis_title="LLM",
+                height=300, margin=dict(t=10),
+            )
+            st.plotly_chart(fig_int, use_container_width=True)
+
+    # ── Tabla de correcciones ──
+    st.markdown("---")
+    st.markdown("##### Mensajes donde el humano corrigió al LLM")
+
+    df_err = df[df["coincide_con_llm"] == False].copy()  # noqa: E712
+    if df_err.empty:
+        st.success("No hay correcciones: el LLM acertó en todos los casos validados.")
+    else:
+        st.caption(f"{len(df_err)} correcciones de {total} validaciones")
+        display_df = df_err[[
+            "content_original",
+            "llm_clasif", "humano_clasif",
+            "llm_categoria", "humano_categoria",
+            "llm_intensidad", "humano_intensidad",
+            "humano_humor", "annotator_id",
+        ]].copy()
+        display_df.columns = [
+            "Texto", "LLM Clasif.", "Humano Clasif.",
+            "LLM Categoría", "Humano Categoría",
+            "LLM Intens.", "Humano Intens.",
+            "Humor", "Anotador",
+        ]
+        display_df["LLM Categoría"] = display_df["LLM Categoría"].map(
+            lambda x: CATEGORIAS_LABELS.get(x, x) if pd.notna(x) else "—"
+        )
+        display_df["Humano Categoría"] = display_df["Humano Categoría"].map(
+            lambda x: CATEGORIAS_LABELS.get(x, x) if pd.notna(x) else "—"
+        )
+        st.dataframe(display_df, use_container_width=True, hide_index=True,
+                      key="vllm_yt_errors_table")
+
+    # ── Exportar correcciones como few-shot para el prompt ──
+    st.markdown("---")
+    st.markdown("##### Exportar para mejora del prompt")
+
+    if df_err.empty if "df_err" not in dir() else df_err.empty:
+        st.info("No hay correcciones para exportar.")
+    else:
+        few_shot_lines = []
+        for _, row in df_err.iterrows():
+            txt = str(row["content_original"])[:500]
+            h_clasif = row["humano_clasif"]
+            h_cat = row.get("humano_categoria") or ""
+            h_int = row.get("humano_intensidad") or ""
+            l_clasif = row["llm_clasif"]
+            l_cat = row.get("llm_categoria") or ""
+
+            entry = {
+                "comentario": txt,
+                "clasificacion_correcta": h_clasif,
+                "error_del_llm": l_clasif,
+            }
+            if h_clasif == "ODIO":
+                entry["categoria_correcta"] = h_cat
+                entry["intensidad_correcta"] = str(h_int)
+                if l_clasif == "ODIO" and l_cat != h_cat:
+                    entry["categoria_erronea_llm"] = l_cat
+            few_shot_lines.append(entry)
+
+        few_shot_json = json.dumps(few_shot_lines, ensure_ascii=False, indent=2)
+
+        st.download_button(
+            "Descargar correcciones (JSON)",
+            data=few_shot_json,
+            file_name="correcciones_llm_yt_few_shot.json",
+            mime="application/json",
+            key="vllm_yt_download_json",
+        )
+
+        prompt_block = "EJEMPLOS DE CORRECCIÓN (few-shot):\n"
+        prompt_block += "Los siguientes son casos donde la clasificación correcta "
+        prompt_block += "difiere de una predicción previa. Usalos como referencia:\n\n"
+        for i, ex in enumerate(few_shot_lines[:15], 1):
+            prompt_block += f"Ejemplo {i}:\n"
+            prompt_block += f"  Comentario: {ex['comentario'][:200]}\n"
+            prompt_block += f"  Clasificación correcta: {ex['clasificacion_correcta']}\n"
+            if "categoria_correcta" in ex:
+                prompt_block += f"  Categoría correcta: {ex['categoria_correcta']}\n"
+                prompt_block += f"  Intensidad correcta: {ex['intensidad_correcta']}\n"
+            prompt_block += f"  (El LLM había predicho: {ex['error_del_llm']}"
+            if "categoria_erronea_llm" in ex:
+                prompt_block += f", categoría: {ex['categoria_erronea_llm']}"
+            prompt_block += ")\n\n"
+
+        st.download_button(
+            "Descargar bloque para prompt (TXT)",
+            data=prompt_block,
+            file_name="few_shot_block_prompt.txt",
+            mime="text/plain",
+            key="vllm_yt_download_prompt",
+        )
+
+        with st.expander("Vista previa del bloque few-shot"):
+            st.code(prompt_block[:3000], language="text")
+
+
+def _render_validacion_llm_youtube(annotator: str):
+    """Pestaña de validación del etiquetado LLM en YouTube."""
+
+    # === Procesar guardado pendiente ===
+    pending = st.session_state.pop("_vllm_yt_pending_save", None)
+    if pending is not None:
+        ok = _save_vllm_yt_validation(**pending)
+        if ok:
+            _load_vllm_yt_corrections.clear()
+            st.session_state.get("vllm_yt_skipped", set()).discard(
+                pending["message_uuid"]
+            )
+            st.session_state["_vllm_yt_last_status"] = (
+                "ok", pending["message_uuid"][:8]
+            )
+        else:
+            st.session_state["_vllm_yt_last_status"] = ("error", "")
+
+    last_status = st.session_state.pop("_vllm_yt_last_status", None)
+    if last_status:
+        if last_status[0] == "ok":
+            st.success(f"Validación LLM guardada ({last_status[1]}...)")
+        else:
+            st.error("Error al guardar la validación.")
+
+    # --- Filtro por clasificación LLM ---
+    clasif_options = ["Todos", "ODIO", "NO_ODIO", "DUDOSO"]
+    clasif_sel = st.selectbox(
+        "Filtrar por predicción LLM",
+        options=clasif_options,
+        index=0,
+        key="vllm_yt_clasif_filter",
+    )
+    clasif_filter = clasif_sel if clasif_sel != "Todos" else None
+
+    # --- KPIs ---
+    kpis = _load_vllm_yt_kpis(annotator, clasif_filter)
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k1.metric("Etiquetados LLM (YT)", f"{kpis['total_etiquetados_llm']:,}")
+    k2.metric("Validados", f"{kpis['total_validados']:,}")
+    k3.metric("Pendientes" + (f" ({clasif_sel})" if clasif_filter else ""),
+              f"{kpis['pendientes']:,}")
+    k4.metric("Validados hoy", f"{kpis['validados_hoy']:,}")
+    k5.metric(f"Por {annotator}", f"{kpis['por_anotador']:,}")
+    st.progress(kpis["pct_avance"] / 100, text=f"Avance validación: {kpis['pct_avance']:.1f}%")
+
+    # --- Panel de análisis de errores ---
+    with st.expander("📊 Análisis de concordancia LLM vs Humano (YouTube)", expanded=False):
+        _render_vllm_yt_error_analysis()
+
+    st.divider()
+
+    # --- Cola ---
+    if "vllm_yt_skipped" not in st.session_state:
+        st.session_state["vllm_yt_skipped"] = set()
+
+    queue = _load_vllm_yt_queue(clasif_filter)
+
+    if queue.empty:
+        if kpis["pendientes"] == 0 and kpis["total_etiquetados_llm"] > 0:
+            st.success("Todos los mensajes con etiqueta LLM han sido validados.")
+        elif kpis["total_etiquetados_llm"] == 0:
+            st.info(
+                "No hay mensajes YouTube etiquetados por el LLM. "
+                "Ejecutá `etiquetar_completo_youtube_llm.py` primero."
+            )
+        else:
+            st.info("No hay mensajes pendientes con el filtro seleccionado.")
+        if st.button("Limpiar saltos y recargar", key="vllm_yt_clear"):
+            st.session_state["vllm_yt_skipped"] = set()
+            st.rerun()
+        return
+
+    msg = queue.iloc[0]
+    msg_uuid = str(msg["message_uuid"])
+
+    st.subheader(f"Mensaje a validar  ({queue.shape[0]} en cola)")
+
+    # --- Contenido y predicción LLM ---
+    col_msg, col_llm = st.columns([3, 2])
+    with col_msg:
+        st.markdown("**Texto del comentario:**")
+        st.text_area(
+            "contenido_vllm", value=str(msg["content_original"]),
+            height=140, disabled=True, label_visibility="collapsed",
+        )
+        medio = msg.get("source_media") or "—"
+        video_id = msg.get("video_id")
+        vid_link = ""
+        if video_id and pd.notna(video_id):
+            yt_url = f"https://www.youtube.com/watch?v={video_id}"
+            vid_link = f" · [Video]({yt_url})"
+        st.caption(f"Medio: **{medio}**{vid_link}")
+
+    with col_llm:
+        st.markdown("**Predicción del LLM:**")
+        llm_clasif = msg.get("clasificacion_principal") or "—"
+        llm_cat_raw = msg.get("categoria_odio_pred") or ""
+        llm_cat = CATEGORIAS_LABELS.get(llm_cat_raw, llm_cat_raw) if llm_cat_raw else "—"
+        llm_int = msg.get("intensidad_pred") or "—"
+        llm_motivo = msg.get("resumen_motivo") or ""
+
+        clasif_colors = {"ODIO": "🔴", "NO_ODIO": "🟢", "DUDOSO": "🟡"}
+        st.markdown(f"**Clasificación:** {clasif_colors.get(llm_clasif, '')} {llm_clasif}")
+        st.markdown(f"**Categoría:** {llm_cat}")
+        int_labels = {"1": "1 — Leve", "2": "2 — Ofensivo", "3": "3 — Hostil"}
+        st.markdown(f"**Intensidad:** {int_labels.get(str(llm_int), str(llm_int))}")
+        if llm_motivo:
+            st.markdown(f"**Motivo:** _{llm_motivo}_")
+
+    st.divider()
+
+    # --- Formulario ---
+    form_seq = st.session_state.get("_vllm_yt_form_seq", 0)
+    fk = f"vllm_yt_form_{form_seq}"
+
+    llm_odio_idx = (
+        {"ODIO": 0, "NO_ODIO": 1, "DUDOSO": 2}.get(llm_clasif)
+    )
+    llm_cat_idx = None
+    cat_keys = list(CATEGORIAS_LABELS.keys())
+    if llm_cat_raw in cat_keys:
+        llm_cat_idx = cat_keys.index(llm_cat_raw)
+    llm_int_val = int(llm_int) if str(llm_int) in {"1", "2", "3"} else 2
+
+    with st.form(key=fk, clear_on_submit=False):
+        st.markdown("**Clasificación** (precargada con la predicción del LLM)")
+        odio_choice = st.radio(
+            "¿Es discurso de odio?",
+            ["Odio", "No Odio", "Dudoso"],
+            horizontal=True,
+            index=llm_odio_idx,
+            key=f"{fk}_odio",
+        )
+
+        st.markdown("---")
+        st.caption(
+            "Completar solo si la clasificación es **Odio** "
+            "(se ignorarán si se selecciona No Odio / Dudoso)."
+        )
+
+        categoria = st.selectbox(
+            "Categoría de odio",
+            options=cat_keys,
+            format_func=lambda x: CATEGORIAS_LABELS.get(x, x),
+            index=llm_cat_idx,
+            key=f"{fk}_cat",
+        )
+
+        intensidad = st.select_slider(
+            "Intensidad (1 = baja, 3 = alta)",
+            options=[1, 2, 3],
+            value=llm_int_val,
+            key=f"{fk}_int",
+        )
+
+        humor = st.checkbox(
+            "¿Contiene humor / sarcasmo?", key=f"{fk}_humor",
+        )
+
+        st.markdown("---")
+        col_save, col_skip = st.columns(2)
+        submitted = col_save.form_submit_button(
+            "Guardar y siguiente", type="primary", use_container_width=True,
+        )
+        skipped = col_skip.form_submit_button(
+            "Saltar", use_container_width=True,
+        )
+
+    # --- Procesar acciones ---
+    if submitted:
+        if odio_choice is None:
+            st.error("Selecciona una clasificación (Odio / No Odio / Dudoso).")
+            return
+
+        es_odio = odio_choice == "Odio"
+
+        if es_odio and not categoria:
+            st.error("Si marcas **Odio**, selecciona una categoría.")
+            return
+
+        odio_flag = (
+            True if odio_choice == "Odio"
+            else (False if odio_choice == "No Odio" else None)
+        )
+
+        odio_map = {"Odio": "ODIO", "No Odio": "NO_ODIO", "Dudoso": "DUDOSO"}
+        coincide = (
+            odio_map.get(odio_choice) == llm_clasif
+            and (not es_odio or categoria == llm_cat_raw)
+            and (not es_odio or str(intensidad) == str(llm_int))
+        )
+
+        st.session_state["_vllm_yt_pending_save"] = {
+            "message_uuid": msg_uuid,
+            "odio_flag": odio_flag,
+            "categoria_odio": categoria if es_odio else None,
+            "intensidad": intensidad if es_odio else None,
+            "humor_flag": humor if es_odio else False,
+            "annotator_id": annotator,
+            "coincide_con_llm": coincide,
+        }
+        st.session_state["_vllm_yt_form_seq"] = form_seq + 1
+        st.rerun()
+
+    if skipped:
+        st.session_state.setdefault("vllm_yt_skipped", set()).add(msg_uuid)
+        st.session_state["_vllm_yt_form_seq"] = form_seq + 1
+        st.rerun()
+
+
 def render_anotacion():
-    """Sección de anotación humana: YouTube + validación Art. 510."""
+    """Sección de anotación humana: YouTube + validación Art. 510 + validación LLM YT."""
     st.title("Anotación y validación")
     st.markdown(
-        "Validación humana de mensajes: anotación de odio en YouTube "
-        "y validación de potenciales delitos Art. 510 (X + YouTube)."
+        "Validación humana de mensajes: anotación de odio en YouTube, "
+        "validación de potenciales delitos Art. 510 (X + YouTube) "
+        "y validación de calidad del etiquetado LLM en YouTube."
     )
 
     # --- Identificación del anotador (compartido entre tabs) ---
@@ -4195,9 +5792,10 @@ def render_anotacion():
         return
 
     # --- Tabs ---
-    tab_yt, tab_510 = st.tabs([
+    tab_yt, tab_510, tab_vllm = st.tabs([
         "Anotación odio YouTube",
         "Validación Art. 510 (X + YouTube)",
+        "Validación etiquetado LLM (YT)",
     ])
 
     with tab_yt:
@@ -4205,6 +5803,9 @@ def render_anotacion():
 
     with tab_510:
         _render_validacion_art510(annotator.strip())
+
+    with tab_vllm:
+        _render_validacion_llm_youtube(annotator.strip())
 
 
 # ============================================================
@@ -4514,7 +6115,6 @@ _LOGOS_ORDER = [
     ("04_cppa.png", "Colegio Profesional de Periodistas de Andalucía"),
     ("05_coe.png", "Comité Olímpico Español"),
     ("06_mci.png", "Movimiento Contra la Intolerancia"),
-    ("07_eu.png", "Co-funded by the European Union"),
 ]
 
 
@@ -4569,30 +6169,30 @@ def render_footer():
 # MAIN
 # ============================================================
 def main():
+    if not _check_auth():
+        _render_login()
+        return
+
     section = render_sidebar()
 
-    if section == "Proyecto ReTo":
-        render_proyecto()
-    elif section == "Panel general":
-        render_panel_general()
-    elif section == "Categorías de odio":
-        render_categorias()
-    elif section == "Ranking de medios":
-        render_ranking_medios()
-    elif section == "Comparativa modelos":
-        render_comparativa()
-    elif section == "Calidad LLM":
-        render_calidad_llm()
-    elif section == "Términos frecuentes":
-        render_terminos()
-    elif section == "Dataset Gold":
-        render_gold_dataset()
-    elif section == "Análisis Art. 510":
-        render_analisis_art510()
-    elif section == "Anotación y validación":
-        render_anotacion()
-    elif section == "Delitos de odio (oficial)":
-        render_delitos()
+    _SECTION_RENDERERS = {
+        "Proyecto ReTo": render_proyecto,
+        "Panel general": render_panel_general,
+        "Categorías de odio": render_categorias,
+        "Ranking de medios": render_ranking_medios,
+        "Análisis contextual": render_analisis_contextual,
+        "Comparativa modelos": render_comparativa,
+        "Calidad LLM": render_calidad_llm,
+        "Términos frecuentes": render_terminos,
+        "Dataset Gold": render_gold_dataset,
+        "Análisis Art. 510": render_analisis_art510,
+        "Anotación y validación": render_anotacion,
+        "Delitos de odio (oficial)": render_delitos,
+    }
+
+    renderer = _SECTION_RENDERERS.get(section)
+    if renderer:
+        renderer()
 
     render_footer()
 
