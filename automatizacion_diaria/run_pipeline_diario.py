@@ -22,7 +22,7 @@ import logging
 import os
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, date
 from pathlib import Path
 
 # Directorio de este script -> Clases/RETO/automatizacion_diaria
@@ -41,6 +41,11 @@ SCRIPTS = [
     "Clases/RETO/Medios/ML/etiquetado_llm/etiquetar_completo_llm.py",
     # Paso 8: cargar resultados a PostgreSQL
     "Clases/RETO/automatizacion_diaria/load_to_db.py",
+]
+
+# Scripts que se ejecutan solo los lunes (tras el pipeline diario)
+WEEKLY_MONDAY_SCRIPTS = [
+    "Clases/RETO/automatizacion_diaria/analisis_contexto_semanal.py",
 ]
 
 
@@ -126,6 +131,23 @@ def main() -> int:
             fail_count += 1
             # Opción B: continuar con el siguiente
             logger.info("Continuando con el siguiente script.")
+
+    # --- Tareas semanales (solo lunes) ---
+    if date.today().weekday() == 0:  # 0 = lunes
+        logger.info("Hoy es lunes — ejecutando scripts semanales")
+        for rel in WEEKLY_MONDAY_SCRIPTS:
+            script_path = REPO_ROOT / rel
+            if not script_path.is_file():
+                logger.error("No existe el script semanal: %s", script_path)
+                fail_count += 1
+                continue
+            if run_script(script_path, REPO_ROOT, logger):
+                ok_count += 1
+            else:
+                fail_count += 1
+                logger.info("Continuando con el siguiente script.")
+    else:
+        logger.info("No es lunes — scripts semanales omitidos")
 
     logger.info("=== Fin pipeline === OK: %s, Fallos: %s", ok_count, fail_count)
     return 0 if fail_count == 0 else 1

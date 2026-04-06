@@ -69,6 +69,9 @@ CAT_COLORS = [
     "#E74C3C", "#3498DB", "#2ECC71", "#F39C12", "#9B59B6", "#1ABC9C",
 ]
 
+# Visible en sidebar: confirmar que el despliegue (Streamlit Cloud, etc.) sirvió este archivo.
+DASHBOARD_UI_VERSION = "1.2 · muestra LLM (categorías)"
+
 # Mapeo de nombres de plataforma para mostrar
 PLATFORM_DISPLAY = {
     "x": "X",
@@ -85,7 +88,7 @@ _PLATFORM_ALIASES = {"x": ("x", "twitter"), "twitter": ("x", "twitter")}
 _ALL_SECTIONS = [
     "Proyecto ReTo",
     "Panel general",
-    "Categorías de odio",
+    "Categorías de odio (LLM)",
     "Ranking de medios",
     "Análisis contextual",
     "Comparativa modelos",
@@ -442,7 +445,7 @@ def load_kpis(
     }
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60)
 def load_llm_stats() -> dict:
     """Total de mensajes procesados por LLM, desglosado por plataforma."""
     with get_conn() as conn:
@@ -603,6 +606,59 @@ def load_muestra_ultima_corrida_llm(limit: int = 20) -> Tuple[pd.DataFrame, Opti
             params=[ultima],
         )
     return df, ultima
+
+
+def _render_muestra_ultima_corrida_llm_section(*, key_suffix: str = "") -> None:
+    """Bloque de UI: mensajes ejemplo de la última fecha de etiquetado LLM (texto anonimizado)."""
+    ks = key_suffix
+    st.markdown("### Muestra de la última corrida LLM")
+    st.caption(
+        "Hasta 20 mensajes elegidos al azar entre los etiquetados el mismo día que la "
+        "«última actualización» de arriba. El texto es el de **processed.mensajes** "
+        "(anonimizado en el pipeline: sin usuarios identificables)."
+    )
+    c_btn, _ = st.columns([1, 4])
+    if c_btn.button("Nueva muestra aleatoria", key=f"cat_llm_muestra_reroll{ks}"):
+        st.rerun()
+
+    df_muestra, fecha_muestra = load_muestra_ultima_corrida_llm(limit=20)
+    if fecha_muestra is None:
+        st.info("No hay etiquetas LLM en la base para mostrar una muestra.")
+    elif df_muestra.empty:
+        st.info(
+            "Hay fecha de última actualización pero no se pudo armar la muestra "
+            "(¿falta join con processed.mensajes?)."
+        )
+    else:
+        if hasattr(fecha_muestra, "strftime"):
+            fecha_txt = fecha_muestra.strftime("%d/%m/%Y")
+        else:
+            fecha_txt = str(fecha_muestra)
+        st.caption(
+            f"Muestra del **{fecha_txt}** — {len(df_muestra)} mensaje(s) mostrado(s)."
+        )
+        for _, row in df_muestra.iterrows():
+            plat = platform_label(str(row.get("platform") or ""))
+            medio = (row.get("source_media") or "").strip() or "—"
+            clasif = (row.get("clasificacion_principal") or "—").strip()
+            raw_cat = (row.get("categoria_odio_pred") or "").strip()
+            cat_label = CATEGORIAS_LABELS.get(raw_cat, raw_cat or "—")
+            intens = (row.get("intensidad_pred") or "").strip() or "—"
+            motivo = (row.get("resumen_motivo") or "").strip()
+            texto = str(row.get("content_original") or "").strip()
+            if len(texto) > 4000:
+                texto = texto[:4000] + "…"
+
+            with st.container(border=True):
+                st.markdown(f"**{plat}** · Medio: `{medio}`")
+                st.markdown(
+                    f"**Clasificación:** `{clasif}` · **Categoría:** {cat_label} · "
+                    f"**Intensidad:** `{intens}`"
+                )
+                if motivo:
+                    st.markdown(f"*Resumen (LLM):* {motivo}")
+                st.markdown("**Mensaje (anonimizado)**")
+                st.text(texto)
 
 
 @st.cache_data(ttl=300)
@@ -817,6 +873,7 @@ def render_sidebar():
 
     st.sidebar.markdown("---")
     st.sidebar.caption("Datos: PostgreSQL (reto_db)")
+    st.sidebar.caption(f"Interfaz: {DASHBOARD_UI_VERSION}")
     if st.sidebar.button("Refrescar datos"):
         st.cache_data.clear()
         st.rerun()
@@ -1087,7 +1144,11 @@ def _load_panel_combined(
 
 def render_categorias():
     st.title("Distribución por categoría de odio")
-    st.markdown("Clasificación del LLM en las 6 categorías del proyecto ReTo.")
+    st.markdown(
+        "Clasificación del LLM en las 6 categorías del proyecto ReTo. "
+        "**Debajo de las métricas** hay una muestra de hasta 20 mensajes anonimizados "
+        "de la última corrida de etiquetado (no está en *Análisis contextual*)."
+    )
 
     llm_stats = load_llm_stats()
 
@@ -1108,54 +1169,7 @@ def render_categorias():
     kp3.metric("YouTube — Total", f"{llm_stats['total_yt']:,}")
     kp4.metric("YouTube — Últimos agregados", f"{llm_stats['agregados_yt']:,}")
 
-    st.markdown("### Muestra de la última corrida LLM")
-    st.caption(
-        "Hasta 20 mensajes elegidos al azar entre los etiquetados el mismo día que la "
-        "«última actualización» de arriba. El texto es el de **processed.mensajes** "
-        "(anonimizado en el pipeline: sin usuarios identificables)."
-    )
-    c_btn, _ = st.columns([1, 4])
-    if c_btn.button("Nueva muestra aleatoria", key="cat_llm_muestra_reroll"):
-        st.rerun()
-
-    df_muestra, fecha_muestra = load_muestra_ultima_corrida_llm(limit=20)
-    if fecha_muestra is None:
-        st.info("No hay etiquetas LLM en la base para mostrar una muestra.")
-    elif df_muestra.empty:
-        st.info(
-            "Hay fecha de última actualización pero no se pudo armar la muestra "
-            "(¿falta join con processed.mensajes?)."
-        )
-    else:
-        if hasattr(fecha_muestra, "strftime"):
-            fecha_txt = fecha_muestra.strftime("%d/%m/%Y")
-        else:
-            fecha_txt = str(fecha_muestra)
-        st.caption(
-            f"Muestra del **{fecha_txt}** — {len(df_muestra)} mensaje(s) mostrado(s)."
-        )
-        for _, row in df_muestra.iterrows():
-            plat = platform_label(str(row.get("platform") or ""))
-            medio = (row.get("source_media") or "").strip() or "—"
-            clasif = (row.get("clasificacion_principal") or "—").strip()
-            raw_cat = (row.get("categoria_odio_pred") or "").strip()
-            cat_label = CATEGORIAS_LABELS.get(raw_cat, raw_cat or "—")
-            intens = (row.get("intensidad_pred") or "").strip() or "—"
-            motivo = (row.get("resumen_motivo") or "").strip()
-            texto = str(row.get("content_original") or "").strip()
-            if len(texto) > 4000:
-                texto = texto[:4000] + "…"
-
-            with st.container(border=True):
-                st.markdown(f"**{plat}** · Medio: `{medio}`")
-                st.markdown(
-                    f"**Clasificación:** `{clasif}` · **Categoría:** {cat_label} · "
-                    f"**Intensidad:** `{intens}`"
-                )
-                if motivo:
-                    st.markdown(f"*Resumen (LLM):* {motivo}")
-                st.markdown("**Mensaje (anonimizado)**")
-                st.text(texto)
+    _render_muestra_ultima_corrida_llm_section(key_suffix="")
 
     st.markdown("---")
 
@@ -1578,7 +1592,7 @@ def render_analisis_contextual():
     st.info(
         "📌 Esta sección analiza exclusivamente mensajes de **X (Twitter)** "
         "clasificados por el modelo **LLM**. Los datos de YouTube con "
-        "clasificación LLM se visualizan en la sección **Categorías de odio**."
+        "clasificación LLM se visualizan en la sección **Categorías de odio (LLM)**."
     )
 
     df = load_analisis_semanal()
@@ -1705,7 +1719,7 @@ def render_analisis_contextual():
     col_cat, col_tgt = st.columns(2)
 
     with col_cat:
-        st.subheader("Categorías de odio")
+        st.subheader("Categorías de odio (resumen de la semana)")
         cats = _parse_json_col(row.get("categorias"))
         if cats:
             cat_df = pd.DataFrame([
@@ -1720,6 +1734,11 @@ def render_analisis_contextual():
             st.plotly_chart(fig_cat, use_container_width=True, key="ctx_cats")
         else:
             st.info("Sin datos de categorías.")
+        st.caption(
+            "Este bloque resume la **semana** elegida. Para ver **texto de mensajes** "
+            "anonimizados clasificados por el LLM (muestra aleatoria), usá el menú lateral "
+            "**Categorías de odio (LLM)**."
+        )
 
     with col_tgt:
         st.subheader("Colectivos atacados")
@@ -6178,7 +6197,7 @@ def main():
     _SECTION_RENDERERS = {
         "Proyecto ReTo": render_proyecto,
         "Panel general": render_panel_general,
-        "Categorías de odio": render_categorias,
+        "Categorías de odio (LLM)": render_categorias,
         "Ranking de medios": render_ranking_medios,
         "Análisis contextual": render_analisis_contextual,
         "Comparativa modelos": render_comparativa,
