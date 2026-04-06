@@ -53,6 +53,11 @@ CSV_YT_TAGGED = Path(os.getenv("CSV_YT_TAGGED", str(RETO_ROOT / "Medios" / "yout
 
 CSV_ART510 = Path(os.getenv("CSV_ART510", str(RETO_ROOT / "Medios" / "ML" / "etiquetado_llm" / "outputs" / "art510" / "evaluacion_art510.csv")))
 
+CSV_LLM_YOUTUBE = Path(os.getenv(
+    "CSV_LLM_YOUTUBE",
+    str(RETO_ROOT / "Medios" / "ML" / "etiquetado_llm" / "outputs" / "youtube" / "etiquetado_llm_youtube.csv"),
+))
+
 # UUID v5 namespace para YouTube (determinístico, mismo que gold loaders)
 RETO_YT_NS = uuidlib.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
 
@@ -124,6 +129,14 @@ def safe_val(val, target_type="str"):
     return str(val).strip() if val is not None else None
 
 
+def _normalize_platform(val) -> Optional[str]:
+    """Unifica 'twitter' → 'x' para evitar duplicados de plataforma."""
+    s = safe_val(val)
+    if s and s.lower() in ("twitter", "x"):
+        return "x"
+    return s
+
+
 def extract_x_handle(url: Optional[str]) -> Optional[str]:
     """Extrae el handle de Twitter/X de una URL tipo twitter.com/{handle}/status/..."""
     if not url or "twitter.com/" not in url:
@@ -166,7 +179,7 @@ def load_raw_mensajes(conn, logger: logging.Logger) -> int:
     for _, r in df.iterrows():
         rows.append((
             safe_val(r.get("message_uuid")),
-            safe_val(r.get("platform")),
+            _normalize_platform(r.get("platform")),
             safe_val(r.get("tweet_id")),
             safe_val(r.get("created_at")),
             safe_val(r.get("content_original")),
@@ -220,7 +233,7 @@ def load_processed_mensajes(conn, logger: logging.Logger) -> int:
     for _, r in df.iterrows():
         rows.append((
             safe_val(r.get("message_uuid")),
-            safe_val(r.get("platform")),
+            _normalize_platform(r.get("platform")),
             safe_val(r.get("content_original")),
             resolve_source_media(r),
             safe_val(r.get("created_at")),
@@ -297,8 +310,16 @@ def load_etiquetas_llm(conn, logger: logging.Logger) -> int:
         logger.warning("No se encontró CSV del LLM en %s — saltando", LLM_OUTPUT_GLOB)
         return 0
 
-    df = pd.read_csv(csv_path, dtype=str)
-    logger.info("processed.etiquetas_llm: %d filas leídas de %s", len(df), csv_path.name)
+    import csv as _csv
+    _VALID_CLASIF = {"ODIO", "NO_ODIO", "DUDOSO"}
+    with open(csv_path, encoding="utf-8") as _f:
+        reader = _csv.DictReader(_f)
+        rows_raw = [
+            r for r in reader
+            if r.get("clasificacion_principal", "") in _VALID_CLASIF
+        ]
+    df = pd.DataFrame(rows_raw).astype(str) if rows_raw else pd.DataFrame()
+    logger.info("processed.etiquetas_llm: %d filas válidas de %s", len(df), csv_path.name)
 
     columns = [
         "message_uuid", "clasificacion_principal", "categoria_odio_pred",
@@ -326,6 +347,55 @@ def load_etiquetas_llm(conn, logger: logging.Logger) -> int:
                         "intensidad_pred", "resumen_motivo"],
     )
     logger.info("processed.etiquetas_llm: %d filas procesadas (upsert)", len(rows))
+    return len(rows)
+
+
+def load_etiquetas_llm_youtube(conn, logger: logging.Logger) -> int:
+    """Carga processed.etiquetas_llm desde el CSV del etiquetado YouTube LLM."""
+    if not CSV_LLM_YOUTUBE.exists():
+        logger.warning("No existe %s — saltando etiquetas YouTube LLM", CSV_LLM_YOUTUBE)
+        return 0
+
+    import csv as _csv
+    _VALID_CLASIF = {"ODIO", "NO_ODIO", "DUDOSO"}
+    with open(CSV_LLM_YOUTUBE, encoding="utf-8") as _f:
+        reader = _csv.DictReader(_f)
+        rows_raw = [
+            r for r in reader
+            if r.get("clasificacion_principal", "") in _VALID_CLASIF
+        ]
+    df = pd.DataFrame(rows_raw).astype(str) if rows_raw else pd.DataFrame()
+    logger.info("processed.etiquetas_llm (YouTube): %d filas válidas de %s", len(df), CSV_LLM_YOUTUBE.name)
+
+    if df.empty:
+        return 0
+
+    columns = [
+        "message_uuid", "clasificacion_principal", "categoria_odio_pred",
+        "intensidad_pred", "resumen_motivo", "llm_version",
+    ]
+
+    rows = []
+    for _, r in df.iterrows():
+        uuid = safe_val(r.get("message_uuid"))
+        if uuid is None:
+            continue
+        rows.append((
+            uuid,
+            safe_val(r.get("clasificacion_principal")),
+            safe_val(r.get("categoria_odio_pred")),
+            safe_val(r.get("intensidad_pred")),
+            safe_val(r.get("resumen_motivo")),
+            "v1",
+        ))
+
+    n = upsert_rows(
+        conn, "processed.etiquetas_llm", columns, rows,
+        conflict_columns=["message_uuid", "llm_version"],
+        update_columns=["clasificacion_principal", "categoria_odio_pred",
+                        "intensidad_pred", "resumen_motivo"],
+    )
+    logger.info("processed.etiquetas_llm (YouTube): %d filas procesadas (upsert)", len(rows))
     return len(rows)
 
 
@@ -554,6 +624,7 @@ def main() -> int:
                 ("processed.mensajes (YouTube)", load_processed_youtube),
                 ("processed.scores", load_scores),
                 ("processed.etiquetas_llm", load_etiquetas_llm),
+                ("processed.etiquetas_llm (YouTube)", load_etiquetas_llm_youtube),
                 ("processed.evaluacion_art510", load_evaluacion_art510),
                 ("processed.resumen_diario", load_resumen_diario),
             ]

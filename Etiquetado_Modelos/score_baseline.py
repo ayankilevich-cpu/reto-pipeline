@@ -5,6 +5,10 @@ Script para aplicar un modelo TF-IDF + Logistic Regression ya entrenado
 a un nuevo dataset de mensajes.
 
 NO entrena nada. Solo aplica el modelo existente.
+
+Entrada por defecto: reto_x_master_anon.csv (misma cobertura que processed.mensajes
+tras load_to_db). Si solo querés puntuar el subconjunto de etiquetado manual,
+definí SCORE_BASELINE_INPUT_CSV apuntando a Medios/x_manual_label_for_sheets_tagged.csv
 """
 
 import os
@@ -19,8 +23,11 @@ import joblib
 # Directorio base (donde está este script)
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Ruta del CSV de entrada
-INPUT_CSV = os.getenv("SCORE_BASELINE_INPUT_CSV", os.path.join(SCRIPT_DIR, "..", "Medios", "x_manual_label_for_sheets_tagged.csv"))
+# CSV anonimizado completo (alineado con lo que suele cargarse en processed.mensajes)
+_ANON_MASTER_CSV = os.path.join(SCRIPT_DIR, "..", "X_Mensajes", "Anon", "reto_x_master_anon.csv")
+
+# Ruta del CSV de entrada (env para override; por defecto anon para no dejar huecos en scores)
+INPUT_CSV = os.getenv("SCORE_BASELINE_INPUT_CSV", _ANON_MASTER_CSV)
 
 # Rutas del modelo y vectorizador (joblib)
 VECTORIZER_PATH = os.path.join(SCRIPT_DIR, "vectorizer.joblib")

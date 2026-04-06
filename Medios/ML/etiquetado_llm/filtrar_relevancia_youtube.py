@@ -14,12 +14,17 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 # ========= CONFIG =========
-INPUT_CSV = os.getenv("LLM_RELEVANCE_INPUT_CSV", "/Users/alejandroyankilevich/Documents/MASTER DATA SCIENCE/Clases/RETO/Medios/youtube_manual_label_for_sheets.csv")
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_RETO_ROOT_YT = _SCRIPT_DIR.parent.parent.parent
+INPUT_CSV = os.getenv(
+    "LLM_RELEVANCE_INPUT_CSV",
+    str(_RETO_ROOT_YT / "Medios" / "youtube_manual_label_for_sheets.csv"),
+)
 TEXT_COL = "content_original"
 ID_COL = "message_uuid"
 
-MODEL = os.getenv("OPENAI_MODEL", "gpt-5.2")
-OUT_DIR = "./outputs"
+MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+OUT_DIR = str(_SCRIPT_DIR / "outputs")
 CACHE_FILE = os.path.join(OUT_DIR, "relevancia_cache.json")
 RELEVANCE_THRESHOLD = 0.25
 MAX_ROWS = 0  # 0 = todos, o poné 500 para probar
@@ -88,23 +93,33 @@ def update_cache(cache: Dict, msg_id: str, text: str, result: Dict[str, Any]) ->
 
 SYSTEM = (
     "Sos un clasificador para filtrar comentarios de YouTube en videos de medios de comunicación relevantes para un proyecto de discurso de odio. "
-    "Tu tarea NO es etiquetar en detalle, solo decidir si el comentario merece revisión humana/ML para ODIO. "
-    "Devolvé SOLO JSON válido, sin texto extra."
+    "Tu tarea NO es etiquetar en detalle, solo decidir si el comentario merece revisión humana/ML para ODIO."
 )
 
 USER_TMPL = """Decidí si el comentario es potencialmente relevante para ODIO o hostilidad hacia grupos/colectivos.
-Considerá relevante si hay: insultos fuertes, deshumanización, incitación, amenazas, ataques a inmigrantes/etnias/religión/género/orientación, etc.
-No es relevante si es noticia neutra, discusión general sin hostilidad, o quejas a servicios/políticos sin grupo.
-Los comentarios pueden incluir ironía, sarcasmo o respuestas dentro de un hilo, y aún así deben considerarse para relevancia.
-
-Devolvé JSON con:
-- relevante: "SI" o "NO"
-- score: número 0..1 (confianza de que es relevante)
-- motivo: 1 frase breve
+Relevante: insultos fuertes, deshumanización, incitación, amenazas, ataques a inmigrantes/etnias/religión/género/orientación.
+No relevante: noticia neutra, discusión general sin hostilidad, quejas a servicios/políticos sin atacar a un grupo.
+Considerá ironía, sarcasmo o respuestas en hilo.
 
 COMENTARIO (YouTube):
 {txt}
 """
+
+RELEVANCE_SCHEMA = {
+    "type": "json_schema",
+    "name": "relevance_result",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "relevante": {"type": "string", "enum": ["SI", "NO"]},
+            "score": {"type": "number"},
+            "motivo": {"type": "string"},
+        },
+        "required": ["relevante", "score", "motivo"],
+        "additionalProperties": False,
+    },
+}
 
 def clamp01(x: Any) -> float:
     try:
@@ -117,15 +132,6 @@ def norm_si_no(x: Any) -> str:
     s = str(x).strip().upper()
     return "SI" if s in {"SI", "SÍ", "YES", "Y", "1", "TRUE"} else "NO"
 
-def extract_json(text: str) -> Dict[str, Any]:
-    t = (text or "").strip()
-    if not t.startswith("{"):
-        a = t.find("{")
-        b = t.rfind("}")
-        if a != -1 and b != -1 and b > a:
-            t = t[a:b+1]
-    return json.loads(t)
-
 def llm_relevance(client: OpenAI, txt: str) -> Dict[str, Any]:
     resp = client.responses.create(
         model=MODEL,
@@ -133,11 +139,13 @@ def llm_relevance(client: OpenAI, txt: str) -> Dict[str, Any]:
             {"role": "system", "content": SYSTEM},
             {"role": "user", "content": USER_TMPL.format(txt=txt)},
         ],
+        text={"format": RELEVANCE_SCHEMA},
+        max_output_tokens=200,
     )
-    obj = extract_json(resp.output_text)
+    obj = json.loads(resp.output_text)
     return {
-        "relevante_llm": norm_si_no(obj.get("relevante")),
-        "relevante_score": clamp01(obj.get("score")),
+        "relevante_llm": norm_si_no(obj["relevante"]),
+        "relevante_score": clamp01(obj["score"]),
         "relevante_motivo": str(obj.get("motivo", "")).strip(),
     }
 
@@ -176,46 +184,52 @@ def main():
     fieldnames = list(rows[0].keys()) + ["relevante_llm", "relevante_score", "relevante_motivo"]
     kept: List[Dict[str, Any]] = []
 
-    with open(out_all, "w", encoding="utf-8", newline="") as fa:
-        wa = csv.DictWriter(fa, fieldnames=fieldnames)
-        wa.writeheader()
+    pending_in_cache = sum(1 for r in rows if get_cached_result(cache, r.get(ID_COL, ""), (r.get(TEXT_COL) or "").strip()) is not None)
+    to_process = len(rows) - pending_in_cache
+    print(f"   → {pending_in_cache} ya en caché, {to_process} pendientes de LLM")
 
-        for i, r in enumerate(rows, 1):
-            txt = (r.get(TEXT_COL) or "").strip()
-            msg_id = r.get(ID_COL, "")
-            
-            if not txt:
-                extra = {"relevante_llm": "NO", "relevante_score": 0.0, "relevante_motivo": "Texto vacío"}
-            else:
-                # Intentar obtener del caché primero
-                cached_result = get_cached_result(cache, msg_id, txt)
-                
-                if cached_result is not None:
-                    # Usar resultado cacheado
-                    extra = cached_result
-                    cache_hits += 1
+    interrupted = False
+    try:
+        with open(out_all, "w", encoding="utf-8", newline="") as fa:
+            wa = csv.DictWriter(fa, fieldnames=fieldnames)
+            wa.writeheader()
+
+            for i, r in enumerate(rows, 1):
+                txt = (r.get(TEXT_COL) or "").strip()
+                msg_id = r.get(ID_COL, "")
+
+                if not txt:
+                    extra = {"relevante_llm": "NO", "relevante_score": 0.0, "relevante_motivo": "Texto vacío"}
                 else:
-                    # Llamar al LLM y guardar en caché
-                    extra = llm_relevance(client, txt)
-                    update_cache(cache, msg_id, txt, extra)
-                    cache_misses += 1
-                    
-                    # Guardar caché periódicamente (cada 50 nuevos análisis)
-                    if cache_misses % 50 == 0:
-                        save_cache(cache)
-                        print(f"   💾 Caché guardado ({len(cache)} entradas)")
+                    cached_result = get_cached_result(cache, msg_id, txt)
 
-            out_row = {**r, **extra}
-            wa.writerow(out_row)
+                    if cached_result is not None:
+                        extra = cached_result
+                        cache_hits += 1
+                    else:
+                        extra = llm_relevance(client, txt)
+                        update_cache(cache, msg_id, txt, extra)
+                        cache_misses += 1
 
-            if extra["relevante_score"] >= RELEVANCE_THRESHOLD or extra["relevante_llm"] == "SI":
-                kept.append(out_row)
+                        if cache_misses % 25 == 0:
+                            save_cache(cache)
+                            print(f"   💾 Caché guardado ({len(cache)} entradas)")
 
-            if i % 25 == 0:
-                print(f"Procesados: {i}/{len(rows)} | kept: {len(kept)} | caché: {cache_hits} hits, {cache_misses} nuevos")
+                out_row = {**r, **extra}
+                wa.writerow(out_row)
 
-    # Guardar caché final
-    save_cache(cache)
+                if extra["relevante_score"] >= RELEVANCE_THRESHOLD or extra["relevante_llm"] == "SI":
+                    kept.append(out_row)
+
+                if i % 25 == 0:
+                    print(f"Procesados: {i}/{len(rows)} | kept: {len(kept)} | caché: {cache_hits} hits, {cache_misses} nuevos")
+
+    except KeyboardInterrupt:
+        interrupted = True
+        print(f"\n⚠️  Interrumpido en {i}/{len(rows)}")
+    finally:
+        save_cache(cache)
+        print(f"💾 Caché guardado: {len(cache)} entradas ({cache_misses} nuevos en esta ejecución)")
 
     # Escribir FILTRADO
     with open(out_filt, "w", encoding="utf-8", newline="") as ff:
@@ -224,15 +238,19 @@ def main():
         for r in kept:
             wf.writerow(r)
 
-    print("\n✅ CSVs generados")
+    if interrupted:
+        print(f"\n⚠️  Ejecución parcial — CSVs contienen solo {i}/{len(rows)} filas")
+        print(f"   Volvé a ejecutar para continuar; el caché ({len(cache)} entradas) reutilizará lo ya procesado.")
+    else:
+        print("\n✅ CSVs generados")
     print(f"- ALL:      {out_all}")
     print(f"- FILTRADO: {out_filt}")
     print(f"- Kept:     {len(kept)} / {len(rows)} (threshold={RELEVANCE_THRESHOLD})")
     print(f"- Caché:    {cache_hits} reutilizados, {cache_misses} nuevos análisis")
     print(f"- Total en caché: {len(cache)} entradas guardadas en {CACHE_FILE}")
 
-    # === Escritura a PostgreSQL (processed.mensajes) ===
-    save_relevance_to_db(out_all)
+    if not interrupted:
+        save_relevance_to_db(out_all)
 
 
 def yt_to_uuid(yt_id: str) -> str:
@@ -307,3 +325,4 @@ def save_relevance_to_db(csv_path: str) -> None:
 
 if __name__ == "__main__":
     main()
+

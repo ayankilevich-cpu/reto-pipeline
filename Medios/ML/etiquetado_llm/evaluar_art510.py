@@ -217,6 +217,7 @@ def llm_eval_510(client: OpenAI, txt: str) -> Dict[str, Any]:
                 {"role": "system", "content": SYSTEM_510},
                 {"role": "user", "content": user_content},
             ],
+            max_output_tokens=300,
         )
 
         last_raw = getattr(resp, "output_text", "") or ""

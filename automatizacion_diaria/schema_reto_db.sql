@@ -171,3 +171,29 @@ CREATE TABLE IF NOT EXISTS processed.resumen_diario (
     score_promedio      DOUBLE PRECISION,
     PRIMARY KEY (fecha, platform)
 );
+
+-- ========================================================
+-- PROCESSED.ANALISIS_SEMANAL  — análisis contextual semanal
+-- Generado por analisis_contexto_semanal.py
+-- ========================================================
+CREATE TABLE IF NOT EXISTS processed.analisis_semanal (
+    semana_inicio       DATE        PRIMARY KEY,
+    semana_fin          DATE        NOT NULL,
+    total_mensajes      INTEGER     DEFAULT 0,
+    total_odio          INTEGER     DEFAULT 0,
+    pct_odio            NUMERIC(5,2),
+    es_spike            BOOLEAN     DEFAULT FALSE,
+    promedio_referencia_pct NUMERIC(6,2),
+    umbral_spike_pct    NUMERIC(6,2),
+    n_semanas_base      INTEGER,
+    categorias          JSONB,
+    targets             JSONB,
+    temas               JSONB,
+    intensidad          JSONB,
+    dia_pico            DATE,
+    dia_pico_odio       INTEGER,
+    dia_pico_pct        NUMERIC(5,2),
+    resumen_contexto    TEXT,
+    eventos_relacionados TEXT,
+    analisis_date       TIMESTAMPTZ DEFAULT NOW()
+);

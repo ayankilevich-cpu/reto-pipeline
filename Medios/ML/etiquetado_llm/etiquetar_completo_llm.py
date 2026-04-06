@@ -3,30 +3,39 @@ from __future__ import annotations
 import csv
 import json
 import os
+import sys
 from datetime import datetime
-from typing import Dict, Any, Set
+from pathlib import Path
+from typing import Dict, Any, List, Optional, Set, Tuple
 
 from dotenv import load_dotenv
 from openai import OpenAI
 
 # ========= CONFIG =========
-INPUT_CSV = os.getenv("LLM_TAG_INPUT_CSV", "/Users/alejandroyankilevich/Documents/MASTER DATA SCIENCE/Clases/RETO/Etiquetado_Modelos/x_manual_label_scored_prioridad_alta.csv")
+SCRIPT_DIR = Path(__file__).resolve().parent
+RETO_ROOT = SCRIPT_DIR.parent.parent.parent  # Clases/RETO
+
+INPUT_CSV = os.getenv(
+    "LLM_TAG_INPUT_CSV",
+    str(RETO_ROOT / "Etiquetado_Modelos" / "x_manual_label_scored_prioridad_alta.csv"),
+)
 TEXT_COL = "content_original"
 ID_COL = "message_uuid"
 
 MODEL = os.getenv("OPENAI_MODEL", "gpt-5.2")
-OUT_DIR = "./outputs/Febrero_2026_V2"
+OUT_DIR = str(SCRIPT_DIR / "outputs" / "Febrero_2026_V2")
 MAX_ROWS = 0  # 0 = todos
 MAX_RETRIES = 2
 BAD_JSON_LOG = os.path.join(OUT_DIR, "bad_json_reto.log")
 
 # ========= CACHE CONFIG =========
-# Archivo de caché persistente (guarda etiquetas por message_uuid)
 CACHE_FILE = os.path.join(OUT_DIR, "etiquetado_cache.json")
-# Archivo de salida fijo (permite retomar)
 OUTPUT_FILE = os.path.join(OUT_DIR, "etiquetado_llm_completo.csv")
-# Guardar caché cada N filas procesadas
 CACHE_SAVE_INTERVAL = 10
+
+# ========= DB CONFIG =========
+DB_UTILS_DIR = str(RETO_ROOT / "automatizacion_diaria")
+DB_LLM_VERSION = "v1"
 # ==========================
 
 # ---- TAXONOMÍA OFICIAL RETO (LISTA CERRADA) ----
@@ -45,29 +54,19 @@ SYSTEM = (
     "Devolvés SOLO JSON válido, sin texto extra."
 )
 
-USER_TMPL = f"""Analizá el mensaje y devolvé JSON con EXACTAMENTE estas claves:
+USER_TMPL = f"""Clasificá según Manual ReTo. JSON con EXACTAMENTE estas claves:
 
 - clasificacion_principal: "ODIO" | "NO_ODIO" | "DUDOSO"
-- categoria_odio_pred: UNA de estas (o vacío si no aplica):
-  {", ".join(CATEGORIAS_RETO)}
-- intensidad_pred: 1 | 2 | 3 (SOLO si clasificacion_principal = "ODIO")
+- categoria_odio_pred: UNA de [{", ".join(CATEGORIAS_RETO)}] o vacío
+- intensidad_pred: 1 | 2 | 3 (solo si ODIO) o vacío
 - resumen_motivo: 1 frase breve
 
-CRITERIOS (según Manual ReTo):
-- ODIO: insultos dirigidos, deshumanización o ataques explícitos a una persona oun colectivo.
-- NO_ODIO: crítica dura u opinión sin intención de degradar o estigmatizar.
-- DUDOSO: no se puede determinar intención aun con el texto.
+ODIO: insultos, deshumanización o ataques a persona/colectivo.
+NO_ODIO: crítica u opinión sin degradar. DUDOSO: intención indeterminable.
 
-INTENSIDAD (solo si es ODIO):
-1 = Leve: ironía, burla o desdén sin agresión explícita.
-2 = Ofensivo: insultos claros o lenguaje ofensivo dirigido.
-3 = Hostil/Incitación: deshumanización, deseo de daño, expulsión o violencia.
-Regla: si hay deshumanización o incitación → intensidad = 3.
-
-REGLAS:
-- Usar SOLO una categoría (target predominante).
-- No inventar etiquetas.
-- Si NO_ODIO o DUDOSO → categoria_odio_pred e intensidad_pred vacías.
+Intensidad: 1=leve (ironía/desdén), 2=ofensivo (insultos claros), 3=hostil (deshumanización/incitación/violencia).
+Deshumanización o incitación → siempre 3. Solo una categoría.
+Si NO_ODIO/DUDOSO → categoría e intensidad vacías.
 
 MENSAJE:
 {{txt}}
@@ -116,6 +115,164 @@ def get_processed_ids_from_output() -> Set[str]:
         except Exception as e:
             print(f"  ⚠ Error al leer archivo de salida: {e}")
     return processed
+
+
+# =============================================================================
+# FUNCIONES DE BASE DE DATOS
+# =============================================================================
+
+def _get_db_module():
+    """Importa db_utils dinámicamente (puede no estar disponible)."""
+    try:
+        sys.path.insert(0, DB_UTILS_DIR)
+        from db_utils import get_conn, upsert_rows  # type: ignore[import-not-found]
+        return get_conn, upsert_rows
+    except Exception:
+        return None, None
+
+
+def fetch_pending_from_db() -> Optional[List[Dict[str, Any]]]:
+    """
+    Consulta la BD por mensajes de prioridad alta que aún no tienen etiqueta LLM.
+    Retorna lista de dicts compatibles con el formato CSV, o None si no hay BD.
+    """
+    get_conn, _ = _get_db_module()
+    if get_conn is None:
+        return None
+
+    try:
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT m.message_uuid, m.platform, m.content_original,
+                       m.source_media, m.created_at, m.language, m.url,
+                       m.matched_terms, m.has_hate_terms_match, m.match_count,
+                       s.proba_odio, s.pred_odio, s.priority
+                FROM processed.scores s
+                JOIN processed.mensajes m USING (message_uuid)
+                LEFT JOIN processed.etiquetas_llm e USING (message_uuid)
+                WHERE s.priority = 'alta'
+                  AND e.message_uuid IS NULL
+                ORDER BY s.proba_odio DESC
+            """)
+            cols = [desc[0] for desc in cur.description]
+            rows = [dict(zip(cols, row)) for row in cur.fetchall()]
+            cur.close()
+        print(f"  ✓ BD consultada: {len(rows)} mensajes de prioridad alta pendientes")
+        return rows
+    except Exception as e:
+        print(f"  ⚠ No se pudo conectar a la BD: {e}")
+        return None
+
+
+def print_db_pending_diagnostics() -> None:
+    """
+    Si hay 0 pendientes, ayuda a distinguir: falta scoring en BD vs ya etiquetados vs prioridad.
+    """
+    get_conn, _ = _get_db_module()
+    if get_conn is None:
+        return
+    try:
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT COUNT(*) FROM processed.mensajes m
+                LEFT JOIN processed.scores s ON m.message_uuid = s.message_uuid
+                WHERE s.message_uuid IS NULL
+            """)
+            sin_score = cur.fetchone()[0]
+            cur.execute("""
+                SELECT COUNT(*) FROM processed.scores s
+                JOIN processed.mensajes m USING (message_uuid)
+                LEFT JOIN processed.etiquetas_llm e USING (message_uuid)
+                WHERE s.priority = 'alta' AND e.message_uuid IS NULL
+            """)
+            alta_sin_etiqueta = cur.fetchone()[0]
+            cur.execute("""
+                SELECT COUNT(DISTINCT m.message_uuid) FROM processed.mensajes m
+                JOIN processed.scores s ON m.message_uuid = s.message_uuid
+                WHERE s.priority = 'alta'
+            """)
+            total_alta_con_score = cur.fetchone()[0]
+            cur.close()
+        print("\n  --- Diagnóstico BD (por si esperabas filas) ---")
+        print(f"  - Mensajes en processed.mensajes SIN fila en processed.scores: {sin_score}")
+        print(f"  - Con score priority='alta' y SIN etiqueta LLM (misma lógica que el script): {alta_sin_etiqueta}")
+        print(f"  - Distintos UUID con priority='alta' en scores: {total_alta_con_score}")
+        if total_alta_con_score and alta_sin_etiqueta == 0:
+            print(
+                "\n  → En BD, todos los mensajes con prioridad 'alta' ya tienen fila en "
+                "processed.etiquetas_llm. El script no repite UUIDs hasta que borres/actualices "
+                "etiquetas o cambies la lógica de pendientes."
+            )
+        if sin_score:
+            print(
+                "\n  → Hay mensajes en processed.mensajes sin ningún score: no pueden aparecer "
+                "como pendientes LLM (el script exige JOIN con processed.scores y priority='alta').\n"
+                "    Volvé a ejecutar score_baseline.py usando un CSV que incluya esos UUID "
+                "(por defecto ahora es X_Mensajes/Anon/reto_x_master_anon.csv), generá "
+                "scored_prioridad_alta si lo usás offline, luego load_to_db.py."
+            )
+    except Exception:
+        pass
+
+
+def upload_results_to_db(results: List[Dict[str, Any]]) -> int:
+    """Sube etiquetas LLM a processed.etiquetas_llm via upsert."""
+    get_conn, upsert_rows = _get_db_module()
+    if get_conn is None or upsert_rows is None:
+        print("  ⚠ db_utils no disponible — resultados NO subidos a BD")
+        return 0
+
+    columns = [
+        "message_uuid", "clasificacion_principal", "categoria_odio_pred",
+        "intensidad_pred", "resumen_motivo", "llm_version",
+    ]
+    db_rows = []
+    for r in results:
+        uuid = (r.get("message_uuid") or "").strip()
+        if not uuid:
+            continue
+        db_rows.append((
+            uuid,
+            r.get("clasificacion_principal", ""),
+            r.get("categoria_odio_pred", ""),
+            r.get("intensidad_pred", ""),
+            r.get("resumen_motivo", ""),
+            DB_LLM_VERSION,
+        ))
+
+    if not db_rows:
+        return 0
+
+    try:
+        with get_conn() as conn:
+            n = upsert_rows(
+                conn, "processed.etiquetas_llm", columns, db_rows,
+                conflict_columns=["message_uuid", "llm_version"],
+                update_columns=["clasificacion_principal", "categoria_odio_pred",
+                                "intensidad_pred", "resumen_motivo"],
+            )
+        print(f"  ✓ {len(db_rows)} etiquetas subidas a BD (processed.etiquetas_llm)")
+        return len(db_rows)
+    except Exception as e:
+        print(f"  ⚠ Error subiendo a BD: {e}")
+        return 0
+
+
+# =============================================================================
+# CARGA DESDE CSV (fallback)
+# =============================================================================
+
+def _load_rows_from_csv() -> List[Dict[str, Any]]:
+    """Carga filas desde el CSV local de prioridad alta."""
+    if not os.path.exists(INPUT_CSV):
+        print(f"  ⚠ CSV no encontrado: {INPUT_CSV}")
+        return []
+    with open(INPUT_CSV, "r", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    print(f"  ✓ CSV cargado: {len(rows)} filas desde {INPUT_CSV}")
+    return rows
 
 
 # =============================================================================
@@ -201,6 +358,7 @@ def llm_tag(client: OpenAI, txt: str) -> Dict[str, Any]:
                 {"role": "system", "content": SYSTEM},
                 {"role": "user", "content": user_content},
             ],
+            max_output_tokens=200,
         )
 
         last_raw = getattr(resp, "output_text", "") or ""
@@ -239,18 +397,18 @@ def llm_tag(client: OpenAI, txt: str) -> Dict[str, Any]:
 
 def main():
     load_dotenv()
+    load_dotenv(Path(DB_UTILS_DIR) / ".env")  # credenciales BD
     if not os.getenv("OPENAI_API_KEY"):
         raise RuntimeError("Falta OPENAI_API_KEY en .env")
 
     os.makedirs(OUT_DIR, exist_ok=True)
-    
+
     print("=" * 70)
-    print("ETIQUETADO LLM - ReTo (con caché)")
+    print("ETIQUETADO LLM - ReTo (con caché + BD)")
     print("=" * 70)
     print(f"Modelo: {MODEL}")
-    print(f"Input: {INPUT_CSV}")
     print(f"Output: {OUTPUT_FILE}")
-    print(f"Caché: {CACHE_FILE}")
+    print(f"Caché:  {CACHE_FILE}")
     print()
 
     # -------------------------------------------------------------------------
@@ -259,14 +417,29 @@ def main():
     print("Cargando estado previo...")
     cache = load_cache()
     processed_ids = get_processed_ids_from_output()
-    
+
     # -------------------------------------------------------------------------
-    # 2. Cargar datos de entrada
+    # 2. Obtener datos pendientes — primero BD, luego CSV como fallback
     # -------------------------------------------------------------------------
-    print(f"\nCargando datos de entrada...")
-    with open(INPUT_CSV, "r", encoding="utf-8") as f:
-        rows = list(csv.DictReader(f))
-    
+    source = "BD"
+    db_rows = fetch_pending_from_db()
+
+    if db_rows is not None and len(db_rows) > 0:
+        rows = db_rows
+        print(f"\n  Fuente: BASE DE DATOS ({len(rows)} pendientes)")
+    elif db_rows is not None and len(db_rows) == 0:
+        print("\n✅ BD consultada: 0 mensajes pendientes. Nada que hacer.")
+        print_db_pending_diagnostics()
+        return
+    else:
+        print("  Sin conexión a BD — usando CSV local.")
+        rows = _load_rows_from_csv()
+        source = "CSV"
+
+    if not rows:
+        print("\n✅ No hay datos de entrada. Nada que hacer.")
+        return
+
     total_rows = len(rows)
     print(f"  - Filas totales en input: {total_rows}")
 
@@ -275,27 +448,24 @@ def main():
         print(f"  - Limitado a: {len(rows)} filas (MAX_ROWS={MAX_ROWS})")
 
     # -------------------------------------------------------------------------
-    # 3. Filtrar filas ya procesadas
+    # 3. Filtrar filas ya procesadas (caché local + output existente)
     # -------------------------------------------------------------------------
     rows_to_process = []
     rows_from_cache = []
-    
+
     for r in rows:
-        msg_id = r.get(ID_COL, "").strip()
+        msg_id = str(r.get(ID_COL, "")).strip()
         if msg_id in processed_ids:
-            # Ya está en el archivo de salida, saltar
             continue
         elif msg_id in cache:
-            # Está en caché pero no en el archivo de salida (retomar)
             rows_from_cache.append((r, cache[msg_id]))
         else:
-            # Necesita procesamiento
             rows_to_process.append(r)
-    
+
     print(f"\n  - Ya procesados (en archivo): {len(processed_ids)}")
     print(f"  - En caché (a escribir): {len(rows_from_cache)}")
     print(f"  - Pendientes (llamar LLM): {len(rows_to_process)}")
-    
+
     if not rows_to_process and not rows_from_cache:
         print("\n✅ Todo ya está procesado. Nada que hacer.")
         return
@@ -303,51 +473,54 @@ def main():
     # -------------------------------------------------------------------------
     # 4. Preparar archivo de salida
     # -------------------------------------------------------------------------
-    fieldnames = list(rows[0].keys()) + [
+    LLM_EXTRA_COLS = [
         "clasificacion_principal",
         "categoria_odio_pred",
         "intensidad_pred",
         "resumen_motivo",
     ]
-    
-    # Determinar si crear nuevo archivo o agregar
+    first_row = rows_to_process[0] if rows_to_process else rows_from_cache[0][0]
+    fieldnames = list(first_row.keys()) + LLM_EXTRA_COLS
+
     file_exists = os.path.exists(OUTPUT_FILE) and len(processed_ids) > 0
     mode = "a" if file_exists else "w"
-    
+
     print(f"\nModo de escritura: {'Agregar a existente' if file_exists else 'Crear nuevo'}")
-    
+
     client = OpenAI()
-    
+
     # -------------------------------------------------------------------------
     # 5. Procesar filas
     # -------------------------------------------------------------------------
     nuevos_procesados = 0
     desde_cache = 0
-    
+    all_new_results: List[Dict[str, Any]] = []
+
     with open(OUTPUT_FILE, mode, encoding="utf-8", newline="") as fo:
-        w = csv.DictWriter(fo, fieldnames=fieldnames)
-        
-        # Solo escribir header si es archivo nuevo
+        w = csv.DictWriter(fo, fieldnames=fieldnames, extrasaction="ignore",
+                           quoting=csv.QUOTE_ALL)
+
         if not file_exists:
             w.writeheader()
-        
-        # 5a. Primero escribir las filas que ya están en caché
+
+        # 5a. Filas que ya están en caché
         for r, cached_labels in rows_from_cache:
-            w.writerow({**r, **cached_labels})
+            merged = {**{str(k): str(v) for k, v in r.items()}, **cached_labels}
+            w.writerow(merged)
+            all_new_results.append(merged)
             desde_cache += 1
-        
+
         if desde_cache > 0:
             fo.flush()
             print(f"  ✓ {desde_cache} filas recuperadas del caché")
-        
+
         # 5b. Procesar filas pendientes con LLM
         print(f"\nProcesando {len(rows_to_process)} filas con LLM...")
-        
+
         for i, r in enumerate(rows_to_process, 1):
-            msg_id = r.get(ID_COL, "").strip()
-            txt = (r.get(TEXT_COL) or "").strip()
-            
-            # Obtener etiquetas del LLM
+            msg_id = str(r.get(ID_COL, "")).strip()
+            txt = str(r.get(TEXT_COL) or "").strip()
+
             if txt:
                 extra = llm_tag(client, txt)
             else:
@@ -355,43 +528,51 @@ def main():
                     "clasificacion_principal": "DUDOSO",
                     "categoria_odio_pred": "",
                     "intensidad_pred": "",
-                    "resumen_motivo": "Texto vacío"
+                    "resumen_motivo": "Texto vacío",
                 }
-            
-            # Escribir al archivo
-            w.writerow({**r, **extra})
-            fo.flush()  # Flush inmediato para no perder progreso
-            
-            # Guardar en caché
+
+            merged = {**{str(k): str(v) for k, v in r.items()}, **extra}
+            w.writerow(merged)
+            fo.flush()
+
             if msg_id:
                 cache[msg_id] = extra
-            
+
+            all_new_results.append(merged)
             nuevos_procesados += 1
-            
-            # Guardar caché periódicamente
+
             if nuevos_procesados % CACHE_SAVE_INTERVAL == 0:
                 save_cache(cache)
-            
-            # Mostrar progreso
+
             if nuevos_procesados % 25 == 0 or nuevos_procesados == len(rows_to_process):
                 print(f"  Procesados: {nuevos_procesados}/{len(rows_to_process)}")
-    
+
     # -------------------------------------------------------------------------
     # 6. Guardar caché final
     # -------------------------------------------------------------------------
     save_cache(cache)
-    
+
     # -------------------------------------------------------------------------
-    # 7. Resumen
+    # 7. Subir resultados a BD
+    # -------------------------------------------------------------------------
+    db_uploaded = 0
+    if all_new_results:
+        print("\nSubiendo resultados a BD...")
+        db_uploaded = upload_results_to_db(all_new_results)
+
+    # -------------------------------------------------------------------------
+    # 8. Resumen
     # -------------------------------------------------------------------------
     print("\n" + "=" * 70)
     print("✅ ETIQUETADO COMPLETADO")
     print("=" * 70)
-    print(f"  - Filas recuperadas del caché: {desde_cache}")
-    print(f"  - Filas procesadas con LLM: {nuevos_procesados}")
-    print(f"  - Total en caché: {len(cache)}")
+    print(f"  - Fuente de datos:             {source}")
+    print(f"  - Filas recuperadas del caché:  {desde_cache}")
+    print(f"  - Filas procesadas con LLM:     {nuevos_procesados}")
+    print(f"  - Total en caché:               {len(cache)}")
+    print(f"  - Subidas a BD:                 {db_uploaded}")
     print(f"  - Output: {OUTPUT_FILE}")
-    print(f"  - Caché: {CACHE_FILE}")
+    print(f"  - Caché:  {CACHE_FILE}")
 
 
 if __name__ == "__main__":

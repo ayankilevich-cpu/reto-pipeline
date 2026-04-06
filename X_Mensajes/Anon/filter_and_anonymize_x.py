@@ -32,6 +32,7 @@ import json
 import os
 import re
 import sys
+import time
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -40,6 +41,7 @@ from typing import Iterable, List, Optional, Set, Tuple
 
 
 import pandas as pd
+from pandas.errors import EmptyDataError
 
 # Built-in Spanish stopwords (accent-stripped in normalization). This is a pragmatic set
 # to avoid having to maintain a large external stopwords file.
@@ -114,9 +116,9 @@ def strip_accents(s: str) -> str:
     return "".join(ch for ch in s if not unicodedata.combining(ch))
 
 
-def normalize_text_for_match(s: str) -> str:
-    # Lower + strip accents + collapse whitespace.
-    s = s or ""
+def normalize_text_for_match(s) -> str:
+    if not isinstance(s, str):
+        s = str(s) if s is not None and s == s else ""
     s = s.lower()
     s = strip_accents(s)
     s = re.sub(r"\s+", " ", s).strip()
@@ -134,11 +136,28 @@ def tokenize(s: str) -> Set[str]:
 
 
 def safe_read_csv(path: Path) -> pd.DataFrame:
-    try:
-        return pd.read_csv(path)
-    except UnicodeDecodeError:
-        # fallback
-        return pd.read_csv(path, encoding="utf-8", errors="replace")
+    # Algunos archivos pueden quedar momentáneamente en 0 bytes durante sync/copia.
+    # Reintentamos una vez para evitar fallos transitorios.
+    for attempt in range(2):
+        try:
+            if path.stat().st_size == 0:
+                if attempt == 0:
+                    time.sleep(0.8)
+                    continue
+                raise ValueError(f"El archivo CSV está vacío: {path}")
+            return pd.read_csv(path)
+        except UnicodeDecodeError:
+            # fallback para archivos con caracteres problemáticos
+            return pd.read_csv(path, encoding="utf-8", errors="replace")
+        except EmptyDataError:
+            if attempt == 0:
+                time.sleep(0.8)
+                continue
+            raise ValueError(
+                f"No se pudieron leer columnas desde el CSV: {path}. "
+                "Suele indicar archivo vacío o incompleto por sincronización."
+            )
+    raise ValueError(f"No se pudo leer el CSV de entrada: {path}")
 
 
 def load_stopwords(stopwords_file: Path) -> Set[str]:
@@ -318,7 +337,7 @@ def detect_candidate(
     Note: You can tune these thresholds later.
     """
 
-    raw = text or ""
+    raw = str(text) if isinstance(text, str) else (str(text) if text is not None and text == text else "")
     t_norm = normalize_text_for_match(raw)
 
     # Exclusions to reduce obvious false positives (extend as needed).

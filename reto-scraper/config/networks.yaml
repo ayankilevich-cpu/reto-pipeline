@@ -1,0 +1,66 @@
+# Parámetros y límites por red social. Valores iniciales orientativos.
+
+twitter:
+  enabled: true
+  search:
+    # ReTo (recomendado): anclar en un medio (handle) y extraer replies por conversation_id.
+    # En este modo, `term` del job se interpreta como el handle (sin @).
+    mode: timeline_replies
+
+    # Se mantiene por compatibilidad (no se usa en mode: timeline_replies)
+    query_template: '"{term}" lang:es -is:retweet'
+
+    lookback_minutes: 9900   # 7 días (7 * 24 * 60 = 9900 minutos)
+
+    # Límites operativos por job (controlan consumo de API)
+    max_seed_tweets: 1
+    max_replies_per_tweet: 5
+
+    # Paginación usada por el crawler (se pasa a metadata.search)
+    max_results: 10
+    max_pages: 1
+
+    # Overrides específicos para semillas (tweets del medio) y replies
+    seed_max_results: 5
+    seed_max_pages: 1
+    replies_max_results: 20
+    replies_max_pages: 1
+  rate_limit:
+    requests_per_window: 450
+    window_seconds: 900
+    backoff_seconds: 60
+
+youtube:
+  enabled: true
+  search:
+    query_template: '{term}'
+    lookback_minutes: 2880
+    relevance_language: es
+    max_results: 25
+  rate_limit:
+    requests_per_window: 10_000
+    window_seconds: 86400
+    backoff_seconds: 120
+  pagination:
+    max_results: 1000
+    max_pages: 100
+
+facebook:
+  enabled: false
+  search:
+    query_template: '{term}'
+    lookback_minutes: 1440
+  rate_limit:
+    requests_per_window: 200
+    window_seconds: 3600
+    backoff_seconds: 300
+
+tiktok:
+  enabled: false
+  search:
+    query_template: '{term}'
+    lookback_minutes: 1440
+  rate_limit:
+    requests_per_window: 100
+    window_seconds: 3600
+    backoff_seconds: 300
