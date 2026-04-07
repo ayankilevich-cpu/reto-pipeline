@@ -33,8 +33,11 @@ import streamlit as st
 from wordcloud import WordCloud
 import matplotlib.pyplot as plt
 
-sys.path.insert(0, str(Path(__file__).parent))
+_RETO_ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(_RETO_ROOT / "automatizacion_diaria"))
+sys.path.insert(0, str(_RETO_ROOT))
 from db_utils import get_conn
+from terminos_exclusion_fallback import TERMINOS_EXCLUSION_FALLBACK
 
 # ============================================================
 # CONFIG
@@ -604,7 +607,17 @@ def load_terminos(
     return df
 
 
-TERMINOS_EXCLUSION_JSON = Path(__file__).parent / "automatizacion_diaria" / "terminos_excluidos_visualizacion.json"
+TERMINOS_EXCLUSION_JSON = (
+    Path(__file__).resolve().parent / "automatizacion_diaria" / "terminos_excluidos_visualizacion.json"
+)
+
+
+def _terminos_exclusion_json_paths() -> List[Path]:
+    repo = Path(__file__).resolve().parent
+    return [
+        repo / "automatizacion_diaria" / "terminos_excluidos_visualizacion.json",
+        repo / "terminos_excluidos_visualizacion.json",
+    ]
 
 
 def _normalize_term_for_filter(token: str) -> str:
@@ -617,19 +630,24 @@ def _normalize_term_for_filter(token: str) -> str:
     )
 
 
-@st.cache_data(ttl=300)
 def load_terminos_exclusion_set() -> frozenset:
-    """Términos neutros/genéricos a excluir del ranking (JSON en automatizacion_diaria)."""
+    """Términos neutros/genéricos a excluir del ranking (JSON o respaldo embebido)."""
     raw: List[Any] = []
-    if TERMINOS_EXCLUSION_JSON.exists():
+    for p in _terminos_exclusion_json_paths():
+        if not p.exists():
+            continue
         try:
-            data = json.loads(TERMINOS_EXCLUSION_JSON.read_text(encoding="utf-8"))
+            data = json.loads(p.read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 raw = data.get("excluir") or []
             elif isinstance(data, list):
                 raw = data
+            if isinstance(raw, list) and len(raw) > 0:
+                break
         except (json.JSONDecodeError, OSError):
-            raw = []
+            continue
+    if not raw:
+        raw = list(TERMINOS_EXCLUSION_FALLBACK)
     if not isinstance(raw, list):
         raw = []
     out = {_normalize_term_for_filter(str(x)) for x in raw if str(x).strip()}
@@ -1825,9 +1843,15 @@ def render_terminos():
 
     counter = Counter(all_terms)
     n_tokens_antes = len(counter)
+    exclude = frozenset()
     if filtro_neutros:
         exclude = load_terminos_exclusion_set()
         counter = _filter_counter_terminos_neutros(counter, exclude)
+        if len(exclude) == 0:
+            st.warning(
+                "La lista de exclusiones está vacía (ni JSON ni respaldo embebido). "
+                "Revisa el despliegue o el archivo de configuración."
+            )
     if not counter:
         st.warning(
             "No quedan términos tras aplicar el filtro de neutros. "
@@ -1836,7 +1860,8 @@ def render_terminos():
         return
     if filtro_neutros and n_tokens_antes:
         st.caption(
-            f"Términos distintos: {len(counter):,} (tras filtro; {n_tokens_antes:,} antes del filtro)."
+            f"Términos distintos: {len(counter):,} tras filtro ({n_tokens_antes:,} antes; "
+            f"{len(exclude):,} lemas en lista de exclusión)."
         )
 
     _nc = len(counter)
