@@ -48,9 +48,25 @@ import streamlit.components.v1 as components
 from wordcloud import WordCloud
 import matplotlib.pyplot as plt
 
-sys.path.insert(0, str(Path(__file__).parent))
+_AUTO_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(_AUTO_DIR))
 from db_utils import get_conn
-from terminos_exclusion_oficial import TERMINOS_EXCLUSION_LEMAS
+try:
+    from terminos_exclusion_oficial import TERMINOS_EXCLUSION_LEMAS
+except ImportError:
+    import importlib.util as _ilu
+    for _p in (
+        _AUTO_DIR / "terminos_exclusion_oficial.py",
+        _AUTO_DIR.parent / "terminos_exclusion_oficial.py",
+    ):
+        if _p.exists():
+            _spec = _ilu.spec_from_file_location("terminos_exclusion_oficial", _p)
+            _mod = _ilu.module_from_spec(_spec)
+            _spec.loader.exec_module(_mod)
+            TERMINOS_EXCLUSION_LEMAS = _mod.TERMINOS_EXCLUSION_LEMAS
+            break
+    else:
+        TERMINOS_EXCLUSION_LEMAS = frozenset()
 
 # ============================================================
 # CONFIG
