@@ -21,9 +21,10 @@ from __future__ import annotations
 import base64
 import json
 import sys
+import unicodedata
 from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import pandas as pd
 import plotly.express as px
@@ -601,6 +602,50 @@ def load_terminos(
             conn, params=params,
         )
     return df
+
+
+TERMINOS_EXCLUSION_JSON = Path(__file__).parent / "automatizacion_diaria" / "terminos_excluidos_visualizacion.json"
+
+
+def _normalize_term_for_filter(token: str) -> str:
+    """Minúsculas y sin marcas diacríticas para comparar con la lista de exclusiones."""
+    s = (token or "").strip().lower()
+    if not s:
+        return ""
+    return "".join(
+        c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn"
+    )
+
+
+@st.cache_data(ttl=300)
+def load_terminos_exclusion_set() -> frozenset:
+    """Términos neutros/genéricos a excluir del ranking (JSON en automatizacion_diaria)."""
+    raw: List[Any] = []
+    if TERMINOS_EXCLUSION_JSON.exists():
+        try:
+            data = json.loads(TERMINOS_EXCLUSION_JSON.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                raw = data.get("excluir") or []
+            elif isinstance(data, list):
+                raw = data
+        except (json.JSONDecodeError, OSError):
+            raw = []
+    if not isinstance(raw, list):
+        raw = []
+    out = {_normalize_term_for_filter(str(x)) for x in raw if str(x).strip()}
+    out.discard("")
+    return frozenset(out)
+
+
+def _filter_counter_terminos_neutros(counter: Counter, exclude: frozenset) -> Counter:
+    """Quita del contador las claves cuya forma normalizada está en `exclude`."""
+    out = Counter()
+    for term, n in counter.items():
+        nt = _normalize_term_for_filter(term)
+        if not nt or nt in exclude:
+            continue
+        out[term] = n
+    return out
 
 
 # ============================================================
@@ -1715,7 +1760,10 @@ def render_calidad_llm():
 
 def render_terminos():
     st.title("Términos de odio más frecuentes")
-    st.markdown("Análisis de los términos detectados en mensajes candidatos a odio.")
+    st.markdown(
+        "Análisis de los términos detectados en mensajes candidatos a odio. "
+        "Por defecto se ocultan palabras muy frecuentes pero poco informativas para el análisis de odio violento."
+    )
 
     opts = load_filter_options()
 
@@ -1739,6 +1787,21 @@ def render_terminos():
     )
     solo_candidatos = fc5.checkbox("Solo candidatos a odio", value=True, key="term_cand")
 
+    filtro_neutros = st.checkbox(
+        "Ocultar términos neutros / genéricos (lista del proyecto)",
+        value=True,
+        key="term_filtro_neutros",
+        help=(
+            "Excluye del ranking palabras habituales en política y discurso general (p. ej. «presidente», «gente», «ciudadanos»). "
+            "La lista es editable en el repositorio."
+        ),
+    )
+    with st.expander("Lista de exclusiones (términos frecuentes)"):
+        st.caption(
+            f"Archivo JSON (una palabra o lema por entrada, sin acentos obligatorios al editar): "
+            f"`{TERMINOS_EXCLUSION_JSON}`"
+        )
+
     df = load_terminos(
         platforms=tuple(sel_platforms) if sel_platforms else None,
         medios=tuple(sel_medios) if sel_medios else None,
@@ -1761,7 +1824,31 @@ def render_terminos():
             all_terms.append(str(terms_str).strip().lower())
 
     counter = Counter(all_terms)
-    top_n = st.slider("Cantidad de términos", 10, min(50, len(counter)), 25, key="term_topn")
+    n_tokens_antes = len(counter)
+    if filtro_neutros:
+        exclude = load_terminos_exclusion_set()
+        counter = _filter_counter_terminos_neutros(counter, exclude)
+    if not counter:
+        st.warning(
+            "No quedan términos tras aplicar el filtro de neutros. "
+            "Desactiva «Ocultar términos neutros / genéricos» o amplía filtros de plataforma/medio/período."
+        )
+        return
+    if filtro_neutros and n_tokens_antes:
+        st.caption(
+            f"Términos distintos: {len(counter):,} (tras filtro; {n_tokens_antes:,} antes del filtro)."
+        )
+
+    _nc = len(counter)
+    _max_n = min(50, max(1, _nc))
+    _min_n = min(10, _max_n)
+    top_n = st.slider(
+        "Cantidad de términos",
+        _min_n,
+        _max_n,
+        min(25, _max_n),
+        key="term_topn",
+    )
     top_terms = counter.most_common(top_n)
 
     col1, col2 = st.columns([1, 1])

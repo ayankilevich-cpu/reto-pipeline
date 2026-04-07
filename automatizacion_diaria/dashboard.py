@@ -31,8 +31,10 @@ Uso:
 from __future__ import annotations
 
 import base64
+import html
 import json
 import sys
+import unicodedata
 from collections import Counter
 from datetime import date
 from pathlib import Path
@@ -85,7 +87,7 @@ CAT_COLORS = [
 ]
 
 # Visible en sidebar: confirmar que el despliegue (Streamlit Cloud, etc.) sirvió este archivo.
-DASHBOARD_UI_VERSION = "1.4 · carrusel muestra LLM"
+DASHBOARD_UI_VERSION = "1.5 · términos frecuentes filtro neutros"
 
 # Mapeo de nombres de plataforma para mostrar
 PLATFORM_DISPLAY = {
@@ -898,6 +900,50 @@ def load_terminos(
             conn, params=params,
         )
     return df
+
+
+TERMINOS_EXCLUSION_JSON = Path(__file__).parent / "terminos_excluidos_visualizacion.json"
+
+
+def _normalize_term_for_filter(token: str) -> str:
+    """Minúsculas y sin marcas diacríticas para comparar con la lista de exclusiones."""
+    s = (token or "").strip().lower()
+    if not s:
+        return ""
+    return "".join(
+        c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn"
+    )
+
+
+@st.cache_data(ttl=300)
+def load_terminos_exclusion_set() -> frozenset:
+    """Términos neutros/genéricos a excluir del ranking (JSON en automatizacion_diaria)."""
+    raw: List[Any] = []
+    if TERMINOS_EXCLUSION_JSON.exists():
+        try:
+            data = json.loads(TERMINOS_EXCLUSION_JSON.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                raw = data.get("excluir") or []
+            elif isinstance(data, list):
+                raw = data
+        except (json.JSONDecodeError, OSError):
+            raw = []
+    if not isinstance(raw, list):
+        raw = []
+    out = {_normalize_term_for_filter(str(x)) for x in raw if str(x).strip()}
+    out.discard("")
+    return frozenset(out)
+
+
+def _filter_counter_terminos_neutros(counter: Counter, exclude: frozenset) -> Counter:
+    """Quita del contador las claves cuya forma normalizada está en `exclude`."""
+    out = Counter()
+    for term, n in counter.items():
+        nt = _normalize_term_for_filter(term)
+        if not nt or nt in exclude:
+            continue
+        out[term] = n
+    return out
 
 
 # ============================================================
@@ -2161,7 +2207,10 @@ def render_calidad_llm():
 
 def render_terminos():
     st.title("Términos de odio más frecuentes")
-    st.markdown("Análisis de los términos detectados en mensajes candidatos a odio.")
+    st.markdown(
+        "Análisis de los términos detectados en mensajes candidatos a odio. "
+        "Por defecto se ocultan palabras muy frecuentes pero poco informativas para el análisis de odio violento."
+    )
 
     opts = load_filter_options()
 
@@ -2185,6 +2234,21 @@ def render_terminos():
     )
     solo_candidatos = fc5.checkbox("Solo candidatos a odio", value=True, key="term_cand")
 
+    filtro_neutros = st.checkbox(
+        "Ocultar términos neutros / genéricos (lista del proyecto)",
+        value=True,
+        key="term_filtro_neutros",
+        help=(
+            "Excluye del ranking palabras habituales en política y discurso general (p. ej. «presidente», «gente», «ciudadanos»). "
+            "La lista es editable en el repositorio."
+        ),
+    )
+    with st.expander("Lista de exclusiones (términos frecuentes)"):
+        st.caption(
+            f"Archivo JSON (una palabra o lema por entrada, sin acentos obligatorios al editar): "
+            f"`{TERMINOS_EXCLUSION_JSON}`"
+        )
+
     df = load_terminos(
         platforms=tuple(sel_platforms) if sel_platforms else None,
         medios=tuple(sel_medios) if sel_medios else None,
@@ -2207,7 +2271,31 @@ def render_terminos():
             all_terms.append(str(terms_str).strip().lower())
 
     counter = Counter(all_terms)
-    top_n = st.slider("Cantidad de términos", 10, min(50, len(counter)), 25, key="term_topn")
+    n_tokens_antes = len(counter)
+    if filtro_neutros:
+        exclude = load_terminos_exclusion_set()
+        counter = _filter_counter_terminos_neutros(counter, exclude)
+    if not counter:
+        st.warning(
+            "No quedan términos tras aplicar el filtro de neutros. "
+            "Desactiva «Ocultar términos neutros / genéricos» o amplía filtros de plataforma/medio/período."
+        )
+        return
+    if filtro_neutros and n_tokens_antes:
+        st.caption(
+            f"Términos distintos: {len(counter):,} (tras filtro; {n_tokens_antes:,} antes del filtro)."
+        )
+
+    _nc = len(counter)
+    _max_n = min(50, max(1, _nc))
+    _min_n = min(10, _max_n)
+    top_n = st.slider(
+        "Cantidad de términos",
+        _min_n,
+        _max_n,
+        min(25, _max_n),
+        key="term_topn",
+    )
     top_terms = counter.most_common(top_n)
 
     col1, col2 = st.columns([1, 1])
@@ -3623,6 +3711,73 @@ def _render_art510_preview(sel_platforms, sel_sources):
             st.rerun()
 
 
+def _art510_escape(s) -> str:
+    return html.escape(str(s) if s is not None and not (isinstance(s, float) and pd.isna(s)) else "")
+
+
+def _render_art510_validacion_hscroll(cards_inner_html: str) -> None:
+    """Carril horizontal con tarjetas (sin scroll vertical del listado principal)."""
+    components.html(
+        f"""
+        <style>
+        .art510-hscroll-wrap {{
+            overflow-x: auto;
+            overflow-y: hidden;
+            -webkit-overflow-scrolling: touch;
+            width: 100%;
+            padding: 4px 2px 12px 2px;
+        }}
+        .art510-hscroll-inner {{
+            display: flex;
+            flex-direction: row;
+            gap: 14px;
+            align-items: stretch;
+        }}
+        .art510-card {{
+            flex: 0 0 min(340px, 88vw);
+            max-width: 360px;
+            min-width: 260px;
+            border: 1px solid #cbd5e0;
+            border-radius: 10px;
+            padding: 12px;
+            background: #f8fafc;
+            font-family: system-ui, -apple-system, sans-serif;
+            font-size: 13px;
+            color: #1a202c;
+            line-height: 1.35;
+        }}
+        .art510-card blockquote {{
+            margin: 0 0 10px 0;
+            padding: 8px 10px;
+            background: #fff;
+            border-left: 3px solid #2b6cb0;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 220px;
+            overflow-y: auto;
+        }}
+        .art510-card .meta {{ margin: 4px 0; font-size: 12px; }}
+        .art510-card details {{ margin-top: 8px; font-size: 11px; color: #4a5568; }}
+        .art510-badge {{
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-bottom: 6px;
+            background: #e2e8f0;
+        }}
+        </style>
+        <div class="art510-hscroll-wrap"><div class="art510-hscroll-inner">
+        {cards_inner_html}
+        </div></div>
+        """,
+        height=540,
+        scrolling=False,
+    )
+
+
 def _render_art510_validacion_humana(summary: dict):
     """Sub-sección: resultado de validaciones humanas Art. 510."""
     total_val = summary.get("total_validados", 0)
@@ -3710,26 +3865,39 @@ def _render_art510_validacion_humana(summary: dict):
         if df_c.empty:
             st.info("No hay mensajes confirmados como delito.")
         else:
+            st.caption("Desplazá horizontalmente para ver todas las tarjetas.")
+            parts_conf: List[str] = []
             for _, r in df_c.iterrows():
-                with st.container():
-                    st.markdown(f"> {r['content_original']}")
-                    c1, c2, c3 = st.columns(3)
-                    c1.markdown(f"**Apartado:** {r['apartado_510_final'] or '—'}")
-                    c2.markdown(f"**Grupo protegido:** {r['grupo_protegido_final'] or '—'}")
-                    c3.markdown(f"**Revisor:** {r['annotator_id'] or '—'}")
-                    if r.get("conducta_final"):
-                        st.markdown(f"**Conducta:** {r['conducta_final']}")
-                    if r.get("comentario"):
-                        st.markdown(f"**Comentario del experto:** {r['comentario']}")
-
-                    with st.expander("Comparar con evaluación LLM"):
-                        lc1, lc2, lc3 = st.columns(3)
-                        lc1.markdown(f"LLM apartado: `{r['llm_apartado'] or '—'}`")
-                        lc2.markdown(f"LLM grupo: `{r['llm_grupo'] or '—'}`")
-                        lc3.markdown(f"LLM confianza: `{r['llm_confianza'] or '—'}`")
-                        if r.get("llm_justificacion"):
-                            st.markdown(f"LLM justificación: {r['llm_justificacion']}")
-                    st.markdown("---")
+                cond = r.get("conducta_final")
+                com = r.get("comentario")
+                just = r.get("llm_justificacion")
+                extra_cond = (
+                    f'<div class="meta"><b>Conducta:</b> {_art510_escape(cond)}</div>'
+                    if cond and str(cond).strip() else ""
+                )
+                extra_com = (
+                    f'<div class="meta"><b>Comentario:</b> {_art510_escape(com)}</div>'
+                    if com and str(com).strip() else ""
+                )
+                extra_just = (
+                    f"<p>Justificación LLM: {_art510_escape(just)}</p>"
+                    if just and str(just).strip() else ""
+                )
+                parts_conf.append(
+                    "<div class=\"art510-card\">"
+                    f"<blockquote>{_art510_escape(r.get('content_original'))}</blockquote>"
+                    f"<div class=\"meta\"><b>Apartado:</b> {_art510_escape(r.get('apartado_510_final')) or '—'}</div>"
+                    f"<div class=\"meta\"><b>Grupo protegido:</b> {_art510_escape(r.get('grupo_protegido_final')) or '—'}</div>"
+                    f"<div class=\"meta\"><b>Revisor:</b> {_art510_escape(r.get('annotator_id')) or '—'}</div>"
+                    f"{extra_cond}{extra_com}"
+                    "<details><summary>Comparar con evaluación LLM</summary>"
+                    f"<p>Apartado LLM: <code>{_art510_escape(r.get('llm_apartado')) or '—'}</code></p>"
+                    f"<p>Grupo LLM: <code>{_art510_escape(r.get('llm_grupo')) or '—'}</code></p>"
+                    f"<p>Confianza LLM: <code>{_art510_escape(r.get('llm_confianza')) or '—'}</code></p>"
+                    f"{extra_just}"
+                    "</details></div>"
+                )
+            _render_art510_validacion_hscroll("".join(parts_conf))
 
     with tab_rech:
         df_r = df_vh[df_vh["validacion_humana"] == "rechazado"]
@@ -3738,42 +3906,56 @@ def _render_art510_validacion_humana(summary: dict):
         else:
             st.caption(
                 "Estos mensajes fueron evaluados como potencial delito por el LLM "
-                "pero descartados por el experto humano."
+                "pero descartados por el experto humano. Desplazá horizontalmente para ver todas las tarjetas."
             )
-            display_cols_r = ["content_original", "llm_confianza", "llm_grupo", "annotator_id"]
-            available = [c for c in display_cols_r if c in df_r.columns]
-            rename_r = {
-                "content_original": "Mensaje",
-                "llm_confianza": "Confianza LLM",
-                "llm_grupo": "Grupo (LLM)",
-                "annotator_id": "Revisor",
-            }
-            st.dataframe(
-                df_r[available].rename(columns=rename_r),
-                use_container_width=True, hide_index=True, height=400,
-            )
+            parts_rech: List[str] = []
+            for _, r in df_r.iterrows():
+                parts_rech.append(
+                    "<div class=\"art510-card\">"
+                    f"<blockquote>{_art510_escape(r.get('content_original'))}</blockquote>"
+                    f"<div class=\"meta\"><b>Confianza LLM:</b> {_art510_escape(r.get('llm_confianza')) or '—'}</div>"
+                    f"<div class=\"meta\"><b>Grupo (LLM):</b> {_art510_escape(r.get('llm_grupo')) or '—'}</div>"
+                    f"<div class=\"meta\"><b>Revisor:</b> {_art510_escape(r.get('annotator_id')) or '—'}</div>"
+                    "</div>"
+                )
+            _render_art510_validacion_hscroll("".join(parts_rech))
 
     with tab_all:
-        all_cols = [
-            "validacion_humana", "content_original", "apartado_510_final",
-            "grupo_protegido_final", "conducta_final", "comentario",
-            "llm_confianza", "annotator_id",
-        ]
-        available_all = [c for c in all_cols if c in df_vh.columns]
-        rename_all = {
-            "validacion_humana": "Decisión humana",
-            "content_original": "Mensaje",
-            "apartado_510_final": "Apartado (humano)",
-            "grupo_protegido_final": "Grupo (humano)",
-            "conducta_final": "Conducta (humano)",
-            "comentario": "Comentario",
-            "llm_confianza": "Confianza LLM",
-            "annotator_id": "Revisor",
-        }
-        st.dataframe(
-            df_vh[available_all].rename(columns=rename_all),
-            use_container_width=True, hide_index=True, height=400,
+        st.caption(
+            "Vista completa: desplazá horizontalmente. El texto largo de cada mensaje se puede "
+            "revisar con scroll **dentro** de la tarjeta."
         )
+        _dec_badge = {
+            "confirmado": "Confirmado",
+            "rechazado": "Rechazado",
+            "corregido": "Corregido",
+        }
+        parts_all: List[str] = []
+        for _, r in df_vh.iterrows():
+            vh = str(r.get("validacion_humana") or "")
+            badge = _dec_badge.get(vh, _art510_escape(vh) or "—")
+            cond = r.get("conducta_final")
+            com = r.get("comentario")
+            extra_cond = (
+                f'<div class="meta"><b>Conducta (humano):</b> {_art510_escape(cond)}</div>'
+                if cond and str(cond).strip() else ""
+            )
+            extra_com = (
+                f'<div class="meta"><b>Comentario:</b> {_art510_escape(com)}</div>'
+                if com and str(com).strip() else ""
+            )
+            parts_all.append(
+                "<div class=\"art510-card\">"
+                f'<span class="art510-badge">{_art510_escape(badge)}</span>'
+                f"<blockquote>{_art510_escape(r.get('content_original'))}</blockquote>"
+                f"<div class=\"meta\"><b>Apartado (humano):</b> {_art510_escape(r.get('apartado_510_final')) or '—'}</div>"
+                f"<div class=\"meta\"><b>Grupo (humano):</b> {_art510_escape(r.get('grupo_protegido_final')) or '—'}</div>"
+                f"{extra_cond}{extra_com}"
+                f"<div class=\"meta\"><b>Confianza LLM:</b> {_art510_escape(r.get('llm_confianza')) or '—'}</div>"
+                f"<div class=\"meta\"><b>Revisor:</b> {_art510_escape(r.get('annotator_id')) or '—'}</div>"
+                "</div>"
+            )
+        _render_art510_validacion_hscroll("".join(parts_all))
 
 
 def _render_art510_full(summary, sel_platforms, sel_sources, solo_delitos):
@@ -4975,6 +5157,10 @@ def _render_anotacion_youtube(annotator: str):
         if st.button("Limpiar saltos y recargar"):
             st.session_state["ann_skipped"] = set()
             st.rerun()
+        st.caption(
+            "**Limpiar saltos:** borra la memoria de mensajes que pasaste con **Saltar**; "
+            "esos comentarios pueden volver a salir en la cola (muestra aleatoria)."
+        )
         return
 
     # Tomar el primer mensaje
@@ -5155,6 +5341,10 @@ def _render_validacion_art510(annotator: str):
         if st.button("Limpiar saltos Art. 510 y recargar", key="v510_clear"):
             st.session_state["v510_skipped"] = set()
             st.rerun()
+        st.caption(
+            "**Limpiar saltos:** borra los pares (mensaje + fuente de etiqueta) que pasaste con **Saltar**; "
+            "si siguen sin validación en la base, volverán a mostrarse como pendientes."
+        )
         return
 
     msg = queue.iloc[0]
@@ -6021,6 +6211,10 @@ def _render_validacion_llm_youtube(annotator: str):
         if st.button("Limpiar saltos y recargar", key="vllm_yt_clear"):
             st.session_state["vllm_yt_skipped"] = set()
             st.rerun()
+        st.caption(
+            "**Limpiar saltos:** borra la memoria de mensajes que pasaste con **Saltar**; "
+            "pueden volver a aparecer en la cola de validación LLM (YouTube)."
+        )
         return
 
     msg = queue.iloc[0]
@@ -6227,6 +6421,10 @@ def _render_validacion_llm_x(annotator: str):
         if st.button("Limpiar saltos y recargar", key="vllm_x_clear"):
             st.session_state["vllm_x_skipped"] = set()
             st.rerun()
+        st.caption(
+            "**Limpiar saltos:** borra la memoria de mensajes que pasaste con **Saltar**; "
+            "pueden volver a aparecer en la cola de validación LLM (X/Twitter)."
+        )
         return
 
     msg = queue.iloc[0]
