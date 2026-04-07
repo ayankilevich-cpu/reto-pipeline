@@ -50,6 +50,7 @@ import matplotlib.pyplot as plt
 
 sys.path.insert(0, str(Path(__file__).parent))
 from db_utils import get_conn
+from terminos_exclusion_oficial import TERMINOS_EXCLUSION_LEMAS
 
 # ============================================================
 # CONFIG
@@ -87,7 +88,7 @@ CAT_COLORS = [
 ]
 
 # Visible en sidebar: confirmar que el despliegue (Streamlit Cloud, etc.) sirvió este archivo.
-DASHBOARD_UI_VERSION = "1.9 · exclusiones extra persisten en URL"
+DASHBOARD_UI_VERSION = "2.0 · lista oficial única (terminos_exclusion_oficial.py)"
 
 # Mapeo de nombres de plataforma para mostrar
 PLATFORM_DISPLAY = {
@@ -904,48 +905,6 @@ def load_terminos(
     return df
 
 
-_TERMINOS_NEUTROS_EMBEBIDOS = frozenset({
-    'ahora', 'algo', 'alguna', 'algunos', 'algún', 'allí', 'ambos', 'ante', 'antes', 'aquel',
-    'aquí', 'argentina', 'argentinas', 'argentino', 'argentinos', 'así', 'aunque', 'año', 'años',
-    'bien', 'buen', 'buena', 'bueno', 'cada', 'casi', 'caso', 'casos', 'ciudad', 'ciudadana',
-    'ciudadanas', 'ciudadano', 'ciudadanos', 'ciudades', 'como', 'con', 'congreso',
-    'constitucion', 'constitución', 'contra', 'corte', 'cosa', 'cosas', 'creo', 'cual', 'cuales',
-    'cuando', 'cuanto', 'cómo', 'dado', 'debe', 'deben', 'decir', 'del', 'democracia', 'demás',
-    'después', 'dice', 'dicho', 'dijo', 'diputada', 'diputado', 'diputados', 'donde', 'dos',
-    'durante', 'día', 'días', 'e', 'ejemplo', 'el', 'eleccion', 'elecciones', 'ella', 'ellas',
-    'ellos', 'en', 'entonces', 'entre', 'era', 'eran', 'es', 'esa', 'esas', 'ese', 'eso', 'esos',
-    'español', 'española', 'españolas', 'españoles', 'esta', 'estaba', 'estado', 'estados',
-    'este', 'esto', 'estos', 'está', 'están', 'etc', 'evidentemente', 'favor', 'forma', 'fue',
-    'fueron', 'general', 'gente', 'gobierno', 'gobiernos', 'gran', 'grande', 'grandes', 'grupo',
-    'ha', 'haber', 'había', 'hace', 'hacer', 'hacia', 'hacía', 'hasta', 'hay', 'he', 'hecho',
-    'hechos', 'hombre', 'hombres', 'hora', 'horas', 'hoy', 'iba', 'igual', 'importante', 'junto',
-    'justicia', 'la', 'las', 'le', 'les', 'ley', 'leyes', 'lo', 'los', 'luego', 'lugar', 'manera',
-    'maneras', 'mas', 'mayor', 'mayores', 'mayoría', 'me', 'mediante', 'medios', 'mejor', 'menos',
-    'menudo', 'mi', 'mientras', 'ministerio', 'ministra', 'ministro', 'ministros', 'misma',
-    'mismas', 'mismo', 'mismos', 'modo', 'momento', 'momentos', 'mucha', 'muchas', 'mucho',
-    'muchos', 'mujer', 'mujeres', 'muy', 'más', 'nacional', 'nacionales', 'nada', 'nadie', 'ni',
-    'ninguna', 'ningún', 'no', 'nos', 'nosotros', 'noticia', 'noticias', 'nueva', 'nuevas',
-    'nuevo', 'nuevos', 'nunca', 'o', 'obra', 'oposicion', 'oposición', 'otra', 'otras', 'otro',
-    'otros', 'para', 'parte', 'partes', 'partido', 'partidos', 'pasado', 'país', 'países', 'peor',
-    'periodista', 'periodistas', 'pero', 'persona', 'personas', 'poca', 'pocas', 'poco', 'pocos',
-    'podemos', 'poder', 'podría', 'podrían', 'politica', 'politicas', 'politico', 'politicos',
-    'política', 'políticas', 'político', 'políticos', 'por', 'porque', 'posible', 'prensa',
-    'presidencia', 'presidenta', 'presidente', 'presidentes', 'primer', 'primera', 'primeras',
-    'primeros', 'problema', 'problemas', 'propia', 'propias', 'propio', 'propios', 'provincia',
-    'provincias', 'proyecto', 'proyectos', 'pueblo', 'pueblos', 'puede', 'pueden', 'pues', 'que',
-    'quien', 'quienes', 'quién', 'qué', 'realidad', 'realmente', 'republica', 'república',
-    'respecto', 'sabe', 'salvo', 'se', 'sea', 'según', 'senado', 'senador', 'senadora',
-    'senadores', 'ser', 'si', 'sido', 'siempre', 'sin', 'sino', 'sistema', 'situación', 'sobre',
-    'sola', 'solamente', 'solo', 'son', 'su', 'sus', 'sé', 'sí', 'tal', 'también', 'tampoco',
-    'tan', 'tanta', 'tanto', 'te', 'tema', 'temas', 'tenemos', 'tener', 'tenía', 'tenían',
-    'tercer', 'tercera', 'tiempo', 'tiempos', 'tiene', 'tienen', 'toda', 'todas', 'todo', 'todos',
-    'tras', 'través', 'tribunal', 'tribunales', 'tu', 'tus', 'tuvo', 'té', 'u', 'un', 'una',
-    'unas', 'uno', 'unos', 'usted', 'va', 'vamos', 'van', 'varias', 'varios', 'veces', 'vez',
-    'vida', 'vidas', 'viene', 'vienen', 'vista', 'voto', 'votos', 'voy', 'vuestra', 'vuestro',
-    'y', 'ya', 'yo', 'él', 'ésa', 'ésas', 'ése', 'ésos', 'ésta', 'éstas', 'éste', 'éstos',
-    'última', 'últimas', 'último', 'últimos',
-})
-
 TERMINOS_EXCLUSION_JSON = Path(__file__).resolve().parent / "terminos_excluidos_visualizacion.json"
 
 
@@ -959,23 +918,14 @@ def _normalize_term_for_filter(token: str) -> str:
     )
 
 
+_TERMINOS_EXCLUSION_NORM: frozenset = frozenset(
+    x for x in (_normalize_term_for_filter(t) for t in TERMINOS_EXCLUSION_LEMAS) if x
+)
+
+
 def load_terminos_exclusion_set() -> frozenset:
-    """Carga exclusiones: JSON si existe, si no la lista embebida."""
-    raw: list = []
-    if TERMINOS_EXCLUSION_JSON.exists():
-        try:
-            data = json.loads(TERMINOS_EXCLUSION_JSON.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                raw = data.get("excluir") or []
-            elif isinstance(data, list):
-                raw = data
-        except Exception:
-            raw = []
-    if not raw:
-        return frozenset({_normalize_term_for_filter(t) for t in _TERMINOS_NEUTROS_EMBEBIDOS} - {""})
-    out = {_normalize_term_for_filter(str(x)) for x in raw if str(x).strip()}
-    out.discard("")
-    return frozenset(out)
+    """Lemas excluidos normalizados. Fuente única: `terminos_exclusion_oficial.py` (generado desde el JSON)."""
+    return _TERMINOS_EXCLUSION_NORM
 
 
 def _filter_counter_terminos_neutros(counter: Counter, exclude: frozenset) -> Counter:
@@ -987,50 +937,6 @@ def _filter_counter_terminos_neutros(counter: Counter, exclude: frozenset) -> Co
             continue
         out[term] = n
     return out
-
-
-def _parse_exclusiones_usuario(texto: str) -> frozenset:
-    """Palabras separadas por coma, punto y coma, | o salto de línea."""
-    if not texto or not str(texto).strip():
-        return frozenset()
-    out: Set[str] = set()
-    for line in str(texto).splitlines():
-        for seg in line.replace(";", ",").replace("|", ",").split(","):
-            seg = seg.strip()
-            if not seg:
-                continue
-            nt = _normalize_term_for_filter(seg)
-            if nt:
-                out.add(nt)
-    return frozenset(out)
-
-
-# Parámetro URL para persistir exclusiones extra al refrescar / compartir enlace
-_TERMINOS_EXCLUIR_QUERY_PARAM = "tx_excluir"
-
-
-def _terminos_excluir_qp_get() -> str:
-    v = st.query_params.get(_TERMINOS_EXCLUIR_QUERY_PARAM)
-    if v is None:
-        return ""
-    if isinstance(v, (list, tuple)):
-        return str(v[0]) if v else ""
-    return str(v)
-
-
-def _terminos_excluir_qp_sync_from_session() -> None:
-    """Mantiene la URL alineada con session_state['term_excluir_extra']."""
-    st_val = st.session_state.get("term_excluir_extra", "") or ""
-    qp_val = _terminos_excluir_qp_get()
-    if st_val == qp_val:
-        return
-    if st_val.strip():
-        st.query_params[_TERMINOS_EXCLUIR_QUERY_PARAM] = st_val
-    else:
-        try:
-            del st.query_params[_TERMINOS_EXCLUIR_QUERY_PARAM]
-        except KeyError:
-            pass
 
 
 # ============================================================
@@ -2327,39 +2233,20 @@ def render_terminos():
     )
 
     filtro_neutros = st.checkbox(
-        "Ocultar términos neutros / genéricos (lista del proyecto)",
+        "Ocultar términos neutros / genéricos (lista oficial)",
         value=True,
         key="term_filtro_neutros",
         help=(
-            "Excluye del ranking palabras habituales en política y discurso general (p. ej. «presidente», «gente», «ciudadanos»). "
-            "La lista es editable en el repositorio."
+            "Excluye del ranking lemas en la lista versionada (terminos_exclusion_oficial.py). "
+            "Sin entrada manual: se amplía editando el JSON y regenerando el módulo."
         ),
     )
     with st.expander("Lista de exclusiones (términos frecuentes)"):
         st.caption(
-            f"Archivo JSON (una palabra o lema por entrada, sin acentos obligatorios al editar): "
-            f"`{TERMINOS_EXCLUSION_JSON}`"
+            "Lista oficial versionada en el repositorio: lee `terminos_exclusion_oficial.py` "
+            f"(generado desde `{TERMINOS_EXCLUSION_JSON.name}`). "
+            "Para ampliar: editar el JSON y ejecutar `python sync_terminos_exclusion_oficial.py` en esta carpeta."
         )
-
-    if "term_excluir_extra" not in st.session_state:
-        st.session_state["term_excluir_extra"] = _terminos_excluir_qp_get()
-
-    extra_txt = st.text_area(
-        "Palabras adicionales a excluir (opcional)",
-        key="term_excluir_extra",
-        height=100,
-        placeholder="social\nvecinos\npedro",
-        help=(
-            "Una por línea o separadas por coma. Se unen a la lista del proyecto si "
-            "«Ocultar términos neutros» está activo; si lo desactivás, solo se aplican estas palabras. "
-            "Se guardan en la URL del navegador (parámetro tx_excluir) para que no se pierdan al refrescar."
-        ),
-    )
-    st.caption(
-        "Las palabras extra se guardan en la dirección de la página; al refrescar se mantienen. "
-        "Podés copiar el enlace para compartir la misma lista."
-    )
-    _terminos_excluir_qp_sync_from_session()
 
     df = load_terminos(
         platforms=tuple(sel_platforms) if sel_platforms else None,
@@ -2384,31 +2271,23 @@ def render_terminos():
 
     counter = Counter(all_terms)
     n_tokens_antes = len(counter)
-    exclude_extra = _parse_exclusiones_usuario(extra_txt)
-    exclude_base = load_terminos_exclusion_set() if filtro_neutros else frozenset()
-    if filtro_neutros and len(exclude_base) == 0:
+    exclude = load_terminos_exclusion_set() if filtro_neutros else frozenset()
+    if filtro_neutros and len(exclude) == 0:
         st.warning(
-            "La lista de exclusiones del proyecto está vacía (ni JSON ni respaldo embebido). "
-            "Revisa el despliegue o el archivo de configuración."
+            "La lista de exclusiones oficial está vacía. Revisa el despliegue de `terminos_exclusion_oficial.py`."
         )
-    exclude = exclude_base | exclude_extra
-    if filtro_neutros or exclude_extra:
+    if filtro_neutros:
         counter = _filter_counter_terminos_neutros(counter, exclude)
     if not counter:
         st.warning(
-            "No quedan términos tras aplicar los filtros de exclusión. "
-            "Revisa las palabras adicionales, desactiva «Ocultar términos neutros» o amplía plataforma/medio/período."
+            "No quedan términos tras aplicar el filtro. "
+            "Desactiva «Ocultar términos neutros» o amplía plataforma/medio/período."
         )
         return
-    if (filtro_neutros or exclude_extra) and n_tokens_antes:
-        partes = []
-        if filtro_neutros:
-            partes.append(f"{len(exclude_base):,} lemas del proyecto")
-        if exclude_extra:
-            partes.append(f"{len(exclude_extra):,} adicionales en este panel")
+    if filtro_neutros and n_tokens_antes:
         st.caption(
             f"Términos distintos: {len(counter):,} tras filtro ({n_tokens_antes:,} antes; "
-            + "; ".join(partes) + ")."
+            f"{len(exclude):,} lemas en lista oficial)."
         )
 
     _nc = len(counter)
