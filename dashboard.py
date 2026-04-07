@@ -593,7 +593,9 @@ def load_terminos(
         conds.append("e.categoria_odio_pred IN %s"); params.append(tuple(categorias))
         need_llm_join = True
     if ultimas_horas:
-        conds.append("pm.created_at >= NOW() - INTERVAL '%s hours'")
+        conds.append(
+            "COALESCE(pm.processed_at, pm.created_at) >= NOW() - (%s::integer * interval '1 hour')"
+        )
         params.append(ultimas_horas)
 
     where = " AND ".join(conds)
@@ -1792,16 +1794,13 @@ def render_terminos():
         value=True,
         key="term_filtro_neutros",
         help=(
-            "Excluye lemas de la lista versionada (terminos_exclusion_oficial.py). "
-            "Se amplía con el JSON + sync en automatizacion_diaria."
+            "Excluye lemas definidos en el repositorio (terminos_exclusion_oficial.py). "
+            "Para ampliar: JSON + sync en automatizacion_diaria."
         ),
     )
-    with st.expander("Lista de exclusiones (términos frecuentes)"):
-        st.caption(
-            "Lista oficial en `automatizacion_diaria/terminos_exclusion_oficial.py` "
-            f"(generado desde `{TERMINOS_EXCLUSION_JSON.name}`). "
-            "Para ampliar: editar el JSON y ejecutar `python sync_terminos_exclusion_oficial.py` en esa carpeta."
-        )
+    st.caption(
+        "**Período:** fecha de **ingreso al sistema** (`processed_at`), no solo publicación del mensaje."
+    )
 
     df = load_terminos(
         platforms=tuple(sel_platforms) if sel_platforms else None,

@@ -88,7 +88,7 @@ CAT_COLORS = [
 ]
 
 # Visible en sidebar: confirmar que el despliegue (Streamlit Cloud, etc.) sirvió este archivo.
-DASHBOARD_UI_VERSION = "2.0 · lista oficial única (terminos_exclusion_oficial.py)"
+DASHBOARD_UI_VERSION = "2.1 · período por processed_at + sin bloque exclusiones manual"
 
 # Mapeo de nombres de plataforma para mostrar
 PLATFORM_DISPLAY = {
@@ -891,7 +891,10 @@ def load_terminos(
         conds.append("e.categoria_odio_pred IN %s"); params.append(tuple(categorias))
         need_llm_join = True
     if ultimas_horas:
-        conds.append("pm.created_at >= NOW() - INTERVAL '%s hours'")
+        # Ingreso al sistema (p. ej. YT cargado hoy con comentario publicado hace días)
+        conds.append(
+            "COALESCE(pm.processed_at, pm.created_at) >= NOW() - (%s::integer * interval '1 hour')"
+        )
         params.append(ultimas_horas)
 
     where = " AND ".join(conds)
@@ -2237,16 +2240,14 @@ def render_terminos():
         value=True,
         key="term_filtro_neutros",
         help=(
-            "Excluye del ranking lemas en la lista versionada (terminos_exclusion_oficial.py). "
-            "Sin entrada manual: se amplía editando el JSON y regenerando el módulo."
+            "Excluye lemas definidos en el repositorio (terminos_exclusion_oficial.py). "
+            "Para ampliar la lista: JSON + sync en automatizacion_diaria."
         ),
     )
-    with st.expander("Lista de exclusiones (términos frecuentes)"):
-        st.caption(
-            "Lista oficial versionada en el repositorio: lee `terminos_exclusion_oficial.py` "
-            f"(generado desde `{TERMINOS_EXCLUSION_JSON.name}`). "
-            "Para ampliar: editar el JSON y ejecutar `python sync_terminos_exclusion_oficial.py` en esta carpeta."
-        )
+    st.caption(
+        "**Período:** usa la fecha de **ingreso al sistema** (`processed_at`), no solo la publicación del mensaje, "
+        "para que comentarios de YouTube recién cargados aparezcan en 24/48/72 h."
+    )
 
     df = load_terminos(
         platforms=tuple(sel_platforms) if sel_platforms else None,
