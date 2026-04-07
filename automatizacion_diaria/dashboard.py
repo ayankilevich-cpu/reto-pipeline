@@ -50,7 +50,11 @@ import matplotlib.pyplot as plt
 
 sys.path.insert(0, str(Path(__file__).parent))
 from db_utils import get_conn
-from terminos_exclusion_fallback import TERMINOS_EXCLUSION_FALLBACK
+# terminos_exclusion_fallback se usa como respaldo solo si el JSON no existe
+try:
+    from terminos_exclusion_fallback import TERMINOS_EXCLUSION_FALLBACK as _FB
+except ImportError:
+    _FB = None
 
 # ============================================================
 # CONFIG
@@ -903,16 +907,49 @@ def load_terminos(
     return df
 
 
+_TERMINOS_NEUTROS_EMBEBIDOS = frozenset({
+    'ahora', 'algo', 'alguna', 'algunos', 'algún', 'allí', 'ambos', 'ante', 'antes', 'aquel',
+    'aquí', 'argentina', 'argentinas', 'argentino', 'argentinos', 'así', 'aunque', 'año', 'años',
+    'bien', 'buen', 'buena', 'bueno', 'cada', 'casi', 'caso', 'casos', 'ciudad', 'ciudadana',
+    'ciudadanas', 'ciudadano', 'ciudadanos', 'ciudades', 'como', 'con', 'congreso',
+    'constitucion', 'constitución', 'contra', 'corte', 'cosa', 'cosas', 'creo', 'cual', 'cuales',
+    'cuando', 'cuanto', 'cómo', 'dado', 'debe', 'deben', 'decir', 'del', 'democracia', 'demás',
+    'después', 'dice', 'dicho', 'dijo', 'diputada', 'diputado', 'diputados', 'donde', 'dos',
+    'durante', 'día', 'días', 'e', 'ejemplo', 'el', 'eleccion', 'elecciones', 'ella', 'ellas',
+    'ellos', 'en', 'entonces', 'entre', 'era', 'eran', 'es', 'esa', 'esas', 'ese', 'eso', 'esos',
+    'español', 'española', 'españolas', 'españoles', 'esta', 'estaba', 'estado', 'estados',
+    'este', 'esto', 'estos', 'está', 'están', 'etc', 'evidentemente', 'favor', 'forma', 'fue',
+    'fueron', 'general', 'gente', 'gobierno', 'gobiernos', 'gran', 'grande', 'grandes', 'grupo',
+    'ha', 'haber', 'había', 'hace', 'hacer', 'hacia', 'hacía', 'hasta', 'hay', 'he', 'hecho',
+    'hechos', 'hombre', 'hombres', 'hora', 'horas', 'hoy', 'iba', 'igual', 'importante', 'junto',
+    'justicia', 'la', 'las', 'le', 'les', 'ley', 'leyes', 'lo', 'los', 'luego', 'lugar', 'manera',
+    'maneras', 'mas', 'mayor', 'mayores', 'mayoría', 'me', 'mediante', 'medios', 'mejor', 'menos',
+    'menudo', 'mi', 'mientras', 'ministerio', 'ministra', 'ministro', 'ministros', 'misma',
+    'mismas', 'mismo', 'mismos', 'modo', 'momento', 'momentos', 'mucha', 'muchas', 'mucho',
+    'muchos', 'mujer', 'mujeres', 'muy', 'más', 'nacional', 'nacionales', 'nada', 'nadie', 'ni',
+    'ninguna', 'ningún', 'no', 'nos', 'nosotros', 'noticia', 'noticias', 'nueva', 'nuevas',
+    'nuevo', 'nuevos', 'nunca', 'o', 'obra', 'oposicion', 'oposición', 'otra', 'otras', 'otro',
+    'otros', 'para', 'parte', 'partes', 'partido', 'partidos', 'pasado', 'país', 'países', 'peor',
+    'periodista', 'periodistas', 'pero', 'persona', 'personas', 'poca', 'pocas', 'poco', 'pocos',
+    'podemos', 'poder', 'podría', 'podrían', 'politica', 'politicas', 'politico', 'politicos',
+    'política', 'políticas', 'político', 'políticos', 'por', 'porque', 'posible', 'prensa',
+    'presidencia', 'presidenta', 'presidente', 'presidentes', 'primer', 'primera', 'primeras',
+    'primeros', 'problema', 'problemas', 'propia', 'propias', 'propio', 'propios', 'provincia',
+    'provincias', 'proyecto', 'proyectos', 'pueblo', 'pueblos', 'puede', 'pueden', 'pues', 'que',
+    'quien', 'quienes', 'quién', 'qué', 'realidad', 'realmente', 'republica', 'república',
+    'respecto', 'sabe', 'salvo', 'se', 'sea', 'según', 'senado', 'senador', 'senadora',
+    'senadores', 'ser', 'si', 'sido', 'siempre', 'sin', 'sino', 'sistema', 'situación', 'sobre',
+    'sola', 'solamente', 'solo', 'son', 'su', 'sus', 'sé', 'sí', 'tal', 'también', 'tampoco',
+    'tan', 'tanta', 'tanto', 'te', 'tema', 'temas', 'tenemos', 'tener', 'tenía', 'tenían',
+    'tercer', 'tercera', 'tiempo', 'tiempos', 'tiene', 'tienen', 'toda', 'todas', 'todo', 'todos',
+    'tras', 'través', 'tribunal', 'tribunales', 'tu', 'tus', 'tuvo', 'té', 'u', 'un', 'una',
+    'unas', 'uno', 'unos', 'usted', 'va', 'vamos', 'van', 'varias', 'varios', 'veces', 'vez',
+    'vida', 'vidas', 'viene', 'vienen', 'vista', 'voto', 'votos', 'voy', 'vuestra', 'vuestro',
+    'y', 'ya', 'yo', 'él', 'ésa', 'ésas', 'ése', 'ésos', 'ésta', 'éstas', 'éste', 'éstos',
+    'última', 'últimas', 'último', 'últimos',
+})
+
 TERMINOS_EXCLUSION_JSON = Path(__file__).resolve().parent / "terminos_excluidos_visualizacion.json"
-
-
-def _terminos_exclusion_json_paths() -> List[Path]:
-    """Rutas posibles al JSON (mismo directorio que el dashboard o carpeta padre)."""
-    here = Path(__file__).resolve().parent
-    return [
-        here / "terminos_excluidos_visualizacion.json",
-        here.parent / "automatizacion_diaria" / "terminos_excluidos_visualizacion.json",
-    ]
 
 
 def _normalize_term_for_filter(token: str) -> str:
@@ -926,29 +963,19 @@ def _normalize_term_for_filter(token: str) -> str:
 
 
 def load_terminos_exclusion_set() -> frozenset:
-    """Términos neutros/genéricos a excluir del ranking.
-
-    Sin @st.cache_data: evita caché vacía persistente si el JSON no estaba en disco en un despliegue.
-    Si ningún JSON es legible, se usa ``TERMINOS_EXCLUSION_FALLBACK`` (misma lista versionada en código).
-    """
-    raw: List[Any] = []
-    for p in _terminos_exclusion_json_paths():
-        if not p.exists():
-            continue
+    """Carga exclusiones: JSON si existe, si no la lista embebida."""
+    raw: list = []
+    if TERMINOS_EXCLUSION_JSON.exists():
         try:
-            data = json.loads(p.read_text(encoding="utf-8"))
+            data = json.loads(TERMINOS_EXCLUSION_JSON.read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 raw = data.get("excluir") or []
             elif isinstance(data, list):
                 raw = data
-            if isinstance(raw, list) and len(raw) > 0:
-                break
-        except (json.JSONDecodeError, OSError):
-            continue
+        except Exception:
+            raw = []
     if not raw:
-        raw = list(TERMINOS_EXCLUSION_FALLBACK)
-    if not isinstance(raw, list):
-        raw = []
+        return frozenset({_normalize_term_for_filter(t) for t in _TERMINOS_NEUTROS_EMBEBIDOS} - {""})
     out = {_normalize_term_for_filter(str(x)) for x in raw if str(x).strip()}
     out.discard("")
     return frozenset(out)
