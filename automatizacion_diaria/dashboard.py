@@ -87,7 +87,7 @@ CAT_COLORS = [
 ]
 
 # Visible en sidebar: confirmar que el despliegue (Streamlit Cloud, etc.) sirvió este archivo.
-DASHBOARD_UI_VERSION = "1.8 · términos frecuentes: YT + candidatos"
+DASHBOARD_UI_VERSION = "1.9 · exclusiones extra persisten en URL"
 
 # Mapeo de nombres de plataforma para mostrar
 PLATFORM_DISPLAY = {
@@ -1003,6 +1003,34 @@ def _parse_exclusiones_usuario(texto: str) -> frozenset:
             if nt:
                 out.add(nt)
     return frozenset(out)
+
+
+# Parámetro URL para persistir exclusiones extra al refrescar / compartir enlace
+_TERMINOS_EXCLUIR_QUERY_PARAM = "tx_excluir"
+
+
+def _terminos_excluir_qp_get() -> str:
+    v = st.query_params.get(_TERMINOS_EXCLUIR_QUERY_PARAM)
+    if v is None:
+        return ""
+    if isinstance(v, (list, tuple)):
+        return str(v[0]) if v else ""
+    return str(v)
+
+
+def _terminos_excluir_qp_sync_from_session() -> None:
+    """Mantiene la URL alineada con session_state['term_excluir_extra']."""
+    st_val = st.session_state.get("term_excluir_extra", "") or ""
+    qp_val = _terminos_excluir_qp_get()
+    if st_val == qp_val:
+        return
+    if st_val.strip():
+        st.query_params[_TERMINOS_EXCLUIR_QUERY_PARAM] = st_val
+    else:
+        try:
+            del st.query_params[_TERMINOS_EXCLUIR_QUERY_PARAM]
+        except KeyError:
+            pass
 
 
 # ============================================================
@@ -2313,6 +2341,9 @@ def render_terminos():
             f"`{TERMINOS_EXCLUSION_JSON}`"
         )
 
+    if "term_excluir_extra" not in st.session_state:
+        st.session_state["term_excluir_extra"] = _terminos_excluir_qp_get()
+
     extra_txt = st.text_area(
         "Palabras adicionales a excluir (opcional)",
         key="term_excluir_extra",
@@ -2320,9 +2351,15 @@ def render_terminos():
         placeholder="social\nvecinos\npedro",
         help=(
             "Una por línea o separadas por coma. Se unen a la lista del proyecto si "
-            "«Ocultar términos neutros» está activo; si lo desactivás, solo se aplican estas palabras."
+            "«Ocultar términos neutros» está activo; si lo desactivás, solo se aplican estas palabras. "
+            "Se guardan en la URL del navegador (parámetro tx_excluir) para que no se pierdan al refrescar."
         ),
     )
+    st.caption(
+        "Las palabras extra se guardan en la dirección de la página; al refrescar se mantienen. "
+        "Podés copiar el enlace para compartir la misma lista."
+    )
+    _terminos_excluir_qp_sync_from_session()
 
     df = load_terminos(
         platforms=tuple(sel_platforms) if sel_platforms else None,
