@@ -35,12 +35,6 @@ import streamlit.components.v1 as components
 from wordcloud import WordCloud
 import matplotlib.pyplot as plt
 
-try:
-    # Evita que Streamlit "magia" renderice objetos intermedios (p. ej. DeltaGenerator).
-    st.set_option("runner.magicEnabled", False)
-except Exception:
-    pass
-
 _RETO_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(_RETO_ROOT / "automatizacion_diaria"))
 sys.path.insert(0, str(_RETO_ROOT))
