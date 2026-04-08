@@ -1728,6 +1728,14 @@ def render_analisis_contextual():
         st.warning("No hay datos de análisis semanal. Ejecutá `analisis_contexto_semanal.py` para generar el histórico.")
         return
 
+    FECHA_INICIO_MEDICION = pd.Timestamp("2025-11-24")
+    df["semana_inicio"] = pd.to_datetime(df["semana_inicio"], errors="coerce")
+    df["semana_fin"] = pd.to_datetime(df["semana_fin"], errors="coerce")
+    df = df[df["semana_inicio"] >= FECHA_INICIO_MEDICION].copy()
+    if df.empty:
+        st.warning("No hay semanas disponibles desde el inicio de medición (24/11/2025).")
+        return
+
     for _col in ("promedio_referencia_pct", "umbral_spike_pct", "n_semanas_base"):
         if _col not in df.columns:
             df[_col] = pd.NA
