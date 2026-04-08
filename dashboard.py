@@ -5382,7 +5382,10 @@ def _render_validacion_llm(platform_key: str, annotator: str) -> None:
 
     last_status = st.session_state.pop(status_key, None)
     if last_status:
-        st.success(f"Validación LLM guardada ({last_status[1]}...)") if last_status[0] == "ok" else st.error("Error al guardar la validación.")
+        if last_status[0] == "ok":
+            st.success(f"Validación LLM guardada ({last_status[1]}...)")
+        else:
+            st.error("Error al guardar la validación.")
 
     clasif_sel = st.selectbox("Filtrar por predicción LLM", ["Todos", "ODIO", "NO_ODIO", "DUDOSO"], index=0, key=filter_key)
     clasif_filter = clasif_sel if clasif_sel != "Todos" else None
@@ -5401,7 +5404,10 @@ def _render_validacion_llm(platform_key: str, annotator: str) -> None:
         st.session_state[skipped_key] = set()
     queue = _load_vllm_queue(platform_key, clasif_filter)
     if queue.empty:
-        st.success("Todos los mensajes con etiqueta LLM han sido validados.") if kpis["pendientes"] == 0 and kpis["total_etiquetados_llm"] > 0 else st.info("No hay mensajes pendientes con el filtro seleccionado.")
+        if kpis["pendientes"] == 0 and kpis["total_etiquetados_llm"] > 0:
+            st.success("Todos los mensajes con etiqueta LLM han sido validados.")
+        else:
+            st.info("No hay mensajes pendientes con el filtro seleccionado.")
         if st.button("Limpiar saltos y recargar", key=f"{form_prefix}_clear"):
             st.session_state[skipped_key] = set()
             st.rerun()
