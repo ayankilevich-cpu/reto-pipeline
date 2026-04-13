@@ -72,9 +72,16 @@ backups/
 *.png
 *.jpg
 *.jpeg
+# Excepciones: assets del dashboard (versionados)
+!logo_reto.png
+!logos/
+!logos/*.png
 
 # --- Docker ---
 .docker/
+
+# Carpeta temporal de comparación con el repo público (no versionar)
+_reto_public_compare/
 
 # --- Estado de scripts (archivos de sincronización/caché) ---
 .consolidar_state.json
