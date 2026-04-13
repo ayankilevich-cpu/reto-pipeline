@@ -1556,6 +1556,23 @@ def render_analisis_contextual():
             si, hoy_ref,
         )
 
+    def _alerta_spike_segun_cierre(row) -> bool:
+        try:
+            if bool(row.get("es_spike")):
+                return True
+        except Exception:
+            pass
+        um = row.get("umbral_spike_pct")
+        if um is None or (isinstance(um, float) and pd.isna(um)):
+            return False
+        try:
+            um_f = float(um)
+            pct = float(row["pct_odio"])
+            tot = int(row["total_mensajes"])
+        except (TypeError, ValueError):
+            return False
+        return pct > um_f and tot >= 300
+
     # Promedio y umbral sobre semanas cerradas para no sesgar con la semana parcial.
     mask_cerrada = ~df.apply(
         lambda r: _es_semana_en_curso(r["semana_inicio"], r["semana_fin"], hoy),
@@ -1597,7 +1614,7 @@ def render_analisis_contextual():
         es_actual = _es_semana_en_curso(row["semana_inicio"], row["semana_fin"], hoy)
         if es_actual:
             colors.append(COLORS["current_week"])
-        elif row["es_spike"]:
+        elif _alerta_spike_segun_cierre(row):
             colors.append(COLORS["danger"])
         else:
             colors.append(COLORS["accent"])
@@ -1650,7 +1667,7 @@ def render_analisis_contextual():
 
     st.caption(
         f"🟡 Amarillo = semana en curso (también si el lunes de la fila = semana calendario de hoy) · "
-        "🔴/🔵 = alerta cerrada Sí/No guardada en BD · "
+        "🔴/🔵 = alerta (BD o % > umbral congelado y ≥300 msgs) · "
         f"Líneas = promedio/umbral vigentes ({avg_pct:.1f}% / {spike_threshold:.1f}%) · "
         "Período mostrado desde 24/11/2025"
     )
@@ -1662,7 +1679,7 @@ def render_analisis_contextual():
 
     week_options = []
     for _, row in df.sort_values("semana_inicio", ascending=False).iterrows():
-        spike_mark = " ⚠️ SPIKE" if row["es_spike"] else ""
+        spike_mark = " ⚠️ SPIKE" if _alerta_spike_segun_cierre(row) else ""
         label = (
             f"{row['semana_inicio'].strftime('%d/%m/%Y')} — "
             f"{row['semana_fin'].strftime('%d/%m/%Y')}"
@@ -1684,7 +1701,7 @@ def render_analisis_contextual():
     k1.metric("Total mensajes", f"{int(row['total_mensajes']):,}")
     k2.metric("Mensajes de odio", f"{int(row['total_odio']):,}")
     k3.metric("% Odio", f"{row['pct_odio']}%")
-    spike_label = "Sí ⚠️" if row["es_spike"] else "No"
+    spike_label = "Sí ⚠️" if _alerta_spike_segun_cierre(row) else "No"
     k4.metric("Spike", spike_label)
 
     st.markdown("---")

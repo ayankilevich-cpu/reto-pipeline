@@ -1787,6 +1787,27 @@ def render_analisis_contextual():
             si, hoy_ref,
         )
 
+    def _alerta_spike_segun_cierre(row) -> bool:
+        """
+        Rojo si la BD marca es_spike o si el % odio supera el umbral congelado (misma regla
+        que analisis_contexto_semanal tras el fix de ON CONFLICT).
+        """
+        try:
+            if bool(row.get("es_spike")):
+                return True
+        except Exception:
+            pass
+        um = row.get("umbral_spike_pct")
+        if um is None or (isinstance(um, float) and pd.isna(um)):
+            return False
+        try:
+            um_f = float(um)
+            pct = float(row["pct_odio"])
+            tot = int(row["total_mensajes"])
+        except (TypeError, ValueError):
+            return False
+        return pct > um_f and tot >= 300
+
     hoy = date.today()
 
     # --- Timeline ---
@@ -1859,12 +1880,12 @@ def render_analisis_contextual():
         )
         if es_actual:
             colors.append(COLORS["current_week"])
-        elif row["es_spike"]:
+        elif _alerta_spike_segun_cierre(row):
             colors.append(COLORS["danger"])
         else:
             colors.append(COLORS["accent"])
         show_pct = (
-            es_actual or row["es_spike"] or row["pct_odio"] >= avg_pct
+            es_actual or _alerta_spike_segun_cierre(row) or row["pct_odio"] >= avg_pct
         )
         text_labels.append(f"{row['pct_odio']}%" if show_pct else "")
 
@@ -1921,7 +1942,7 @@ def render_analisis_contextual():
 
     st.caption(
         f"Amarillo = semana en curso (parcial; también si coincide el **lunes** calendario con la semana de hoy) · "
-        f"Rojo / azul = alerta sí/no **según el cierre** guardado en BD · "
+        f"Rojo / azul = alerta (BD o % odio **>** umbral congelado y ≥300 msgs) · "
         f"Líneas = promedio y umbral **vigentes** hoy ({avg_pct:.1f}% / {spike_threshold:.1f}%) · "
         f"Solo semanas con {MIN_MSGS_CHART}+ mensajes · "
         "Si falta el job semanal, puede no haber fila para la semana actual (aviso arriba)."
@@ -1963,7 +1984,10 @@ def render_analisis_contextual():
         _tab_cols["Promedio ref. (al cierre)"] = _tbl["promedio_referencia_pct"].map(_fmt_pct_cell)
         _tab_cols["Umbral 1,5× (al cierre)"] = _tbl["umbral_spike_pct"].map(_fmt_pct_cell)
         _tab_cols["Semanas en base"] = _tbl["n_semanas_base"].map(_fmt_n_base)
-    _tab_cols["Alerta"] = _tbl["es_spike"].map(lambda x: "Sí" if x else "No")
+    _tab_cols["Alerta"] = _tbl.apply(
+        lambda r: "Sí" if _alerta_spike_segun_cierre(r) else "No",
+        axis=1,
+    )
 
     st.dataframe(
         pd.DataFrame(_tab_cols),
@@ -1984,7 +2008,7 @@ def render_analisis_contextual():
 
     week_options = []
     for _, row in df_selectable.sort_values("semana_inicio", ascending=False).iterrows():
-        spike_mark = " ⚠️ ALERTA" if row["es_spike"] else ""
+        spike_mark = " ⚠️ ALERTA" if _alerta_spike_segun_cierre(row) else ""
         label = (
             f"{row['semana_inicio'].strftime('%d/%m/%Y')} — "
             f"{row['semana_fin'].strftime('%d/%m/%Y')}"
@@ -2007,7 +2031,7 @@ def render_analisis_contextual():
     k1.metric("Total mensajes", f"{int(row['total_mensajes']):,}")
     k2.metric("Mensajes de odio", f"{int(row['total_odio']):,}")
     k3.metric("% Odio", f"{row['pct_odio']}%")
-    alerta_label = "Sí ⚠️" if row["es_spike"] else "No"
+    alerta_label = "Sí ⚠️" if _alerta_spike_segun_cierre(row) else "No"
     k4.metric("Alerta", alerta_label)
 
     st.markdown("---")

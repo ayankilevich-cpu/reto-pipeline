@@ -8,9 +8,10 @@ concretos** (también cuando no hay spike), p. ej. deportes / racismo en estadio
 Guarda los resultados en processed.analisis_semanal.
 
 El spike por semana usa el promedio de % odio solo en semanas **estrictamente anteriores**
-(con ≥100 mensajes). Ese promedio, el umbral (×1,5) y es_spike quedan **congelados** en la
-primera inserción de la fila; los reruns del pipeline actualizan textos/agregados pero no
-cambian es_spike ni los umbrales guardados (filas previas a esta lógica siguen con NULL).
+(con ≥100 mensajes). El **promedio de referencia** y el **umbral (×1,5)** quedan **congelados**
+en la primera inserción; en un `ON CONFLICT` (re-ejecución) se actualizan totales y `%` odio y
+se **vuelve a calcular `es_spike`** con el mismo umbral guardado, para que un cierre parcial
+del lunes no deje la alerta en falso al llegar el resto de la semana.
 
 Los totales y el % odio se calculan con **todos** los mensajes cuyo `created_at` cae entre
 el lunes y el domingo de esa semana **según lo que haya en la BD al ejecutar el script**.
@@ -497,7 +498,12 @@ def save_week(conn, stats: Dict[str, Any], resumen: str, eventos: str):
             total_mensajes = EXCLUDED.total_mensajes,
             total_odio = EXCLUDED.total_odio,
             pct_odio = EXCLUDED.pct_odio,
-            es_spike = analisis_semanal.es_spike,
+            es_spike = (
+                EXCLUDED.pct_odio > COALESCE(
+                    analisis_semanal.umbral_spike_pct, EXCLUDED.umbral_spike_pct
+                )
+                AND EXCLUDED.total_mensajes >= 300
+            ),
             promedio_referencia_pct = analisis_semanal.promedio_referencia_pct,
             umbral_spike_pct = analisis_semanal.umbral_spike_pct,
             n_semanas_base = analisis_semanal.n_semanas_base,
