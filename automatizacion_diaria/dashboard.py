@@ -1787,27 +1787,6 @@ def render_analisis_contextual():
             si, hoy_ref,
         )
 
-    def _alerta_spike_segun_cierre(row) -> bool:
-        """
-        Rojo si la BD marca es_spike o si el % odio supera el umbral congelado (misma regla
-        que analisis_contexto_semanal tras el fix de ON CONFLICT).
-        """
-        try:
-            if bool(row.get("es_spike")):
-                return True
-        except Exception:
-            pass
-        um = row.get("umbral_spike_pct")
-        if um is None or (isinstance(um, float) and pd.isna(um)):
-            return False
-        try:
-            um_f = float(um)
-            pct = float(row["pct_odio"])
-            tot = int(row["total_mensajes"])
-        except (TypeError, ValueError):
-            return False
-        return pct > um_f and tot >= 300
-
     hoy = date.today()
 
     # --- Timeline ---
@@ -1824,6 +1803,30 @@ def render_analisis_contextual():
     else:
         avg_pct = float(df_chart["pct_odio"].mean()) if not df_chart.empty else 0
     spike_threshold = avg_pct * 1.5
+
+    def _alerta_spike_segun_cierre(row) -> bool:
+        """Rojo si es_spike en BD, o si pct_odio > umbral (congelado o dinámico) y volumen >= MIN_MSGS_CHART."""
+        try:
+            if bool(row.get("es_spike")):
+                return True
+        except Exception:
+            pass
+        pct_val = row.get("pct_odio")
+        tot_val = row.get("total_mensajes")
+        try:
+            pct = float(pct_val)
+            tot = int(tot_val)
+        except (TypeError, ValueError):
+            return False
+        if tot < MIN_MSGS_CHART:
+            return False
+        um = row.get("umbral_spike_pct")
+        if um is not None and not (isinstance(um, float) and pd.isna(um)):
+            try:
+                return pct > float(um)
+            except (TypeError, ValueError):
+                pass
+        return pct > spike_threshold
 
     st.markdown(
         f"Las **líneas horizontales** muestran el **contexto vigente** al cargar la página: promedio "

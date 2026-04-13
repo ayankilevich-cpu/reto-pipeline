@@ -511,9 +511,9 @@ def save_week(conn, stats: Dict[str, Any], resumen: str, eventos: str):
                 )
                 AND EXCLUDED.total_mensajes >= 300
             ),
-            promedio_referencia_pct = analisis_semanal.promedio_referencia_pct,
-            umbral_spike_pct = analisis_semanal.umbral_spike_pct,
-            n_semanas_base = analisis_semanal.n_semanas_base,
+            promedio_referencia_pct = COALESCE(analisis_semanal.promedio_referencia_pct, EXCLUDED.promedio_referencia_pct),
+            umbral_spike_pct = COALESCE(analisis_semanal.umbral_spike_pct, EXCLUDED.umbral_spike_pct),
+            n_semanas_base = COALESCE(analisis_semanal.n_semanas_base, EXCLUDED.n_semanas_base),
             categorias = EXCLUDED.categorias,
             targets = EXCLUDED.targets,
             temas = EXCLUDED.temas,

@@ -1556,23 +1556,6 @@ def render_analisis_contextual():
             si, hoy_ref,
         )
 
-    def _alerta_spike_segun_cierre(row) -> bool:
-        try:
-            if bool(row.get("es_spike")):
-                return True
-        except Exception:
-            pass
-        um = row.get("umbral_spike_pct")
-        if um is None or (isinstance(um, float) and pd.isna(um)):
-            return False
-        try:
-            um_f = float(um)
-            pct = float(row["pct_odio"])
-            tot = int(row["total_mensajes"])
-        except (TypeError, ValueError):
-            return False
-        return pct > um_f and tot >= 300
-
     # Promedio y umbral sobre semanas cerradas para no sesgar con la semana parcial.
     mask_cerrada = ~df.apply(
         lambda r: _es_semana_en_curso(r["semana_inicio"], r["semana_fin"], hoy),
@@ -1581,6 +1564,32 @@ def render_analisis_contextual():
     df_cerradas = df[mask_cerrada]
     avg_pct = float(df_cerradas["pct_odio"].mean()) if not df_cerradas.empty else float(df["pct_odio"].mean())
     spike_threshold = avg_pct * 1.5
+
+    MIN_MSGS_CHART = 100
+
+    def _alerta_spike_segun_cierre(row) -> bool:
+        """Rojo si es_spike en BD, o si pct_odio > umbral (congelado o dinámico) y volumen >= MIN_MSGS_CHART."""
+        try:
+            if bool(row.get("es_spike")):
+                return True
+        except Exception:
+            pass
+        pct_val = row.get("pct_odio")
+        tot_val = row.get("total_mensajes")
+        try:
+            pct = float(pct_val)
+            tot = int(tot_val)
+        except (TypeError, ValueError):
+            return False
+        if tot < MIN_MSGS_CHART:
+            return False
+        um = row.get("umbral_spike_pct")
+        if um is not None and not (isinstance(um, float) and pd.isna(um)):
+            try:
+                return pct > float(um)
+            except (TypeError, ValueError):
+                pass
+        return pct > spike_threshold
 
     st.markdown(
         f"Las **líneas horizontales** muestran el **promedio vigente** (**{avg_pct:.1f}%**) "
