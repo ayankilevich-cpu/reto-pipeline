@@ -11,9 +11,15 @@ Uso:
   Para usar otro intérprete (p. ej. venv/conda):
   PYTHON_BIN=/ruta/al/venv/bin/python3 python run_pipeline_diario.py
 
-Cron (10:00 AM diario). Usar el mismo Python que tenga las dependencias del proyecto:
-  0 10 * * * cd "/Users/alejandroyankilevich/Documents/MASTER DATA SCIENCE" && PYTHON_BIN=/ruta/a/tu/venv/bin/python3 "Clases/RETO/automatizacion_diaria/run_pipeline_diario.py" >> "Clases/RETO/automatizacion_diaria/logs/cron_stdout.log" 2>&1
+Cron — **10:00 hora de España (península)**. Usar el mismo Python que tenga las dependencias:
+  En Linux / servidor en UTC, al inicio del crontab (interpreta la hora en Madrid):
+    CRON_TZ=Europe/Madrid
+    0 10 * * * cd "/Users/alejandroyankilevich/Documents/MASTER DATA SCIENCE" && PYTHON_BIN=/ruta/a/tu/venv/bin/python3 "Clases/RETO/automatizacion_diaria/run_pipeline_diario.py" >> "Clases/RETO/automatizacion_diaria/logs/cron_stdout.log" 2>&1
+  En macOS, cron suele usar la zona del sistema: configurá el Mac en **España** y usá la misma línea `0 10 * * *` (sin CRON_TZ si no la reconoce).
   (Si no usas venv, quita PYTHON_BIN= y deja que use el python3 del PATH.)
+
+Los LUNES, tras los pasos diarios, se ejecuta automáticamente analisis_contexto_semanal.py
+(cierre de la semana anterior / fila de la semana en curso, umbrales y resumen LLM).
 """
 
 from __future__ import annotations

@@ -6,7 +6,9 @@ usando Service Account.
 - Lista archivos en una carpeta (por FOLDER_ID)
 - Filtra por nombre/extensión (por defecto *.csv)
 - Descarga a un directorio local
-- Evita re-descargas si el archivo no cambió (usa md5Checksum cuando está disponible)
+- Evita re-descargas si el archivo no cambió (pide md5Checksum vía files.get si list() no lo trae).
+- Si cambia solo el nombre local (p. ej. --prefix-with-date) pero el id de Drive y el contenido
+  son los mismos, copia desde la ruta guardada en .drive_sync_state.json en lugar de volver a bajar.
 
 Requisitos:
   pip install google-api-python-client google-auth
@@ -34,10 +36,11 @@ import argparse
 import fnmatch
 import json
 import os
+import shutil
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, List, Literal, Optional, Tuple
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -91,35 +94,60 @@ def save_state(state_path: Path, state: Dict[str, dict]) -> None:
     state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def should_download(file_meta: dict, state: Dict[str, dict], dest_path: Optional[Path] = None) -> bool:
-    """Decide si descargar en base a md5Checksum (cuando existe) o modifiedTime.
-    
-    También verifica que el archivo local exista realmente y que la ruta coincida.
+def enrich_metadata_if_needed(service, meta: dict) -> None:
+    """files.list a veces no devuelve md5Checksum; sin él el caché falla más a menudo."""
+    if meta.get("md5Checksum"):
+        return
+    full = (
+        service.files()
+        .get(fileId=meta["id"], fields="md5Checksum,modifiedTime,size")
+        .execute()
+    )
+    if full.get("md5Checksum"):
+        meta["md5Checksum"] = full["md5Checksum"]
+    if full.get("modifiedTime") and not meta.get("modifiedTime"):
+        meta["modifiedTime"] = full["modifiedTime"]
+    if full.get("size") is not None and meta.get("size") is None:
+        meta["size"] = full.get("size")
+
+
+def _content_unchanged_on_drive(meta: dict, prev: dict) -> bool:
+    """True si el archivo en Drive no cambió respecto al último sync guardado en state."""
+    m_now, p_now = meta.get("md5Checksum"), prev.get("md5Checksum")
+    if m_now and p_now:
+        return m_now == p_now
+    return meta.get("modifiedTime") == prev.get("modifiedTime")
+
+
+def plan_sync_action(
+    meta: dict, state: Dict[str, dict], dest_path: Path
+) -> Tuple[str, Literal["download", "skip", "copy_local"]]:
     """
-    fid = file_meta["id"]
+    Devuelve (motivo_log, acción).
+
+    - skip: ya está en dest y Drive no cambió.
+    - copy_local: Drive sin cambios; hay copia en otra ruta local → copiar sin API.
+    - download: hace falta bajar de Drive.
+    """
+    fid = meta["id"]
     prev = state.get(fid)
     if not prev:
-        return True
+        return ("nuevo (sin entrada en estado)", "download")
 
-    # Si la ruta destino es diferente a la guardada en el estado, hay que descargar
-    # (esto pasa cuando cambiamos la lógica de nombres únicos)
-    if dest_path and prev.get("downloaded_to"):
-        prev_path = Path(prev["downloaded_to"])
-        if prev_path != dest_path:
-            # La ruta cambió (probablemente por la nueva lógica de nombres únicos)
-            return True
+    unchanged = _content_unchanged_on_drive(meta, prev)
+    if not unchanged:
+        return ("contenido en Drive cambió (md5 o fecha)", "download")
 
-    # Verificar que el archivo local realmente existe
-    if dest_path and not dest_path.exists():
-        return True  # El archivo no existe, hay que descargarlo
+    if dest_path.exists():
+        return ("omitido (ya sincronizado)", "skip")
 
-    # Si hay md5, es lo más sólido
-    md5 = file_meta.get("md5Checksum")
-    if md5 and prev.get("md5Checksum"):
-        return md5 != prev.get("md5Checksum")
+    prev_path_str = prev.get("downloaded_to")
+    if prev_path_str:
+        prev_path = Path(prev_path_str)
+        if prev_path != dest_path and prev_path.exists():
+            return ("misma versión en Drive; copia local desde ruta anterior", "copy_local")
 
-    # Fallback a modifiedTime
-    return file_meta.get("modifiedTime") != prev.get("modifiedTime")
+    return ("falta archivo local o ruta previa inexistente", "download")
 
 
 def download_file(service, file_id: str, dest_path: Path) -> None:
@@ -194,6 +222,11 @@ def main() -> int:
         default=None,
         help="Máximo número de archivos nuevos a descargar (útil para limitar descargas grandes). Solo se aplica con --only-new",
     )
+    parser.add_argument(
+        "--no-enrich",
+        action="store_true",
+        help="No llamar a files.get para rellenar md5Checksum (menos llamadas API; el caché es menos fiable).",
+    )
 
     args = parser.parse_args()
 
@@ -263,6 +296,7 @@ def main() -> int:
         name_counts[meta["name"]] += 1
     
     downloads = 0
+    copies = 0
     for meta in selected:
         name = meta["name"]
         
@@ -295,15 +329,31 @@ def main() -> int:
                 local_name = f"{date_prefix}_{name}"
 
         dest = out_dir / local_name
-        
-        # Verificar si debe descargar (ahora con la ruta del archivo para verificar existencia)
-        if not should_download(meta, state, dest):
-            # ya está al día y el archivo existe
+
+        # Mejorar metadatos para caché: list() a menudo omite md5Checksum
+        if not args.no_enrich and meta["id"] in state:
+            enrich_metadata_if_needed(service, meta)
+
+        reason, action = plan_sync_action(meta, state, dest)
+
+        if action == "skip":
             print(f"  - omitido (ya sincronizado): {name} -> {local_name} (id={meta['id']})")
             continue
 
-        print(f"Descargando: {name} (id={meta['id']})")
+        if action == "copy_local":
+            prev_path = Path(state[meta["id"]]["downloaded_to"])
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(prev_path, dest)
+            state[meta["id"]]["downloaded_to"] = str(dest)
+            copies += 1
+            print(f"  - copiado local (sin API): {name} -> {local_name} (id={meta['id']})")
+            continue
+
+        print(f"Descargando: {name} (id={meta['id']}) — {reason}")
         download_file(service, meta["id"], dest)
+
+        if not args.no_enrich:
+            enrich_metadata_if_needed(service, meta)
 
         # Actualizar estado
         state[meta["id"]] = {
@@ -316,7 +366,10 @@ def main() -> int:
         downloads += 1
  
     save_state(state_path, state)
-    print(f"Sync completo. Descargados/actualizados: {downloads}. Estado: {state_path}")
+    print(
+        f"Sync completo. Descargas desde Drive: {downloads}. "
+        f"Copias locales (sin red): {copies}. Estado: {state_path}"
+    )
     return 0
 
 

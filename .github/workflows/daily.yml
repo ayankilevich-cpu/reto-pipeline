@@ -1,6 +1,9 @@
 # ReTo Pipeline - Ejecución diaria automatizada
 # ================================================
-# Se ejecuta cada día a las 07:00 UTC (09:00 España peninsular).
+# Cada día a las 08:00 UTC ≈ **10:00 hora peninsular (CEST, horario de verano)**.
+# En invierno (CET) la misma hora UTC son ~09:00 en España; GitHub solo admite cron en UTC
+# (no hay TZ=Europe/Madrid). Para ~10:00 CET usá `0 9 * * *` en su lugar.
+# Los lunes, tras cargar la BD, se ejecuta además analisis_contexto_semanal.py (cierre semanal + LLM).
 # También se puede ejecutar manualmente desde GitHub > Actions > Run workflow.
 #
 # Las credenciales se configuran en:
@@ -18,7 +21,7 @@ name: ReTo Pipeline Diario
 
 on:
   schedule:
-    - cron: '0 7 * * *'   # 07:00 UTC = 09:00 CEST
+    - cron: '0 8 * * *'   # 08:00 UTC ≈ 10:00 España (CEST)
   workflow_dispatch:       # Permite ejecución manual
 
 jobs:
@@ -127,6 +130,18 @@ jobs:
         run: python automatizacion_diaria/load_to_db.py
         continue-on-error: true
 
-      # Los pasos de LLM (etiquetar_completo_llm.py, filtrar_relevancia_youtube.py)
-      # se ejecutan manualmente desde local. Después correr load_to_db.py para
-      # subir los resultados LLM a la base de datos.
+      # Cierre semanal: solo lunes según calendario de España (Europe/Madrid).
+      # Requiere OPENAI_API_KEY y acceso a la misma BD que load_to_db.
+      - name: "[10] Análisis contextual semanal (solo lunes)"
+        run: |
+          DOW=$(TZ=Europe/Madrid date +%u)
+          if [ "$DOW" -eq 1 ]; then
+            echo "Lunes (Europe/Madrid): ejecutando analisis_contexto_semanal.py"
+            python automatizacion_diaria/analisis_contexto_semanal.py
+          else
+            echo "No es lunes en España; se omite análisis semanal."
+          fi
+        continue-on-error: true
+
+      # Los pasos de LLM de X por lotes (etiquetar_completo_llm.py, etc.) pueden
+      # ejecutarse manualmente desde local; luego load_to_db.py sube resultados.

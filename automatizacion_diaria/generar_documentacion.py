@@ -365,8 +365,9 @@ def build():
     # ============================================================
     doc.add_heading("6. Configuración de cron", level=1)
 
-    doc.add_paragraph("Entrada actual en crontab del usuario:")
+    doc.add_paragraph("Entrada de ejemplo en crontab (10:00 hora España):")
     doc.add_paragraph(
+        "CRON_TZ=Europe/Madrid  (Linux/servidor UTC; en macOS suele bastar reloj en Madrid)\n"
         '0 10 * * * cd "/Users/alejandroyankilevich/Documents/MASTER DATA SCIENCE" '
         '&& PYTHON_BIN="/Users/alejandroyankilevich/Documents/MASTER DATA SCIENCE/'
         'Clases/RETO/X_Mensajes/venv/bin/python3" /opt/homebrew/bin/python3 '
@@ -378,7 +379,7 @@ def build():
     doc.add_paragraph()
     doc.add_paragraph("Requisitos para que funcione:")
     reqs = [
-        "Mac encendido y con sesión de usuario iniciada a las 10:00 AM.",
+        "Equipo encendido y con sesión de usuario iniciada a las 10:00 (hora de España / Europe/Madrid).",
         "PostgreSQL corriendo en localhost:5432.",
         "El venv de X_Mensajes debe tener todas las dependencias instaladas.",
     ]

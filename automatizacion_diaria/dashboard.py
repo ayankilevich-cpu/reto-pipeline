@@ -36,7 +36,7 @@ import json
 import sys
 import unicodedata
 from collections import Counter
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
@@ -1710,6 +1710,12 @@ def _parse_json_col(val) -> dict:
     return {}
 
 
+def _bounds_semana_cal_reto(d: date) -> Tuple[date, date]:
+    """Lunes–domingo, alineado con `DATE_TRUNC('week', ...)` / `analisis_contexto_semanal.py`."""
+    start = d - timedelta(days=d.weekday())
+    return start, start + timedelta(days=6)
+
+
 def render_analisis_contextual():
     st.title("Análisis contextual semanal")
     st.markdown(
@@ -1759,6 +1765,28 @@ def render_analisis_contextual():
         except TypeError:
             return False
 
+    def _as_date_only_ctx(val) -> Optional[date]:
+        if val is None or pd.isna(val):
+            return None
+        if isinstance(val, datetime):
+            return val.date()
+        if type(val) is date:
+            return val
+        return pd.Timestamp(val).date()
+
+    def _fila_es_lunes_semana_cal_actual(si, hoy_ref: date) -> bool:
+        """Misma semana calendario que hoy aunque semana_fin en BD no cubra hoy (TZ/legacy)."""
+        d = _as_date_only_ctx(si)
+        if d is None:
+            return False
+        cal_ini, _ = _bounds_semana_cal_reto(hoy_ref)
+        return d == cal_ini
+
+    def _es_semana_en_curso(si, sf, hoy_ref: date) -> bool:
+        return _semana_incluye_hoy(si, sf, hoy_ref) or _fila_es_lunes_semana_cal_actual(
+            si, hoy_ref,
+        )
+
     hoy = date.today()
 
     # --- Timeline ---
@@ -1766,7 +1794,7 @@ def render_analisis_contextual():
 
     # Promedio y umbral solo sobre semanas cerradas (la semana en curso es parcial y no debería mover la línea base).
     mask_cerrada = ~df_chart.apply(
-        lambda r: _semana_incluye_hoy(r["semana_inicio"], r["semana_fin"], hoy),
+        lambda r: _es_semana_en_curso(r["semana_inicio"], r["semana_fin"], hoy),
         axis=1,
     )
     df_cerradas = df_chart[mask_cerrada]
@@ -1786,10 +1814,47 @@ def render_analisis_contextual():
         "umbral y promedio de referencia (análisis posteriores a esa mejora), esas columnas **aparecen solas** en la tabla."
     )
 
+    fecha_ini_med = (
+        FECHA_INICIO_MEDICION.date()
+        if hasattr(FECHA_INICIO_MEDICION, "date")
+        else pd.Timestamp(FECHA_INICIO_MEDICION).date()
+    )
+    cal_ini, cal_fin = _bounds_semana_cal_reto(hoy)
+    cubre_hoy_bd = df.apply(
+        lambda r: _es_semana_en_curso(r["semana_inicio"], r["semana_fin"], hoy),
+        axis=1,
+    ).any()
+    cubre_hoy_grafico = df_chart.apply(
+        lambda r: _es_semana_en_curso(r["semana_inicio"], r["semana_fin"], hoy),
+        axis=1,
+    ).any()
+    gap_sin_barra = cal_ini >= fecha_ini_med and not cubre_hoy_bd
+
+    if gap_sin_barra:
+        ultimo_fin = df["semana_fin"].max()
+        if pd.isna(ultimo_fin):
+            ultimo_fin_s = "—"
+        else:
+            ultimo_fin_s = pd.Timestamp(ultimo_fin).strftime("%d/%m/%Y")
+        st.warning(
+            f"**No hay fila en la base para la semana en curso** "
+            f"({cal_ini.strftime('%d/%m/%Y')}–{cal_fin.strftime('%d/%m/%Y')}). "
+            f"La última semana en `analisis_semanal` termina el **{ultimo_fin_s}**; **ningún registro incluye hoy**, "
+            "así que **no puede pintarse la barra amarilla** ni el cierre con LLM de esta semana. "
+            "Ejecutá **`analisis_contexto_semanal.py`** (automatización diaria) para generar la semana actual y, "
+            "si aplica, cerrar la anterior con alerta y resumen."
+        )
+    elif cal_ini >= fecha_ini_med and cubre_hoy_bd and not cubre_hoy_grafico:
+        st.info(
+            f"La semana en curso ({cal_ini.strftime('%d/%m/%Y')}–{cal_fin.strftime('%d/%m/%Y')}) tiene "
+            f"menos de **{MIN_MSGS_CHART}** mensajes; este gráfico solo muestra semanas con ese mínimo, "
+            "así que **no verás barra amarilla** aquí hasta que haya volumen suficiente."
+        )
+
     colors = []
     text_labels = []
     for _, row in df_chart.iterrows():
-        es_actual = _semana_incluye_hoy(
+        es_actual = _es_semana_en_curso(
             row["semana_inicio"], row["semana_fin"], hoy,
         )
         if es_actual:
@@ -1837,13 +1902,29 @@ def render_analisis_contextual():
         xaxis=dict(tickangle=-45, tickfont=dict(size=10)),
         margin=dict(b=80),
     )
+    if gap_sin_barra:
+        fig_timeline.add_annotation(
+            xref="paper",
+            yref="paper",
+            x=0.98,
+            y=0.97,
+            xanchor="right",
+            yanchor="top",
+            text="Semana actual sin fila en BD — ejecutá analisis_contexto_semanal.py",
+            showarrow=False,
+            bgcolor="rgba(254, 249, 195, 0.95)",
+            bordercolor=COLORS["current_week"],
+            borderwidth=1,
+            font=dict(size=11, color="#1a1a1a"),
+        )
     st.plotly_chart(fig_timeline, use_container_width=True, key="ctx_timeline")
 
     st.caption(
-        f"Amarillo = semana en curso (parcial) · "
+        f"Amarillo = semana en curso (parcial; también si coincide el **lunes** calendario con la semana de hoy) · "
         f"Rojo / azul = alerta sí/no **según el cierre** guardado en BD · "
         f"Líneas = promedio y umbral **vigentes** hoy ({avg_pct:.1f}% / {spike_threshold:.1f}%) · "
-        f"Solo semanas con {MIN_MSGS_CHART}+ mensajes"
+        f"Solo semanas con {MIN_MSGS_CHART}+ mensajes · "
+        "Si falta el job semanal, puede no haber fila para la semana actual (aviso arriba)."
     )
 
     _tbl = df_chart.sort_values("semana_inicio").copy()

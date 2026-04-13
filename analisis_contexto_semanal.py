@@ -12,10 +12,18 @@ El spike por semana usa el promedio de % odio solo en semanas **estrictamente an
 primera inserción de la fila; los reruns del pipeline actualizan textos/agregados pero no
 cambian es_spike ni los umbrales guardados (filas previas a esta lógica siguen con NULL).
 
+Los totales y el % odio se calculan con **todos** los mensajes cuyo `created_at` cae entre
+el lunes y el domingo de esa semana **según lo que haya en la BD al ejecutar el script**.
+Si el análisis corrió cuando aún solo estaban cargados los del lunes (o faltaban días),
+el valor queda desactualizado hasta que vuelvas a ejecutar, p. ej.:
+`python analisis_contexto_semanal.py --week 2026-04-06` (lunes de la semana a refrescar).
+
 Uso:
   python analisis_contexto_semanal.py               # analiza semanas pendientes
   python analisis_contexto_semanal.py --all          # recalcula todo el histórico
   python analisis_contexto_semanal.py --week 2026-01-13  # analiza una semana específica
+
+  (Equivale a la copia en automatizacion_diaria/; db_utils y .env suelen estar ahí.)
 """
 
 from __future__ import annotations
@@ -31,13 +39,18 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).parent))
+_RETO_ROOT = Path(__file__).resolve().parent
+_AUTO_DIR = _RETO_ROOT / "automatizacion_diaria"
+# db_utils vive en automatizacion_diaria/
+sys.path.insert(0, str(_AUTO_DIR))
+sys.path.insert(0, str(_RETO_ROOT))
 from db_utils import get_conn
 
 try:
     from dotenv import load_dotenv
-    load_dotenv(Path(__file__).parent / ".env")
-    load_dotenv(Path(__file__).resolve().parent.parent / "Medios" / "ML" / "etiquetado_llm" / ".env")
+    load_dotenv(_AUTO_DIR / ".env")
+    load_dotenv(_RETO_ROOT / ".env")
+    load_dotenv(_RETO_ROOT / "Medios" / "ML" / "etiquetado_llm" / ".env")
 except ImportError:
     pass
 
@@ -522,6 +535,47 @@ def save_week(conn, stats: Dict[str, Any], resumen: str, eventos: str):
     cur.close()
 
 
+def _to_py_date(val) -> date:
+    """Normaliza valores devueltos por pandas/PostgreSQL a datetime.date."""
+    if val is None or pd.isna(val):
+        raise ValueError("fecha nula")
+    return pd.Timestamp(val).date()
+
+
+def ensure_analisis_semanal_columns(conn) -> None:
+    """
+    Añade columnas de umbral/promedio congelados si la BD no tiene la migración
+    migrations/20260209_analisis_semanal_umbral_congelado.sql aplicada.
+    """
+    cur = conn.cursor()
+    cur.execute("""
+        ALTER TABLE processed.analisis_semanal
+            ADD COLUMN IF NOT EXISTS promedio_referencia_pct NUMERIC(6,2),
+            ADD COLUMN IF NOT EXISTS umbral_spike_pct NUMERIC(6,2),
+            ADD COLUMN IF NOT EXISTS n_semanas_base INTEGER
+    """)
+    cur.close()
+
+
+def sort_weeks_closed_first(weeks: List[date], today: date) -> List[date]:
+    """
+    Procesar primero semanas ya cerradas (domingo < hoy), luego la semana en curso
+    (parcial, incluye hoy). Dentro de cada grupo, orden cronológico.
+    """
+    closed: List[date] = []
+    partial: List[date] = []
+    for w in weeks:
+        d = _to_py_date(w) if not isinstance(w, date) else w
+        end = d + timedelta(days=6)
+        if end < today:
+            closed.append(d)
+        else:
+            partial.append(d)
+    closed.sort()
+    partial.sort()
+    return closed + partial
+
+
 def get_all_week_starts(conn) -> List[date]:
     df = pd.read_sql("""
         SELECT
@@ -531,14 +585,14 @@ def get_all_week_starts(conn) -> List[date]:
         GROUP BY 1
         ORDER BY 1
     """, conn)
-    return df["semana"].tolist()
+    return [_to_py_date(x) for x in df["semana"].tolist()]
 
 
 def get_already_analyzed(conn) -> set:
     df = pd.read_sql(
         "SELECT semana_inicio FROM processed.analisis_semanal", conn
     )
-    return set(df["semana_inicio"].tolist())
+    return {_to_py_date(x) for x in df["semana_inicio"].tolist()}
 
 
 MIN_MSGS_REF_WEEK = 100
@@ -582,7 +636,9 @@ def main():
     print("ANÁLISIS CONTEXTUAL SEMANAL — ReTo", flush=True)
     print("=" * 60, flush=True)
 
+    hoy = date.today()
     with get_conn() as conn:
+        ensure_analisis_semanal_columns(conn)
         if args.week:
             weeks = [date.fromisoformat(args.week)]
         else:
@@ -596,6 +652,14 @@ def main():
     if not weeks:
         print("No hay semanas pendientes de análisis.", flush=True)
         return
+
+    weeks = sort_weeks_closed_first(weeks, hoy)
+    n_cerradas = sum(1 for w in weeks if w + timedelta(days=6) < hoy)
+    if len(weeks) > 1 and n_cerradas > 0:
+        print(
+            "Orden: primero semana(s) cerrada(s), después la semana en curso (datos parciales).",
+            flush=True,
+        )
 
     print(f"Semanas a procesar: {len(weeks)}\n", flush=True)
 

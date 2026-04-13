@@ -24,6 +24,7 @@ import json
 import sys
 import unicodedata
 from collections import Counter
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
@@ -1485,6 +1486,12 @@ def _parse_json_col(val) -> dict:
     return {}
 
 
+def _bounds_semana_cal_reto(d: date) -> Tuple[date, date]:
+    """Lunes–domingo, alineado con `DATE_TRUNC('week', ...)` / `analisis_contexto_semanal.py`."""
+    start = d - timedelta(days=d.weekday())
+    return start, start + timedelta(days=6)
+
+
 def render_analisis_contextual():
     st.title("Análisis contextual semanal")
     st.markdown(
@@ -1528,9 +1535,30 @@ def render_analisis_contextual():
         except Exception:
             return False
 
+    def _as_date_only_ctx(val) -> Optional[date]:
+        if val is None or pd.isna(val):
+            return None
+        if isinstance(val, datetime):
+            return val.date()
+        if type(val) is date:
+            return val
+        return pd.Timestamp(val).date()
+
+    def _fila_es_lunes_semana_cal_actual(si, hoy_ref: date) -> bool:
+        d = _as_date_only_ctx(si)
+        if d is None:
+            return False
+        cal_ini, _ = _bounds_semana_cal_reto(hoy_ref)
+        return d == cal_ini
+
+    def _es_semana_en_curso(si, sf, hoy_ref: date) -> bool:
+        return _semana_incluye_hoy(si, sf, hoy_ref) or _fila_es_lunes_semana_cal_actual(
+            si, hoy_ref,
+        )
+
     # Promedio y umbral sobre semanas cerradas para no sesgar con la semana parcial.
     mask_cerrada = ~df.apply(
-        lambda r: _semana_incluye_hoy(r["semana_inicio"], r["semana_fin"], hoy),
+        lambda r: _es_semana_en_curso(r["semana_inicio"], r["semana_fin"], hoy),
         axis=1,
     )
     df_cerradas = df[mask_cerrada]
@@ -1542,10 +1570,31 @@ def render_analisis_contextual():
         f"y el **umbral vigente** (**{spike_threshold:.1f}%**, 1,5x) calculados sobre semanas cerradas."
     )
 
+    fecha_ini_med = FECHA_INICIO_MEDICION.date()
+    cal_ini, cal_fin = _bounds_semana_cal_reto(hoy)
+    cubre_hoy_bd = df.apply(
+        lambda r: _es_semana_en_curso(r["semana_inicio"], r["semana_fin"], hoy),
+        axis=1,
+    ).any()
+    gap_sin_barra = cal_ini >= fecha_ini_med and not cubre_hoy_bd
+    if gap_sin_barra:
+        ultimo_fin = df["semana_fin"].max()
+        if pd.isna(ultimo_fin):
+            ultimo_fin_s = "—"
+        else:
+            ultimo_fin_s = pd.Timestamp(ultimo_fin).strftime("%d/%m/%Y")
+        st.warning(
+            f"**No hay fila en la base para la semana en curso** "
+            f"({cal_ini.strftime('%d/%m/%Y')}–{cal_fin.strftime('%d/%m/%Y')}). "
+            f"La última semana en `analisis_semanal` termina el **{ultimo_fin_s}**; **ningún registro incluye hoy**, "
+            "así que **no puede pintarse la barra amarilla**. "
+            "Ejecutá **`analisis_contexto_semanal.py`** para generar la semana actual y el cierre con LLM."
+        )
+
     fig_timeline = go.Figure()
     colors = []
     for _, row in df.iterrows():
-        es_actual = _semana_incluye_hoy(row["semana_inicio"], row["semana_fin"], hoy)
+        es_actual = _es_semana_en_curso(row["semana_inicio"], row["semana_fin"], hoy)
         if es_actual:
             colors.append(COLORS["current_week"])
         elif row["es_spike"]:
@@ -1582,10 +1631,25 @@ def render_analisis_contextual():
         yaxis_title="% Odio",
         showlegend=False,
     )
+    if gap_sin_barra:
+        fig_timeline.add_annotation(
+            xref="paper",
+            yref="paper",
+            x=0.98,
+            y=0.97,
+            xanchor="right",
+            yanchor="top",
+            text="Semana actual sin fila en BD — ejecutá analisis_contexto_semanal.py",
+            showarrow=False,
+            bgcolor="rgba(254, 249, 195, 0.95)",
+            bordercolor=COLORS["current_week"],
+            borderwidth=1,
+            font=dict(size=11, color="#1a1a1a"),
+        )
     st.plotly_chart(fig_timeline, use_container_width=True, key="ctx_timeline")
 
     st.caption(
-        f"🟡 Amarillo = semana actual · "
+        f"🟡 Amarillo = semana en curso (también si el lunes de la fila = semana calendario de hoy) · "
         "🔴/🔵 = alerta cerrada Sí/No guardada en BD · "
         f"Líneas = promedio/umbral vigentes ({avg_pct:.1f}% / {spike_threshold:.1f}%) · "
         "Período mostrado desde 24/11/2025"
