@@ -83,6 +83,9 @@ backups/
 # Carpeta temporal de comparación con el repo público (no versionar)
 _reto_public_compare/
 
+# Resumen de ejecución local (rutas absolutas y métricas que cambian cada run)
+X_Mensajes/Anon/reto_x_run_summary.json
+
 # --- Estado de scripts (archivos de sincronización/caché) ---
 .consolidar_state.json
 .drive_sync_state.json

@@ -2085,6 +2085,33 @@ def load_gold_full() -> pd.DataFrame:
     return df
 
 
+@st.cache_data(ttl=300)
+def load_dudosos_queue() -> pd.DataFrame:
+    """Carga mensajes marcados como dudosos para revisión posterior."""
+    with get_conn() as conn:
+        df = pd.read_sql(
+            """
+            SELECT vm.message_uuid,
+                   pm.platform,
+                   pm.source_media,
+                   pm.content_original,
+                   vm.annotator_id,
+                   vm.annotation_date
+            FROM processed.validaciones_manuales vm
+            JOIN processed.mensajes pm USING (message_uuid)
+            WHERE vm.odio_flag IS NULL
+            ORDER BY vm.annotation_date DESC, vm.message_uuid DESC
+            LIMIT 500
+            """,
+            conn,
+        )
+    if not df.empty:
+        df["platform_label"] = df["platform"].map(
+            {"x": "X", "twitter": "X", "youtube": "YouTube"}
+        ).fillna(df["platform"])
+    return df
+
+
 def render_gold_dataset():
     """Sección de análisis del dataset gold (LLM + validación humana)."""
     st.header("Dataset Gold — Evaluación del etiquetado")
@@ -2098,6 +2125,30 @@ def render_gold_dataset():
     plat_counts = df["platform_label"].value_counts().to_dict()
     plat_summary = ", ".join(f"{v:,} {k}" for k, v in plat_counts.items())
     st.caption(f"{total_samples:,} mensajes validados manualmente por anotadores humanos ({plat_summary})")
+
+    # ── Cola de dudosos (fuera de gold) ──
+    df_dudosos = load_dudosos_queue()
+    n_dudosos = len(df_dudosos)
+    st.markdown("### Cola de casos dudosos (pendientes de resolución)")
+    st.caption("Estos mensajes fueron marcados como Dudoso por anotadores y no se incorporan al Dataset Gold.")
+    d1, d2 = st.columns(2)
+    d1.metric("Dudosos pendientes", f"{n_dudosos:,}")
+    d2.metric("Muestras en Gold (sin dudosos)", f"{total_samples:,}")
+    if n_dudosos > 0:
+        st.dataframe(
+            df_dudosos.rename(columns={
+                "platform_label": "Plataforma",
+                "source_media": "Medio",
+                "content_original": "Mensaje",
+                "annotator_id": "Anotador",
+                "annotation_date": "Fecha anotación",
+            }),
+            use_container_width=True,
+            hide_index=True,
+            height=260,
+        )
+    else:
+        st.success("No hay casos dudosos pendientes.")
 
     # ── Filtros ──
     st.markdown("### Filtros")
@@ -2542,9 +2593,9 @@ ART510_COLORS = {
 
 _ART510_SYSTEM = (
     "Eres un analista jurídico especializado en delitos de odio del Código "
-    "Penal español. Tu tarea es evaluar si un mensaje de redes sociales "
-    "constituye potencialmente un delito conforme al artículo 510, apartado 1 "
-    "del Código Penal. Devuelves SOLO JSON válido, sin texto extra."
+    "Penal español. Evalúas exclusivamente el Art. 510.1 (apartados 1a, 1b, 1c) "
+    "y debes minimizar falsos positivos manteniendo sensibilidad jurídica. "
+    "Devuelves SOLO JSON válido, sin texto extra."
 )
 
 _ART510_USER_TMPL = """Analiza el siguiente mensaje y determina si podría constituir un delito según el artículo 510.1 del Código Penal español.
@@ -2559,14 +2610,30 @@ c) Negar, trivializar gravemente o enaltecer los delitos de genocidio, de lesa h
 
 GRUPOS PROTEGIDOS (Art. 510): raza, antisemitismo, antigitanismo, ideología, religión, creencias, situación familiar, etnia, nación, origen nacional, sexo, orientación sexual, identidad sexual, género, aporofobia, enfermedad, discapacidad.
 
-IMPORTANTE: NO evaluar bajo el apartado 2 del Art. 510 (lesiones a la dignidad por humillación, menosprecio o descrédito). Solo el apartado 1.
+IMPORTANTE:
+- NO evaluar bajo el apartado 2 del Art. 510 (humillación, menosprecio, descrédito). Solo apartado 1.
+- No marques delito si solo hay insulto genérico, tono agresivo o crítica política/social sin grupo protegido y sin conducta típica.
+- Para marcar delito debe existir vínculo claro con grupo protegido + conducta típica 1a/1b/1c.
+
+CRITERIOS DE DECISIÓN (aplícalos en este orden):
+1) ¿Hay GRUPO PROTEGIDO identificable? Si no, es_potencial_delito=false.
+2) ¿Hay CONDUCTA TÍPICA?
+   - 1a: incitación/promoción/fomento (directa o indirecta) a odio, hostilidad, discriminación o violencia.
+   - 1b: creación/posesión/distribución/difusión/acceso a material idóneo para incitar.
+   - 1c: negación/trivialización grave/enaltecimiento de genocidio o de sus autores, favoreciendo clima de odio.
+3) Si hay dudas razonables pero indicios jurídicos consistentes, usa confianza="media" o "baja" según corresponda.
+
+CASOS QUE NO DEBEN MARCARSE COMO DELITO (salvo evidencia adicional):
+- Insulto o descalificación individual sin referencia a grupo protegido.
+- Crítica política/ideológica abstracta sin llamada a discriminar/hostigar/violentar.
+- Lenguaje ofensivo no orientado a grupo protegido ni a conductas 1a/1b/1c.
 
 Devuelve SOLO un JSON válido con EXACTAMENTE estas claves:
 - es_potencial_delito: true o false
 - apartado_510: "1a", "1b" o "1c" (vacío si no es delito)
 - grupo_protegido: el grupo protegido específico afectado (vacío si no es delito)
 - conducta_detectada: descripción breve de la conducta tipificada (vacío si no es delito)
-- justificacion: 1-2 frases breves explicando tu razonamiento
+- justificacion: 1-2 frases con referencia explícita a grupo protegido + conducta típica o motivo de descarte
 - confianza: "alta", "media" o "baja"
 
 MENSAJE:
@@ -2930,6 +2997,26 @@ def load_art510_data(
         )
 
     return df
+
+
+def _art510_split_last_run(df_all: pd.DataFrame, gap_minutes: int = 20) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Separa última ejecución vs histórico previo usando cortes por gap temporal."""
+    if df_all.empty or "evaluacion_date" not in df_all.columns:
+        return pd.DataFrame(), pd.DataFrame()
+
+    work = df_all.copy()
+    work["evaluacion_date"] = pd.to_datetime(work["evaluacion_date"], errors="coerce")
+    work = work.dropna(subset=["evaluacion_date"]).sort_values("evaluacion_date").reset_index(drop=True)
+    if work.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    gap = work["evaluacion_date"].diff().dt.total_seconds().fillna(0)
+    work["_run_cluster"] = (gap > (gap_minutes * 60)).cumsum()
+    last_cluster = work["_run_cluster"].max()
+
+    df_last = work[work["_run_cluster"] == last_cluster].drop(columns=["_run_cluster"]).copy()
+    df_prev = work[work["_run_cluster"] != last_cluster].drop(columns=["_run_cluster"]).copy()
+    return df_last, df_prev
 
 
 @st.cache_data(ttl=300)
@@ -3463,6 +3550,172 @@ def _render_art510_full(summary, sel_platforms, sel_sources, solo_delitos):
             f"Mostrando {len(df):,} mensajes (filtro activo: solo potenciales delitos). "
             f"Desmarca el filtro para ver todos."
         )
+
+    # ── Comparativa última ejecución vs histórico previo ──
+    df_cmp_all = load_art510_data(
+        platforms=tuple(sel_platforms) if sel_platforms else None,
+        label_sources=tuple(sel_sources) if sel_sources else None,
+        solo_delitos=False,
+    )
+    df_last_run, df_prev_runs = _art510_split_last_run(df_cmp_all, gap_minutes=20)
+    if not df_last_run.empty:
+        st.markdown("---")
+        st.markdown("### Última ejecución vs histórico previo")
+
+        def _run_stats(_df: pd.DataFrame) -> Dict[str, float]:
+            total = int(len(_df))
+            potencial = int((_df["es_potencial_delito"] == True).sum()) if total else 0
+            pct = (potencial / total * 100) if total else 0.0
+            return {"total": total, "potencial": potencial, "pct": pct}
+
+        s_last = _run_stats(df_last_run)
+        s_prev = _run_stats(df_prev_runs)
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Última ejecución (mensajes)", f"{s_last['total']:,}")
+        c2.metric("Potenciales delito (última)", f"{s_last['potencial']:,}")
+        c3.metric("% potencial delito (última)", f"{s_last['pct']:.1f}%")
+
+        if not df_prev_runs.empty:
+            c4, c5, c6 = st.columns(3)
+            c4.metric("Histórico previo (mensajes)", f"{s_prev['total']:,}")
+            c5.metric("Potenciales delito (previo)", f"{s_prev['potencial']:,}")
+            c6.metric("% potencial delito (previo)", f"{s_prev['pct']:.1f}%")
+
+            comp_df = pd.DataFrame([
+                {"Bloque": "Última ejecución", "Métrica": "% potencial delito", "Valor": s_last["pct"]},
+                {"Bloque": "Histórico previo", "Métrica": "% potencial delito", "Valor": s_prev["pct"]},
+                {"Bloque": "Última ejecución", "Métrica": "Total mensajes", "Valor": s_last["total"]},
+                {"Bloque": "Histórico previo", "Métrica": "Total mensajes", "Valor": s_prev["total"]},
+            ])
+            g1, g2 = st.columns(2)
+            with g1:
+                fig_pct = px.bar(
+                    comp_df[comp_df["Métrica"] == "% potencial delito"],
+                    x="Bloque",
+                    y="Valor",
+                    color="Bloque",
+                    title="Comparación de % potencial delito",
+                    color_discrete_map={
+                        "Última ejecución": COLORS["warning"],
+                        "Histórico previo": COLORS["accent"],
+                    },
+                )
+                fig_pct.update_layout(height=340, showlegend=False, yaxis_title="%")
+                st.plotly_chart(fig_pct, use_container_width=True, key="art510_comp_pct_run")
+            with g2:
+                fig_total = px.bar(
+                    comp_df[comp_df["Métrica"] == "Total mensajes"],
+                    x="Bloque",
+                    y="Valor",
+                    color="Bloque",
+                    title="Comparación de volumen evaluado",
+                    color_discrete_map={
+                        "Última ejecución": COLORS["warning"],
+                        "Histórico previo": COLORS["accent"],
+                    },
+                )
+                fig_total.update_layout(height=340, showlegend=False, yaxis_title="Mensajes")
+                st.plotly_chart(fig_total, use_container_width=True, key="art510_comp_total_run")
+        else:
+            st.info("No hay histórico previo para comparar; solo existe la última ejecución con estos filtros.")
+
+    # ── Métricas de validación humana (histórico) ──
+    if validated > 0:
+        st.markdown("---")
+        st.markdown("### Métricas de validación humana")
+        st.caption("Resumen histórico de decisiones humanas sobre mensajes evaluados por Art. 510.")
+
+        confirmados = summary.get("total_confirmados", 0)
+        rechazados = summary.get("total_rechazados", 0)
+        precision_llm = (confirmados / validated * 100) if validated else 0.0
+
+        hv1, hv2, hv3, hv4 = st.columns(4)
+        hv1.metric("Revisados por humano", f"{validated:,}")
+        hv2.metric("Confirmados como delito", f"{confirmados:,}")
+        hv3.metric("Rechazados", f"{rechazados:,}")
+        hv4.metric("Precisión del LLM", f"{precision_llm:.1f}%")
+
+        df_vh = load_art510_validaciones_humanas()
+        if not df_vh.empty:
+            dec_map = {"confirmado": "Confirmado", "rechazado": "Rechazado", "corregido": "Corregido"}
+            conf_order = ["alta", "media", "baja", "sin dato"]
+            conf_colors = {
+                "alta": COLORS["danger"],
+                "media": COLORS["warning"],
+                "baja": COLORS["muted"],
+                "sin dato": "#94a3b8",
+            }
+
+            c_h1, c_h2 = st.columns(2)
+
+            with c_h1:
+                dec_counts = df_vh["validacion_humana"].fillna("sin dato").value_counts().reset_index()
+                dec_counts.columns = ["decision_raw", "Cantidad"]
+                dec_counts["Decisión"] = dec_counts["decision_raw"].map(lambda x: dec_map.get(str(x), str(x).title()))
+                fig_dec = px.bar(
+                    dec_counts,
+                    x="Decisión",
+                    y="Cantidad",
+                    title="Decisiones de validación humana",
+                    color="Decisión",
+                    color_discrete_map={
+                        "Confirmado": COLORS["danger"],
+                        "Rechazado": COLORS["muted"],
+                        "Corregido": COLORS["warning"],
+                        "Sin Dato": "#94a3b8",
+                    },
+                )
+                fig_dec.update_layout(height=340, showlegend=False)
+                st.plotly_chart(fig_dec, use_container_width=True, key="art510_hm_decisiones")
+
+            with c_h2:
+                conf_df = df_vh.copy()
+                conf_df["Confianza LLM"] = conf_df["llm_confianza"].fillna("sin dato").astype(str).str.lower()
+                conf_df["Confianza LLM"] = conf_df["Confianza LLM"].where(
+                    conf_df["Confianza LLM"].isin(["alta", "media", "baja"]), "sin dato"
+                )
+                conf_counts = (
+                    conf_df["Confianza LLM"]
+                    .value_counts()
+                    .reindex(conf_order, fill_value=0)
+                    .reset_index()
+                )
+                conf_counts.columns = ["Confianza LLM", "Cantidad"]
+                fig_conf_vh = px.bar(
+                    conf_counts,
+                    x="Confianza LLM",
+                    y="Cantidad",
+                    title="Confianza del LLM en mensajes validados por humano",
+                    color="Confianza LLM",
+                    color_discrete_map=conf_colors,
+                )
+                fig_conf_vh.update_layout(height=340, showlegend=False)
+                st.plotly_chart(fig_conf_vh, use_container_width=True, key="art510_hm_confianza")
+
+            df_ap_h = df_vh[df_vh["validacion_humana"].isin(["confirmado", "corregido"])].copy()
+            df_ap_h = df_ap_h[df_ap_h["apartado_510_final"].notna() & (df_ap_h["apartado_510_final"].astype(str) != "")]
+            if not df_ap_h.empty:
+                df_ap_h["Apartado (humano)"] = df_ap_h["apartado_510_final"].map(
+                    lambda x: APARTADO_LABELS.get(x, x) if pd.notna(x) else "—"
+                )
+                ap_h_counts = df_ap_h["Apartado (humano)"].value_counts().reset_index()
+                ap_h_counts.columns = ["Apartado (humano)", "Cantidad"]
+                fig_ap_h = px.pie(
+                    ap_h_counts,
+                    names="Apartado (humano)",
+                    values="Cantidad",
+                    hole=0.4,
+                    title="Distribución de apartados confirmados/corregidos (humano)",
+                    color="Apartado (humano)",
+                    color_discrete_map={
+                        APARTADO_LABELS["1a"]: ART510_COLORS["1a"],
+                        APARTADO_LABELS["1b"]: ART510_COLORS["1b"],
+                        APARTADO_LABELS["1c"]: ART510_COLORS["1c"],
+                    },
+                )
+                fig_ap_h.update_layout(height=380)
+                st.plotly_chart(fig_ap_h, use_container_width=True, key="art510_hm_apartado")
 
     # ── Gráficos ──
     st.markdown("---")
@@ -4380,21 +4633,28 @@ def _save_annotation(
                 humor_flag, annotator_id, date.today(),
             ))
 
-            cur.execute("""
-                INSERT INTO processed.gold_dataset
-                (message_uuid, y_odio_final, y_odio_bin, y_categoria_final,
-                 y_intensidad_final, label_source, split)
-                VALUES (%s, %s, %s, %s, %s, 'human_explicit', %s)
-                ON CONFLICT (message_uuid) DO UPDATE SET
-                    y_odio_final = EXCLUDED.y_odio_final,
-                    y_odio_bin = EXCLUDED.y_odio_bin,
-                    y_categoria_final = EXCLUDED.y_categoria_final,
-                    y_intensidad_final = EXCLUDED.y_intensidad_final,
-                    label_source = EXCLUDED.label_source
-            """, (
-                message_uuid, y_odio_final, y_odio_bin,
-                y_categoria, y_intensidad, split_val,
-            ))
+            if odio_flag is None:
+                # Los casos dudosos quedan fuera del gold dataset.
+                cur.execute(
+                    "DELETE FROM processed.gold_dataset WHERE message_uuid = %s",
+                    (message_uuid,),
+                )
+            else:
+                cur.execute("""
+                    INSERT INTO processed.gold_dataset
+                    (message_uuid, y_odio_final, y_odio_bin, y_categoria_final,
+                     y_intensidad_final, label_source, split)
+                    VALUES (%s, %s, %s, %s, %s, 'human_explicit', %s)
+                    ON CONFLICT (message_uuid) DO UPDATE SET
+                        y_odio_final = EXCLUDED.y_odio_final,
+                        y_odio_bin = EXCLUDED.y_odio_bin,
+                        y_categoria_final = EXCLUDED.y_categoria_final,
+                        y_intensidad_final = EXCLUDED.y_intensidad_final,
+                        label_source = EXCLUDED.label_source
+                """, (
+                    message_uuid, y_odio_final, y_odio_bin,
+                    y_categoria, y_intensidad, split_val,
+                ))
 
             # Anotar también duplicados con mismo contenido
             cur.execute("""
@@ -4427,20 +4687,20 @@ def _save_annotation(
         return False
 
 
-def _load_v510_queue() -> pd.DataFrame:
-    """Carga mensajes con potencial delito Art. 510 pendientes de validación humana."""
-    skipped = st.session_state.get("v510_skipped", set())
-
+def _load_v510_pending_base() -> pd.DataFrame:
+    """Carga base de pendientes de validación humana para Art. 510."""
     try:
         with get_conn() as conn:
             df = pd.read_sql("""
                 SELECT ea.message_uuid,
                        ea.label_source,
+                       ea.es_potencial_delito,
                        ea.apartado_510,
                        ea.grupo_protegido,
                        ea.conducta_detectada,
                        ea.justificacion,
                        ea.confianza,
+                       ea.evaluacion_date,
                        pm.platform,
                        pm.content_original,
                        pm.source_media,
@@ -4448,47 +4708,57 @@ def _load_v510_queue() -> pd.DataFrame:
                 FROM processed.evaluacion_art510 ea
                 JOIN processed.mensajes pm USING (message_uuid)
                 LEFT JOIN raw.mensajes rm USING (message_uuid)
-                WHERE ea.es_potencial_delito = TRUE
-                  AND NOT EXISTS (
+                WHERE NOT EXISTS (
                       SELECT 1 FROM processed.validacion_art510_humana vh
                       WHERE vh.message_uuid = ea.message_uuid
                         AND vh.label_source = ea.label_source
                   )
                 ORDER BY
+                    CASE WHEN ea.es_potencial_delito = TRUE THEN 1 ELSE 2 END,
                     CASE ea.confianza
                         WHEN 'alta' THEN 1
                         WHEN 'media' THEN 2
                         ELSE 3
                     END,
                     ea.evaluacion_date DESC
-                LIMIT 200
             """, conn)
     except Exception:
         return pd.DataFrame()
 
+    return df
+
+
+def _load_v510_queue() -> pd.DataFrame:
+    """Carga pendientes de la última ejecución Art. 510 para validación humana."""
+    skipped = st.session_state.get("v510_skipped", set())
+    df = _load_v510_pending_base()
+    if df.empty:
+        return df
+
+    df_last, _ = _art510_split_last_run(df, gap_minutes=20)
+    if df_last.empty:
+        return pd.DataFrame()
+
+    df = df_last
     if skipped and not df.empty:
         keys = df["message_uuid"].astype(str) + "|" + df["label_source"].astype(str)
         df = df[~keys.isin(skipped)]
 
-    return df
+    return df.head(200)
 
 
 def _load_v510_kpis(annotator_id: str) -> dict:
     """KPIs de progreso de validación Art. 510."""
     try:
+        df_pending = _load_v510_pending_base()
+        if df_pending.empty:
+            pendientes = 0
+        else:
+            df_last, _ = _art510_split_last_run(df_pending, gap_minutes=20)
+            pendientes = int(len(df_last))
+
         with get_conn() as conn:
             cur = conn.cursor()
-
-            cur.execute("""
-                SELECT COUNT(*) FROM processed.evaluacion_art510
-                WHERE es_potencial_delito = TRUE
-                  AND NOT EXISTS (
-                      SELECT 1 FROM processed.validacion_art510_humana vh
-                      WHERE vh.message_uuid = evaluacion_art510.message_uuid
-                        AND vh.label_source = evaluacion_art510.label_source
-                  )
-            """)
-            pendientes = cur.fetchone()[0]
 
             cur.execute("SELECT COUNT(*) FROM processed.validacion_art510_humana")
             total_validados = cur.fetchone()[0]
@@ -5613,8 +5883,144 @@ _CARD_CSS = """
 """
 
 
+def _render_proyecto_reto_institucional_admin():
+    """
+    Contenido institucional del proyecto (UE, consorcio, alcance).
+    Visible solo para rol admin hasta validación y aprobación.
+    """
+    st.markdown(
+        """
+        <div style="background:#fff8e6;border:1px solid #f6d365;border-radius:10px;padding:0.75rem 1rem;margin-bottom:1rem;font-size:0.9rem;color:#744210;">
+            <strong>Borrador</strong> — Este bloque solo lo ven los usuarios con perfil <strong>Administrador</strong>.
+            El resto de perfiles sigue viendo la sección tal como estaba definida.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        """
+        <div class="reto-hero" style="background:linear-gradient(135deg,#1e4976 0%,#2b6cb0 100%);">
+            <h1>¿Qué es ReTo?</h1>
+            <h3>Red de Tolerancia</h3>
+            <p>
+                El proyecto <strong>Red de Tolerancia (ReTo)</strong> es una iniciativa estratégica europea,
+                financiada por el programa <strong>CERV-2024-CHAR-LITI</strong> de la Unión Europea,
+                orientada a combatir el discurso y los delitos de odio en España.
+                Con una duración de <strong>24 meses</strong> (junio 2025 – mayo 2027), toma a
+                <strong>Andalucía</strong> como modelo regional para su posterior replicación a nivel nacional.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    o1, o2 = st.columns(2)
+    with o1:
+        st.markdown(
+            """
+            <div class="reto-card">
+                <h4>Objetivo general</h4>
+                <p style="color:#4a5568;font-size:0.95rem;margin:0;">
+                    Crear un marco integral de colaboración entre la sociedad civil,
+                    autoridades públicas y agentes comunitarios para fortalecer la capacidad de
+                    <strong>prevenir y responder</strong> al odio.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with o2:
+        st.markdown(
+            """
+            <div class="reto-card">
+                <h4>Objetivos específicos</h4>
+                <ul>
+                    <li>Mejorar la coordinación entre fuerzas del orden y organizaciones civiles para facilitar la denuncia.</li>
+                    <li>Fomentar la recopilación de datos con herramientas avanzadas (incl. IA) para entender tendencias del odio.</li>
+                    <li>Trabajar el tema desde la cultura, el deporte y los medios de comunicación.</li>
+                </ul>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown(
+        "<h3 style='color:#2b6cb0;margin:1rem 0 0.6rem 0;'>Consorcio y paquetes de trabajo</h3>",
+        unsafe_allow_html=True,
+    )
+    consorcio_rows = [
+        ("CIFAL Málaga", "Coordinación · WP1"),
+        ("Fundación CIEDES", "Investigación y datos · WP2"),
+        ("Movimiento Contra la Intolerancia (MCI)", "Concienciación y apoyo a víctimas · WP3"),
+        ("Colegio Profesional de Periodistas de Andalucía (CPPA)", "Ética en medios · WP4"),
+        ("Comité Olímpico Español (COE)", "Deporte e inclusión · WP5"),
+        ("Asociación La Guajira", "Cultura y arte · WP6"),
+    ]
+    otros = "Otros socios: Universidad de Almería, Almería Acoge, Yo Soy El Otro."
+
+    cons_html = '<div class="reto-card"><table style="width:100%;border-collapse:collapse;font-size:0.92rem;">'
+    for org, rol in consorcio_rows:
+        cons_html += (
+            f"<tr style='border-bottom:1px solid #e2e8f0;'>"
+            f"<td style='padding:0.45rem 0;vertical-align:top;'><strong>{org}</strong></td>"
+            f"<td style='padding:0.45rem 0;color:#4a5568;'>{rol}</td></tr>"
+        )
+    cons_html += "</table>"
+    cons_html += f"<p class='card-note' style='margin-top:0.75rem;'>{otros}</p></div>"
+    st.markdown(cons_html, unsafe_allow_html=True)
+
+    st.markdown(
+        "<h3 style='color:#2b6cb0;margin:1rem 0 0.6rem 0;'>Alcance y actividades destacadas</h3>",
+        unsafe_allow_html=True,
+    )
+    a1, a2 = st.columns(2)
+    with a1:
+        st.markdown(
+            """
+            <div class="reto-card">
+                <h4>Formación y sensibilización</h4>
+                <ul>
+                    <li><strong>Fuerzas de seguridad:</strong> capacitación para investigación y asesoramiento a víctimas (reducción de la infra denuncia).</li>
+                    <li><strong>Periodistas y medios:</strong> tratamiento ético, identificación de discursos de odio y lucha contra la desinformación.</li>
+                    <li><strong>Deporte:</strong> formación de entrenadores y voluntarios en valores olímpicos, igualdad y espacios seguros.</li>
+                    <li><strong>Comunidad y jóvenes:</strong> talleres culturales para desafiar estereotipos.</li>
+                </ul>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with a2:
+        st.markdown(
+            """
+            <div class="reto-card">
+                <h4>Otras líneas de trabajo</h4>
+                <ul>
+                    <li>Tecnología e IA: base de datos y herramientas para monitorizar el odio en redes (incl. análisis predictivo y OSINT).</li>
+                    <li>Apoyo a víctimas: puntos de atención con asistencia legal.</li>
+                    <li>Eventos deportivos y culturales para cohesión social.</li>
+                    <li>Producción audiovisual y estudios abiertos al público.</li>
+                </ul>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown(
+        '<div class="reto-alert">Los paneles siguientes de este dashboard describen el '
+        "<strong>análisis digital y la metodología</strong> del componente de monitorización; "
+        "no sustituyen la información institucional completa del consorcio.</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("<br>", unsafe_allow_html=True)
+
+
 def render_proyecto():
     st.markdown(_CARD_CSS, unsafe_allow_html=True)
+
+    if st.session_state.get("user_role") == "admin":
+        _render_proyecto_reto_institucional_admin()
+        st.markdown("---")
 
     # --- Hero ---
     st.markdown(
