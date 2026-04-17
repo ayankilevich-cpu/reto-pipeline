@@ -26,5 +26,6 @@ openpyxl>=3.1
 # Dashboard (Streamlit)
 streamlit>=1.30
 plotly>=5.18
+kaleido>=0.2.1
 wordcloud>=1.9
 matplotlib>=3.8
