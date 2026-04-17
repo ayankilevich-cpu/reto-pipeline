@@ -49,6 +49,27 @@ from wordcloud import WordCloud
 import matplotlib.pyplot as plt
 
 _AUTO_DIR = Path(__file__).resolve().parent
+# Raíz del paquete ReTo (logo y carpeta logos/ están ahí, no dentro de automatizacion_diaria/)
+_RETO_ROOT = _AUTO_DIR.parent
+
+
+def _reto_asset_file(*parts: str) -> Optional[Path]:
+    """Resuelve logo u otro asset: mismo dir del script o raíz ReTo (Streamlit Cloud / distintos entrypoints)."""
+    for base in (_AUTO_DIR, _RETO_ROOT):
+        p = base.joinpath(*parts)
+        if p.is_file():
+            return p
+    return None
+
+
+def _reto_logos_directory() -> Optional[Path]:
+    for base in (_AUTO_DIR, _RETO_ROOT):
+        d = base / "logos"
+        if d.is_dir():
+            return d
+    return None
+
+
 sys.path.insert(0, str(_AUTO_DIR))
 from db_utils import get_conn
 try:
@@ -178,8 +199,8 @@ def _render_login():
         unsafe_allow_html=True,
     )
 
-    logo_path = Path(__file__).parent / "logo_reto.png"
-    if logo_path.exists():
+    logo_path = _reto_asset_file("logo_reto.png")
+    if logo_path is not None:
         col_l, col_c, col_r = st.columns([1, 1, 1])
         with col_c:
             st.image(str(logo_path), width=200)
@@ -482,6 +503,122 @@ def load_kpis(
         "nuevos_x": nuevos_x,
         "nuevos_yt": nuevos_yt,
     }
+
+
+@st.cache_data(ttl=60)
+def load_last_pipeline_run(pipeline_name: str = "reto_x_diario") -> dict:
+    """
+    Lee la última corrida registrada en processed.pipeline_runs.
+
+    Sirve para mostrar en la app que la actualización diaria se ejecutó
+    aunque no haya habido datos nuevos (changes_detected = False).
+    """
+    try:
+        with get_conn() as conn:
+            df = pd.read_sql(
+                """
+                SELECT
+                    started_at,
+                    finished_at,
+                    status,
+                    changes_detected,
+                    ok_count,
+                    fail_count,
+                    triggered_by,
+                    detail
+                FROM processed.pipeline_runs
+                WHERE pipeline_name = %s
+                ORDER BY started_at DESC
+                LIMIT 1
+                """,
+                conn,
+                params=(pipeline_name,),
+            )
+    except Exception:
+        return {"exists": False}
+
+    if df.empty:
+        return {"exists": False}
+
+    row = df.iloc[0]
+    return {
+        "exists": True,
+        "started_at": row["started_at"],
+        "finished_at": row["finished_at"],
+        "status": row["status"],
+        "changes_detected": bool(row["changes_detected"]) if row["changes_detected"] is not None else False,
+        "ok_count": int(row["ok_count"]) if row["ok_count"] is not None else 0,
+        "fail_count": int(row["fail_count"]) if row["fail_count"] is not None else 0,
+        "triggered_by": row["triggered_by"] or "",
+        "detail": row["detail"] or "",
+    }
+
+
+def render_pipeline_status_banner(pipeline_name: str = "reto_x_diario") -> None:
+    """
+    Muestra un banner con el estado de la última corrida del pipeline diario.
+
+    - Informa explícitamente si la actualización corrió HOY.
+    - Informa si se detectaron cambios o si la corrida fue "sin cambios"
+      (caso típico: día sin scrape nuevo de Apify).
+    - Muestra error si la última corrida falló.
+    """
+    info = load_last_pipeline_run(pipeline_name)
+    if not info.get("exists"):
+        st.info("Aún no hay registros de corridas del pipeline diario.")
+        return
+
+    started = info["started_at"]
+    try:
+        started_ts = pd.Timestamp(started)
+    except Exception:
+        started_ts = None
+
+    ahora = pd.Timestamp.now(tz=started_ts.tz) if started_ts is not None and started_ts.tz is not None else pd.Timestamp.now()
+    hoy_local = ahora.date()
+    corrio_hoy = started_ts is not None and started_ts.date() == hoy_local
+
+    fecha_txt = started_ts.strftime("%d/%m/%Y %H:%M") if started_ts is not None else "—"
+    origen_lbl = {
+        "scheduled": "programada",
+        "catch_up": "recuperación al arrancar",
+        "manual": "manual",
+    }.get(info.get("triggered_by") or "", info.get("triggered_by") or "")
+
+    status = (info.get("status") or "").lower()
+    cambios = info.get("changes_detected", False)
+    detalle = info.get("detail") or ""
+
+    if status == "error":
+        st.error(
+            f"❌ Última actualización ({fecha_txt}, {origen_lbl}) terminó con error. {detalle}"
+        )
+        return
+
+    if status == "partial":
+        st.warning(
+            f"⚠️ Actualización del {fecha_txt} ({origen_lbl}): "
+            f"{info['ok_count']} pasos OK y {info['fail_count']} fallos. "
+            + ("Se detectaron cambios nuevos." if cambios else "Sin cambios en los datos.")
+        )
+        return
+
+    if corrio_hoy:
+        if cambios:
+            st.success(
+                f"✅ Actualización diaria ejecutada hoy ({fecha_txt}, {origen_lbl}) — "
+                f"se detectaron cambios nuevos."
+            )
+        else:
+            st.info(
+                f"ℹ️ Actualización diaria ejecutada hoy ({fecha_txt}, {origen_lbl}), "
+                f"pero **sin cambios nuevos** (posiblemente no hubo scrape en Apify)."
+            )
+    else:
+        st.warning(
+            f"⏱️ La última actualización fue el {fecha_txt} ({origen_lbl}). "
+            f"Hoy aún no corrió."
+        )
 
 
 @st.cache_data(ttl=60)
@@ -965,9 +1102,9 @@ def render_sidebar():
     role = st.session_state.get("user_role", "admin")
     user_name = st.session_state.get("user_name", "")
 
-    logo_path = Path(__file__).parent / "logo_reto.png"
-    if logo_path.exists():
-        st.sidebar.image(str(logo_path), width=180)
+    logo_path = _reto_asset_file("logo_reto.png")
+    if logo_path is not None:
+        st.sidebar.image(str(logo_path), use_container_width=True)
     else:
         st.sidebar.title("ReTo")
     st.sidebar.caption("Red de Tolerancia contra los delitos de odio")
@@ -990,12 +1127,31 @@ def render_sidebar():
     st.sidebar.markdown("---")
     st.sidebar.caption("Datos: PostgreSQL (reto_db)")
     st.sidebar.caption(f"Interfaz: {DASHBOARD_UI_VERSION}")
+
+    _last_run = load_last_pipeline_run()
+    if _last_run.get("exists"):
+        try:
+            _ts = pd.Timestamp(_last_run["started_at"]).strftime("%d/%m %H:%M")
+        except Exception:
+            _ts = "—"
+        _status = (_last_run.get("status") or "").lower()
+        if _status == "error":
+            _icon = "🔴"
+        elif _status == "partial":
+            _icon = "🟡"
+        elif _last_run.get("changes_detected"):
+            _icon = "🟢"
+        else:
+            _icon = "⚪"
+        _cambios = "con cambios" if _last_run.get("changes_detected") else "sin cambios"
+        st.sidebar.caption(f"{_icon} Última corrida: {_ts} ({_cambios})")
+
     if st.sidebar.button("Refrescar datos"):
         st.cache_data.clear()
         st.rerun()
 
-    eu_logo = Path(__file__).parent / "logos" / "07_eu.png"
-    if eu_logo.exists():
+    eu_logo = _reto_asset_file("logos", "07_eu.png")
+    if eu_logo is not None:
         st.sidebar.markdown("---")
         st.sidebar.image(str(eu_logo), use_container_width=True)
 
@@ -1008,6 +1164,8 @@ def render_sidebar():
 def render_panel_general():
     st.title("Panel general")
     st.markdown("Indicadores clave del proyecto RETO.")
+
+    render_pipeline_status_banner()
 
     opts = load_filter_options()
 
@@ -7052,8 +7210,8 @@ def _img_to_base64(path: Path) -> str:
 
 def render_footer():
     """Muestra los logos institucionales en la parte inferior de la app."""
-    logos_dir = Path(__file__).parent / "logos"
-    if not logos_dir.exists():
+    logos_dir = _reto_logos_directory()
+    if logos_dir is None:
         return
 
     items = []
