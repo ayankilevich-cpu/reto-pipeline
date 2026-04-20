@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.reto.pipeline_x</string>
+
+    <!--
+        Ejecuta el wrapper del pipeline RETO (X) usando el venv del proyecto.
+        El wrapper decide si ejecutar o no (lockfile + catch-up).
+    -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/alejandroyankilevich/Documents/MASTER DATA SCIENCE/Clases/RETO/automatizacion_diaria/launchd_pipeline_x_runner.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/alejandroyankilevich/Documents/MASTER DATA SCIENCE</string>
+
+    <!--
+        Trigger 1: hora fija (10:00 local). Si la Mac está encendida, corre
+        puntual. Si estuvo apagada, launchd dispara en cuanto puede gracias
+        a que también tiene RunAtLoad=true (recuperación al arrancar).
+    -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>10</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <!--
+        Trigger 2: al cargar el agente (login / arranque de la Mac).
+        Se usa --catch-up, por lo que:
+          - si ya corrió hoy: no hace nada
+          - si no corrió hoy (p.ej. Mac apagada a las 10:00): corre ahora
+    -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/alejandroyankilevich/Documents/MASTER DATA SCIENCE/Clases/RETO/automatizacion_diaria/logs/launchd_x_stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/alejandroyankilevich/Documents/MASTER DATA SCIENCE/Clases/RETO/automatizacion_diaria/logs/launchd_x_stderr.log</string>
+
+    <key>StandardInPath</key>
+    <string>/dev/null</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>HOME</key>
+        <string>/Users/alejandroyankilevich</string>
+        <key>LANG</key>
+        <string>en_US.UTF-8</string>
+        <key>OBJC_DISABLE_INITIALIZE_FORK_SAFETY</key>
+        <string>YES</string>
+        <key>OPENBLAS_NUM_THREADS</key>
+        <string>1</string>
+        <key>OMP_NUM_THREADS</key>
+        <string>1</string>
+        <key>MKL_NUM_THREADS</key>
+        <string>1</string>
+        <key>PYTHON_BIN</key>
+        <string>/Users/alejandroyankilevich/Documents/MASTER DATA SCIENCE/Clases/RETO/X_Mensajes/venv/bin/python3</string>
+    </dict>
+
+    <!--
+        Al arrancar la Mac varios servicios compiten por I/O. Esperamos
+        un mínimo entre disparos para no solaparnos con otros daemons
+        (el lockfile del wrapper es la defensa real; esto sólo suaviza).
+    -->
+    <key>ThrottleInterval</key>
+    <integer>60</integer>
+
+    <!-- Prioridad baja para no interferir con uso interactivo del equipo -->
+    <key>Nice</key>
+    <integer>5</integer>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

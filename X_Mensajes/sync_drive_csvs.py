@@ -37,6 +37,8 @@ import fnmatch
 import json
 import os
 import shutil
+import sys
+import traceback
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -44,6 +46,7 @@ from typing import Dict, List, Literal, Optional, Tuple
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload
 
 
@@ -168,12 +171,17 @@ def download_file(service, file_id: str, dest_path: Path) -> None:
 
 def main() -> int:
     # Rutas predeterminadas a las credenciales (en orden de prioridad)
-    script_dir = Path(__file__).parent
-    DEFAULT_CREDENTIALS_OPTIONS = [
-        script_dir / "credentials.json",
-        Path(os.getenv("GOOGLE_DRIVE_CREDENTIALS", "credentials.json")),
-    ]
-    
+    script_dir = Path(__file__).resolve().parent
+    DEFAULT_CREDENTIALS_OPTIONS: List[Path] = [script_dir / "credentials.json"]
+    _env_cred = os.getenv("GOOGLE_DRIVE_CREDENTIALS")
+    if _env_cred:
+        p = Path(_env_cred).expanduser()
+        if not p.is_absolute():
+            p = (script_dir / p).resolve()
+        else:
+            p = p.resolve()
+        DEFAULT_CREDENTIALS_OPTIONS.append(p)
+
     # Buscar la primera ruta que exista
     default_cred_path = None
     for cred_path in DEFAULT_CREDENTIALS_OPTIONS:
@@ -255,10 +263,28 @@ def main() -> int:
         error_msg += "Puedes especificar otra ruta con: --credentials /ruta/alternativa.json"
         raise FileNotFoundError(error_msg)
 
-    service = build_drive_service(credentials_json)
+    try:
+        service = build_drive_service(credentials_json)
+    except Exception as e:
+        print(f"❌ No se pudo autenticar con Google Drive: {e}", file=sys.stderr)
+        traceback.print_exc()
+        return 3
 
     print(f"Listando archivos en folder: {args.folder_id}")
-    files = list_files_in_folder(service, args.folder_id)
+    try:
+        files = list_files_in_folder(service, args.folder_id)
+    except HttpError as e:
+        print(
+            f"❌ Error HTTP de Google Drive (código {e.resp.status}): {e!s}\n"
+            f"   Comprueba que la carpeta esté compartida con el email de la Service Account\n"
+            f"   y que el ID de carpeta sea correcto.",
+            file=sys.stderr,
+        )
+        return 4
+    except Exception as e:
+        print(f"❌ Error al listar archivos en Drive: {e}", file=sys.stderr)
+        traceback.print_exc()
+        return 4
 
     # Filtrar por patrón
     selected = [f for f in files if fnmatch.fnmatch(f.get("name", ""), args.pattern)]
@@ -350,7 +376,18 @@ def main() -> int:
             continue
 
         print(f"Descargando: {name} (id={meta['id']}) — {reason}")
-        download_file(service, meta["id"], dest)
+        try:
+            download_file(service, meta["id"], dest)
+        except HttpError as e:
+            print(
+                f"❌ Error al descargar {name}: HTTP {e.resp.status} — {e!s}",
+                file=sys.stderr,
+            )
+            return 5
+        except Exception as e:
+            print(f"❌ Error al descargar {name}: {e}", file=sys.stderr)
+            traceback.print_exc()
+            return 5
 
         if not args.no_enrich:
             enrich_metadata_if_needed(service, meta)
@@ -374,4 +411,11 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except FileNotFoundError as e:
+        print(str(e), file=sys.stderr)
+        raise SystemExit(2)
+    except KeyboardInterrupt:
+        print("\nInterrumpido por el usuario.", file=sys.stderr)
+        raise SystemExit(130)
