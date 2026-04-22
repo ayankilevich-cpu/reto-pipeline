@@ -187,10 +187,11 @@ hate_df["lemma_norm"] = hate_df["lemma_norm"].map(safe_lemma_str)
 hate_df = hate_df[hate_df["lemma_norm"] != ""]
 
 # Separamos lemas de una palabra y multi-palabra
+lemmas_saneados = [h for h in map(safe_lemma_str, hate_df["lemma_norm"]) if h]
 single_word_lemmas = set(
-    h for h in hate_df["lemma_norm"].map(safe_lemma_str) if h and " " not in h
+    h for h in lemmas_saneados if " " not in h
 )
-multi_word_lemmas = [h for h in hate_df["lemma_norm"].map(safe_lemma_str) if h and " " in h]
+multi_word_lemmas = [h for h in lemmas_saneados if " " in h]
 
 print(f"  - Términos de una palabra: {len(single_word_lemmas)}")
 print(f"  - Términos multi-palabra: {len(multi_word_lemmas)}")
