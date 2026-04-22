@@ -75,6 +75,20 @@ def safe_lemma_str(x) -> str:
     return s
 
 
+def split_single_multi_word_lemmas(values):
+    """Recibe cualquier iterable (Series, list, etc.) y devuelve
+    (single_word_lemmas: set[str], multi_word_lemmas: list[str])
+    garantizando que solo se evalúan strings limpios. Inválidos quedan fuera."""
+    saneados = []
+    for raw in values:
+        s = safe_lemma_str(raw)
+        if s:
+            saneados.append(s)
+    single = {s for s in saneados if " " not in s}
+    multi = [s for s in saneados if " " in s]
+    return single, multi
+
+
 def sha256_hash(value):
     """Devuelve hash SHA256 en hex, o cadena vacía si NaN."""
     if pd.isna(value):
@@ -186,12 +200,10 @@ print(f"  - Términos después de filtrar stopwords: {len(hate_df)}")
 hate_df["lemma_norm"] = hate_df["lemma_norm"].map(safe_lemma_str)
 hate_df = hate_df[hate_df["lemma_norm"] != ""]
 
-# Separamos lemas de una palabra y multi-palabra
-lemmas_saneados = [h for h in map(safe_lemma_str, hate_df["lemma_norm"]) if h]
-single_word_lemmas = set(
-    h for h in lemmas_saneados if " " not in h
+# Separamos lemas de una palabra y multi-palabra (robusto a NaN/float)
+single_word_lemmas, multi_word_lemmas = split_single_multi_word_lemmas(
+    hate_df["lemma_norm"]
 )
-multi_word_lemmas = [h for h in lemmas_saneados if " " in h]
 
 print(f"  - Términos de una palabra: {len(single_word_lemmas)}")
 print(f"  - Términos multi-palabra: {len(multi_word_lemmas)}")
