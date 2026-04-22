@@ -1,4 +1,8 @@
-# Pipeline diario RETO
+# Pipeline diario RETO (fallback local)
+
+> Operación oficial: revisar `OPERACION_CLOUD_FIRST.md`.
+> La automatización automática oficial es GitHub Actions en `reto-pipeline/main`.
+> Este README describe el modo local como contingencia/fallback manual.
 
 Script maestro que ejecuta cada día, en orden, los 7 scripts del pipeline.
 
@@ -38,7 +42,7 @@ PYTHON_BIN=/ruta/a/tu/venv/bin/python3 python3 Clases/RETO/automatizacion_diaria
 - Por día: `logs/pipeline_YYYY-MM-DD.log`
 - Salida estándar de cron (si configuras redirección): `logs/cron_stdout.log`
 
-## Cron — **10:00 hora de España (península)**
+## Cron — fallback local (no operación normal)
 
 El equipo debe estar encendido a esa hora. Editar crontab:
 
@@ -76,6 +80,8 @@ CRON_TZ=Europe/Madrid
 
 El último campo (`1`) es **solo lunes**; `0 10` = **10:00 hora España** con `CRON_TZ` (o reloj del Mac en Madrid). Si ya tenés `CRON_TZ=Europe/Madrid` arriba para el pipeline diario, no hace falta repetirla antes de esta línea. Necesitás `OPENAI_API_KEY` (y `.env` donde ya lo tengas configurado).
 
-## GitHub Actions
+## GitHub Actions (fuente única oficial)
 
-El workflow `.github/workflows/daily.yml` está programado en **UTC** (`0 8 * * *` ≈ **10:00** en España con **horario de verano CEST**; en invierno CET será ~**09:00** locales). El paso del análisis semanal solo corre los **lunes** según `Europe/Madrid`. Hacen falta los secrets de base de datos y `OPENAI_API_KEY`.
+El workflow `.github/workflows/daily.yml` es la fuente oficial automática.
+Está programado en UTC (`0 8 * * *` ≈ 10:00 en España durante CEST; en CET será ~09:00).
+Incluye validación de etapas críticas y healthcheck por plataforma persistido en BD.

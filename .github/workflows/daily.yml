@@ -40,6 +40,7 @@ jobs:
       YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
       RETO_SALT: ${{ secrets.RETO_SALT }}
       GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+      GOOGLE_DRIVE_CREDENTIALS_B64: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS_B64 }}
       PROJECT_ROOT: ${{ github.workspace }}
 
     steps:
@@ -90,49 +91,98 @@ jobs:
           restore-keys: |
             reto-pipeline-data-
 
-      # --- Pipeline steps (cada uno tolera fallos del anterior) ---
+      - name: Validar secretos críticos del pipeline
+        run: |
+          set -euo pipefail
+          [[ -n "${DB_HOST}" ]] || { echo "Falta DB_HOST"; exit 1; }
+          [[ -n "${DB_PORT}" ]] || { echo "Falta DB_PORT"; exit 1; }
+          [[ -n "${DB_NAME}" ]] || { echo "Falta DB_NAME"; exit 1; }
+          [[ -n "${DB_USER}" ]] || { echo "Falta DB_USER"; exit 1; }
+          [[ -n "${DB_PASSWORD}" ]] || { echo "Falta DB_PASSWORD"; exit 1; }
+          [[ -n "${GOOGLE_DRIVE_CREDENTIALS_B64}" ]] || { echo "Falta GOOGLE_DRIVE_CREDENTIALS_B64"; exit 1; }
+          [[ -n "${GOOGLE_DRIVE_FOLDER_ID}" ]] || { echo "Falta GOOGLE_DRIVE_FOLDER_ID"; exit 1; }
+          [[ -n "${YOUTUBE_API_KEY}" ]] || { echo "Falta YOUTUBE_API_KEY"; exit 1; }
+
+      # --- Pipeline steps críticos ---
 
       - name: "[1/9] Sincronizar Drive"
+        id: x_sync
         if: ${{ env.GOOGLE_DRIVE_CREDENTIALS != '' }}
         run: python X_Mensajes/sync_drive_csvs.py
         continue-on-error: true
 
       - name: "[2/9] Consolidar CSVs"
+        id: x_consolidate
         run: python X_Mensajes/consolidar_csv.py
         continue-on-error: true
 
       - name: "[3/9] Anonimizar y filtrar"
+        id: x_anonymize
         run: python X_Mensajes/Anon/filter_and_anonymize_x.py
         continue-on-error: true
 
       - name: "[4/9] Etiquetar X con diccionario de odio"
+        id: x_terms
         run: python Medios/X_terms_sheet.py
         continue-on-error: true
 
       - name: "[5/9] Extraer YouTube"
+        id: yt_extract
         if: ${{ env.YOUTUBE_API_KEY != '' }}
         run: python Medios/youtube_extract_hate.py
         continue-on-error: true
 
       - name: "[6/9] Etiquetar YouTube (diccionario)"
+        id: yt_tag
         run: python Medios/tag_youtube_hate_auto.py
         continue-on-error: true
 
       - name: "[7/9] Scoring baseline"
+        id: scoring_baseline
         run: python Etiquetado_Modelos/score_baseline.py
         continue-on-error: true
 
       - name: "[8/9] Filtrar prioridad alta"
+        id: scoring_priority
         run: python Etiquetado_Modelos/scored_prioridad_alta.py
         continue-on-error: true
 
       - name: "[9/9] Cargar a PostgreSQL"
+        id: load_db
         run: python automatizacion_diaria/load_to_db.py
         continue-on-error: true
+
+      - name: Validar estado de etapas críticas
+        id: critical_gate
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          echo "x_sync=${{ steps.x_sync.outcome }}"
+          echo "x_consolidate=${{ steps.x_consolidate.outcome }}"
+          echo "yt_extract=${{ steps.yt_extract.outcome }}"
+          echo "yt_tag=${{ steps.yt_tag.outcome }}"
+          echo "scoring_baseline=${{ steps.scoring_baseline.outcome }}"
+          echo "scoring_priority=${{ steps.scoring_priority.outcome }}"
+          echo "load_db=${{ steps.load_db.outcome }}"
+
+          critical_errors=0
+          [[ "${{ steps.x_sync.outcome }}" == "success" ]] || critical_errors=$((critical_errors+1))
+          [[ "${{ steps.x_consolidate.outcome }}" == "success" ]] || critical_errors=$((critical_errors+1))
+          [[ "${{ steps.yt_extract.outcome }}" == "success" ]] || critical_errors=$((critical_errors+1))
+          [[ "${{ steps.yt_tag.outcome }}" == "success" ]] || critical_errors=$((critical_errors+1))
+          [[ "${{ steps.scoring_baseline.outcome }}" == "success" ]] || critical_errors=$((critical_errors+1))
+          [[ "${{ steps.scoring_priority.outcome }}" == "success" ]] || critical_errors=$((critical_errors+1))
+          [[ "${{ steps.load_db.outcome }}" == "success" ]] || critical_errors=$((critical_errors+1))
+
+          if [[ "$critical_errors" -gt 0 ]]; then
+            echo "Fallaron $critical_errors etapas críticas."
+            exit 1
+          fi
 
       # Cierre semanal: solo lunes según calendario de España (Europe/Madrid).
       # Requiere OPENAI_API_KEY y acceso a la misma BD que load_to_db.
       - name: "[10] Análisis contextual semanal (solo lunes)"
+        if: ${{ success() }}
         run: |
           DOW=$(TZ=Europe/Madrid date +%u)
           if [ "$DOW" -eq 1 ]; then
@@ -142,6 +192,20 @@ jobs:
             echo "No es lunes en España; se omite análisis semanal."
           fi
         continue-on-error: true
+
+      - name: Healthcheck operativo por plataforma
+        if: ${{ always() }}
+        env:
+          STAGE_X_SYNC: ${{ steps.x_sync.outcome }}
+          STAGE_X_CONSOLIDATE: ${{ steps.x_consolidate.outcome }}
+          STAGE_YT_EXTRACT: ${{ steps.yt_extract.outcome }}
+          STAGE_YT_TAG: ${{ steps.yt_tag.outcome }}
+          STAGE_SCORING_BASELINE: ${{ steps.scoring_baseline.outcome }}
+          STAGE_SCORING_PRIORITY: ${{ steps.scoring_priority.outcome }}
+          STAGE_LOAD_DB: ${{ steps.load_db.outcome }}
+        run: |
+          python automatizacion_diaria/healthcheck_pipeline.py \
+            --run-id "${{ github.run_id }}"
 
       # Los pasos de LLM de X por lotes (etiquetar_completo_llm.py, etc.) pueden
       # ejecutarse manualmente desde local; luego load_to_db.py sube resultados.
