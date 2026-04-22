@@ -57,6 +57,24 @@ def load_extra_stopwords(path: Path):
     return stop
 
 
+def safe_lemma_str(x) -> str:
+    """Convierte lema a str; NaN/None → '' (evita TypeError: ' ' in float)."""
+    if x is None:
+        return ""
+    try:
+        if pd.isna(x):
+            return ""
+    except TypeError:
+        pass
+    # Si viene como numérico puro, lo descartamos (no es un lema válido).
+    if isinstance(x, (int, float)) and not isinstance(x, bool):
+        return ""
+    s = str(x).strip().lower()
+    if not s or s == "nan":
+        return ""
+    return s
+
+
 def sha256_hash(value):
     """Devuelve hash SHA256 en hex, o cadena vacía si NaN."""
     if pd.isna(value):
@@ -111,12 +129,7 @@ hate_df_clean = pd.read_csv(HATE_DICT_CSV)
 if "Lemas" not in hate_df_clean.columns:
     raise ValueError(f"El archivo {HATE_DICT_CSV} debe tener una columna llamada 'Lemas'.")
 
-hate_df_clean["lemma_norm"] = (
-    hate_df_clean["Lemas"]
-    .astype(str)
-    .str.lower()
-    .str.strip()
-)
+hate_df_clean["lemma_norm"] = hate_df_clean["Lemas"].map(safe_lemma_str)
 hate_df_clean = hate_df_clean[hate_df_clean["lemma_norm"] != ""]
 print(f"  - Términos cargados de hate_terms_clean.csv: {len(hate_df_clean)}")
 
@@ -125,12 +138,7 @@ hate_df_general = pd.read_csv(HATE_GENERAL_CSV)
 if "term" not in hate_df_general.columns:
     raise ValueError(f"El archivo {HATE_GENERAL_CSV} debe tener una columna llamada 'term'.")
 
-hate_df_general["lemma_norm"] = (
-    hate_df_general["term"]
-    .astype(str)
-    .str.lower()
-    .str.strip()
-)
+hate_df_general["lemma_norm"] = hate_df_general["term"].map(safe_lemma_str)
 hate_df_general = hate_df_general[hate_df_general["lemma_norm"] != ""]
 print(f"  - Términos cargados de hate_general_terms.csv: {len(hate_df_general)}")
 
@@ -174,11 +182,15 @@ print(f"  - Términos únicos después de combinar: {len(hate_df)}")
 hate_df = hate_df[~hate_df["lemma_norm"].isin(EXTRA_STOP_TERMS)]
 print(f"  - Términos después de filtrar stopwords: {len(hate_df)}")
 
+# Unificar lemas como texto (CSV puede dejar NaN/float en celdas vacías)
+hate_df["lemma_norm"] = hate_df["lemma_norm"].map(safe_lemma_str)
+hate_df = hate_df[hate_df["lemma_norm"] != ""]
+
 # Separamos lemas de una palabra y multi-palabra
 single_word_lemmas = set(
-    h for h in hate_df["lemma_norm"] if " " not in h and h != ""
+    h for h in hate_df["lemma_norm"].map(safe_lemma_str) if h and " " not in h
 )
-multi_word_lemmas = [h for h in hate_df["lemma_norm"] if " " in h]
+multi_word_lemmas = [h for h in hate_df["lemma_norm"].map(safe_lemma_str) if h and " " in h]
 
 print(f"  - Términos de una palabra: {len(single_word_lemmas)}")
 print(f"  - Términos multi-palabra: {len(multi_word_lemmas)}")
