@@ -33,6 +33,7 @@ from __future__ import annotations
 import base64
 import html
 import json
+import re
 import sys
 import unicodedata
 from io import BytesIO
@@ -1225,13 +1226,68 @@ TERMINOS_EXCLUSION_JSON = Path(__file__).resolve().parent / "terminos_excluidos_
 
 
 def _normalize_term_for_filter(token: str) -> str:
-    """Minúsculas y sin marcas diacríticas para comparar con la lista de exclusiones."""
-    s = (token or "").strip().lower()
+    """
+    Normaliza términos para conteo/exclusión:
+    minúsculas, sin tildes, sin artefactos de formato y espacios colapsados.
+    """
+    s = str(token or "").strip().lower()
     if not s:
         return ""
-    return "".join(
+    s = "".join(
         c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn"
     )
+    s = s.strip().strip("\"'`[](){}")
+    s = re.sub(r"^[^\w]+|[^\w]+$", "", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    if not s:
+        return ""
+    if not re.search(r"[a-zñ]", s):
+        return ""
+    if len(s) <= 1:
+        return ""
+    return s
+
+
+def _parse_and_normalize_matched_terms(value: Any) -> List[str]:
+    """
+    Convierte `matched_terms` (string/lista/JSON serializado) en tokens limpios.
+    Mejora la exclusión evitando que entren términos con comillas/corchetes/ruido.
+    """
+    if value is None:
+        return []
+    if isinstance(value, float) and pd.isna(value):
+        return []
+
+    raw_tokens: List[Any] = []
+
+    if isinstance(value, (list, tuple, set)):
+        raw_tokens.extend(list(value))
+    else:
+        raw = str(value).strip()
+        if not raw:
+            return []
+
+        parsed = None
+        if raw.startswith("[") and raw.endswith("]"):
+            try:
+                parsed = json.loads(raw)
+            except Exception:
+                parsed = None
+
+        if isinstance(parsed, list):
+            raw_tokens.extend(parsed)
+        elif isinstance(parsed, str):
+            raw_tokens.append(parsed)
+        else:
+            # Soporta delimitadores mixtos frecuentes en matched_terms.
+            raw_tokens.extend([t for t in re.split(r"[|,;]", raw) if t is not None])
+
+    normalized: List[str] = []
+    for tok in raw_tokens:
+        nt = _normalize_term_for_filter(tok)
+        if nt:
+            normalized.append(nt)
+    return normalized
 
 
 _TERMINOS_EXCLUSION_NORM: frozenset = frozenset(
@@ -2804,14 +2860,9 @@ def render_terminos():
         st.warning("No hay términos detectados con los filtros seleccionados.")
         return
 
-    all_terms = []
-    for terms_str in df["matched_terms"]:
-        for sep in ["|", ","]:
-            if sep in str(terms_str):
-                all_terms.extend([t.strip().lower() for t in str(terms_str).split(sep) if t.strip()])
-                break
-        else:
-            all_terms.append(str(terms_str).strip().lower())
+    all_terms: List[str] = []
+    for terms_raw in df["matched_terms"]:
+        all_terms.extend(_parse_and_normalize_matched_terms(terms_raw))
 
     counter = Counter(all_terms)
     n_tokens_antes = len(counter)
