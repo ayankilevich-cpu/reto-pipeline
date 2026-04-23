@@ -7798,6 +7798,71 @@ def render_proyecto():
                 unsafe_allow_html=True,
             )
 
+    if st.session_state.get("role") == "admin":
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.warning(
+            "Borrador — Este bloque solo lo ven los usuarios con perfil Administrador."
+        )
+
+        st.markdown(
+            "El proyecto ReTo es una iniciativa estratégica europea financiada por "
+            "CERV-2024-CHAR-LITI de la UE, duración 24 meses (junio 2025 – mayo 2027), "
+            "con Andalucía como modelo regional para replicación nacional."
+        )
+
+        st.markdown(
+            "**Objetivo general** — Crear un marco integral de colaboración entre sociedad civil, "
+            "autoridades públicas y agentes comunitarios para fortalecer la capacidad de prevenir "
+            "y responder al odio."
+        )
+
+        st.markdown("**Objetivos específicos**")
+        st.markdown(
+            "- mejorar coordinación fuerzas del orden y organizaciones civiles\n"
+            "- fomentar recopilación de datos con IA\n"
+            "- trabajar desde cultura, deporte y medios"
+        )
+
+        st.markdown("**Consorcio y paquetes de trabajo**")
+        consorcio_df = pd.DataFrame(
+            [
+                {"Organización": "CIFAL Málaga", "Rol": "Coordinación", "WP": "WP1"},
+                {"Organización": "Fundación CIEDES", "Rol": "Investigación y datos", "WP": "WP2"},
+                {"Organización": "MCI", "Rol": "Concienciación y apoyo a víctimas", "WP": "WP3"},
+                {"Organización": "CPPA", "Rol": "Ética en medios", "WP": "WP4"},
+                {"Organización": "COE", "Rol": "Deporte e inclusión", "WP": "WP5"},
+                {"Organización": "La Guajira", "Rol": "Cultura y arte", "WP": "WP6"},
+            ]
+        )
+        st.table(consorcio_df)
+        st.markdown(
+            "Nota adicional: otros socios: Universidad de Almería, Almería Acoge, Yo Soy El Otro."
+        )
+
+        st.markdown("**Alcance y actividades**")
+        col_formacion, col_otras = st.columns(2)
+        with col_formacion:
+            st.markdown("**Formación**")
+            st.markdown(
+                "- fuerzas de seguridad\n"
+                "- periodistas\n"
+                "- deporte\n"
+                "- comunidad/jóvenes"
+            )
+        with col_otras:
+            st.markdown("**Otras líneas**")
+            st.markdown(
+                "- tecnología e IA\n"
+                "- apoyo a víctimas\n"
+                "- eventos\n"
+                "- producción audiovisual"
+            )
+
+        st.caption(
+            "Los paneles siguientes describen el análisis digital y la metodología; "
+            "no sustituyen la información institucional completa del consorcio."
+        )
+
 
 # ============================================================
 # FOOTER – Logos institucionales
