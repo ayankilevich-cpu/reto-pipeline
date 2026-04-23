@@ -167,7 +167,10 @@ def plotly_fig_to_png_bytes(fig) -> Tuple[Optional[bytes], Optional[str]]:
         png = pio.to_image(fig, format="png", width=1400, height=900, scale=2)
         return png, None
     except Exception as e:
-        return None, f"Error completo: {type(e).__name__}: {str(e)}"
+        msg = str(e)
+        if "kaleido" in msg.lower() or "chrome" in msg.lower():
+            return None, "Exportación Plotly->PNG requiere kaleido."
+        return None, f"No se pudo convertir figura Plotly: {type(e).__name__}."
 
 
 def matplotlib_fig_to_png_bytes(fig) -> Tuple[Optional[bytes], Optional[str]]:
