@@ -968,61 +968,20 @@ def render_pipeline_status_banner(
         run_ts = None
     fecha_txt = run_ts.strftime("%d/%m/%Y %H:%M") if run_ts is not None else "—"
 
-    source = state.get("source")
-    if source == "pipeline_health":
-        source_lbl = "GitHub Actions (pipeline_health)"
-    elif source == "pipeline_runs_legacy":
-        source_lbl = "fallback local (pipeline_runs)"
-    else:
-        source_lbl = "desconocida"
-
     severity = state.get("severity", "info")
-
-    if source == "pipeline_health":
-        platforms = state.get("platforms", {})
-        parts = []
-        for p in sorted(platforms.keys()):
-            p_info = platforms[p]
-            rows = p_info.get("rows_new_window", 0)
-            stg = "estancado" if p_info.get("stagnated") else "activo"
-            crit = "ok" if p_info.get("critical_stage_ok") else "fallo crítico"
-            parts.append(f"{p.upper()}: {stg}, {rows} filas ventana, etapas={crit}")
-        resumen_plataformas = " | ".join(parts) if parts else "sin detalle por plataforma"
-
-        issues = state.get("issues", [])
-        issues_txt = " ".join(f"[{x}]" for x in issues[:4]) if issues else ""
-
-        msg = (
-            f"Última corrida cloud: {fecha_txt}. "
-            f"Fuente: {source_lbl}. "
-            f"{resumen_plataformas}. "
-            f"{issues_txt}".strip()
-        )
-    else:
-        legacy = state.get("legacy_info", {})
-        status = (legacy.get("status") or "").lower()
-        cambios = legacy.get("changes_detected", False)
-        detail = legacy.get("detail") or ""
-        origen_lbl = {
-            "scheduled": "programada",
-            "catch_up": "recuperación al arrancar",
-            "manual": "manual",
-        }.get(legacy.get("triggered_by") or "", legacy.get("triggered_by") or "")
-        msg = (
-            f"Última corrida fallback: {fecha_txt} ({origen_lbl}). "
-            f"Estado={status or 'desconocido'}, "
-            f"{'con cambios' if cambios else 'sin cambios'}. "
-            f"Fuente: {source_lbl}. {detail}"
-        ).strip()
+    source = state.get("source")
+    source_lbl = "GitHub Actions" if source == "pipeline_health" else "fallback legacy"
+    icon = "✅" if severity == "success" else ("❌" if severity == "error" else "⚠️")
+    msg = f"{icon} Última actualización: {fecha_txt} ({source_lbl})"
 
     if severity == "error":
-        st.error(f"❌ {msg}")
-    elif severity == "warning":
-        st.warning(f"⚠️ {msg}")
+        st.error(msg)
+    elif severity in {"warning", "info"}:
+        st.warning(msg)
     elif severity == "success":
-        st.success(f"✅ {msg}")
+        st.success(msg)
     else:
-        st.info(f"ℹ️ {msg}")
+        st.info(msg)
 
     if state.get("desalineado"):
         st.caption(f"⚠️ {state.get('desalineado_msg')}")
