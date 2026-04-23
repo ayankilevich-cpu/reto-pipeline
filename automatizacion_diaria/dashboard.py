@@ -7614,7 +7614,7 @@ def render_proyecto():
     col_img, col_texto = st.columns([2, 3])
     with col_img:
         st.image(
-            "automatizacion_diaria/ppt_assets/Portada_manual_Reto.jpg",
+            "automatizacion_diaria/ppt_assets/Portada_manual_Reto.png",
             use_container_width=True,
         )
     with col_texto:
