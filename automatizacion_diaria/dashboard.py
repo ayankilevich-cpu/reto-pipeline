@@ -1150,6 +1150,14 @@ def load_muestra_ultima_corrida_llm(limit: int = 20) -> Tuple[pd.DataFrame, Opti
     return df, ultima
 
 
+def _anonimizar_texto_mensaje(texto: str) -> str:
+    """Elimina menciones (@usuario) y URLs del texto del mensaje."""
+    texto = re.sub(r'@\S+', '', texto)
+    texto = re.sub(r'http\S+', '', texto)
+    texto = re.sub(r'\s+', ' ', texto).strip()
+    return texto
+
+
 def _render_one_muestra_card(row) -> None:
     """Una sola tarjeta de mensaje (fila Series o dict-like)."""
     plat = platform_label(str(row.get("platform") or ""))
@@ -1159,7 +1167,7 @@ def _render_one_muestra_card(row) -> None:
     cat_label = CATEGORIAS_LABELS.get(raw_cat, raw_cat or "—")
     intens = (row.get("intensidad_pred") or "").strip() or "—"
     motivo = (row.get("resumen_motivo") or "").strip()
-    texto = str(row.get("content_original") or "").strip()
+    texto = _anonimizar_texto_mensaje(str(row.get("content_original") or "").strip())
     if len(texto) > 4000:
         texto = texto[:4000] + "…"
 
