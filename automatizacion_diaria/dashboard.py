@@ -7609,6 +7609,74 @@ _CARD_CSS = """
 def render_proyecto():
     st.markdown(_CARD_CSS, unsafe_allow_html=True)
 
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    col_img, col_texto = st.columns([2, 3])
+    with col_img:
+        st.image(
+            "automatizacion_diaria/ppt_assets/Portada_manual_Reto.jpg",
+            use_container_width=True,
+        )
+    with col_texto:
+        st.markdown(
+            "**Red de Tolerancia** — El proyecto Red de Tolerancia (ReTo) es una iniciativa estratégica europea, "
+            "financiada por el programa CERV-2024-CHAR-LITI de la Unión Europea, orientada a combatir el discurso "
+            "y los delitos de odio en España. Con una duración de 24 meses (junio 2025 – mayo 2027), toma a Andalucía "
+            "como modelo regional para su posterior replicación a nivel nacional."
+        )
+
+        st.markdown(
+            "**Objetivo general** — Crear un marco integral de colaboración entre la sociedad civil, autoridades públicas "
+            "y agentes comunitarios para fortalecer la capacidad de prevenir y responder al odio."
+        )
+
+        st.markdown("**Objetivos específicos**")
+        st.markdown(
+            "- Mejorar la coordinación entre fuerzas del orden y organizaciones civiles para facilitar la denuncia.\n"
+            "- Fomentar la recopilación de datos con herramientas avanzadas (incl. IA) para entender tendencias del odio.\n"
+            "- Trabajar el tema desde la cultura, el deporte y los medios de comunicación."
+        )
+
+    st.markdown("**Consorcio y paquetes de trabajo**")
+    consorcio_df = pd.DataFrame(
+        [
+            {"Organización": "CIFAL Málaga", "Rol": "Coordinación", "WP": "WP1"},
+            {"Organización": "Fundación CIEDES", "Rol": "Investigación y datos", "WP": "WP2"},
+            {"Organización": "Movimiento Contra la Intolerancia (MCI)", "Rol": "Concienciación y apoyo a víctimas", "WP": "WP3"},
+            {"Organización": "Colegio Profesional de Periodistas de Andalucía (CPPA)", "Rol": "Ética en medios", "WP": "WP4"},
+            {"Organización": "Comité Olímpico Español (COE)", "Rol": "Deporte e inclusión", "WP": "WP5"},
+            {"Organización": "Asociación La Guajira", "Rol": "Cultura y arte", "WP": "WP6"},
+        ]
+    )
+    st.table(consorcio_df)
+    st.markdown("Otros socios: Universidad de Almería, Almería Acoge, Yo Soy El Otro.")
+
+    st.markdown("**Alcance y actividades destacadas**")
+    col_formacion, col_otras = st.columns(2)
+    with col_formacion:
+        st.markdown("**Formación y sensibilización**")
+        st.markdown(
+            "- **Fuerzas de seguridad:** capacitación para investigación y asesoramiento a víctimas "
+            "(reducción de la infra denuncia).\n"
+            "- **Periodistas y medios:** tratamiento ético, identificación de discursos de odio y lucha contra la desinformación.\n"
+            "- **Deporte:** formación de entrenadores y voluntarios en valores olímpicos, igualdad y espacios seguros.\n"
+            "- **Comunidad y jóvenes:** talleres culturales para desafiar estereotipos."
+        )
+    with col_otras:
+        st.markdown("**Otras líneas de trabajo**")
+        st.markdown(
+            "- **Tecnología e IA:** base de datos y herramientas para monitorizar el odio en redes "
+            "(incl. análisis predictivo y OSINT).\n"
+            "- **Apoyo a víctimas:** puntos de atención con asistencia legal.\n"
+            "- Eventos deportivos y culturales para cohesión social.\n"
+            "- Producción audiovisual y estudios abiertos al público."
+        )
+
+    st.caption(
+        "Los paneles siguientes de este dashboard describen el análisis digital y la metodología del componente "
+        "de monitorización; no sustituyen la información institucional completa del consorcio."
+    )
+
     # --- Hero ---
     st.markdown(
         """
@@ -7797,74 +7865,6 @@ def render_proyecto():
                 """,
                 unsafe_allow_html=True,
             )
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    col_img, col_texto = st.columns([2, 3])
-    with col_img:
-        st.image(
-            "automatizacion_diaria/ppt_assets/Portada_manual_Reto.jpg",
-            use_container_width=True,
-        )
-    with col_texto:
-        st.markdown(
-            "**Red de Tolerancia** — El proyecto Red de Tolerancia (ReTo) es una iniciativa estratégica europea, "
-            "financiada por el programa CERV-2024-CHAR-LITI de la Unión Europea, orientada a combatir el discurso "
-            "y los delitos de odio en España. Con una duración de 24 meses (junio 2025 – mayo 2027), toma a Andalucía "
-            "como modelo regional para su posterior replicación a nivel nacional."
-        )
-
-        st.markdown(
-            "**Objetivo general** — Crear un marco integral de colaboración entre la sociedad civil, autoridades públicas "
-            "y agentes comunitarios para fortalecer la capacidad de prevenir y responder al odio."
-        )
-
-        st.markdown("**Objetivos específicos**")
-        st.markdown(
-            "- Mejorar la coordinación entre fuerzas del orden y organizaciones civiles para facilitar la denuncia.\n"
-            "- Fomentar la recopilación de datos con herramientas avanzadas (incl. IA) para entender tendencias del odio.\n"
-            "- Trabajar el tema desde la cultura, el deporte y los medios de comunicación."
-        )
-
-    st.markdown("**Consorcio y paquetes de trabajo**")
-    consorcio_df = pd.DataFrame(
-        [
-            {"Organización": "CIFAL Málaga", "Rol": "Coordinación", "WP": "WP1"},
-            {"Organización": "Fundación CIEDES", "Rol": "Investigación y datos", "WP": "WP2"},
-            {"Organización": "Movimiento Contra la Intolerancia (MCI)", "Rol": "Concienciación y apoyo a víctimas", "WP": "WP3"},
-            {"Organización": "Colegio Profesional de Periodistas de Andalucía (CPPA)", "Rol": "Ética en medios", "WP": "WP4"},
-            {"Organización": "Comité Olímpico Español (COE)", "Rol": "Deporte e inclusión", "WP": "WP5"},
-            {"Organización": "Asociación La Guajira", "Rol": "Cultura y arte", "WP": "WP6"},
-        ]
-    )
-    st.table(consorcio_df)
-    st.markdown("Otros socios: Universidad de Almería, Almería Acoge, Yo Soy El Otro.")
-
-    st.markdown("**Alcance y actividades destacadas**")
-    col_formacion, col_otras = st.columns(2)
-    with col_formacion:
-        st.markdown("**Formación y sensibilización**")
-        st.markdown(
-            "- **Fuerzas de seguridad:** capacitación para investigación y asesoramiento a víctimas "
-            "(reducción de la infra denuncia).\n"
-            "- **Periodistas y medios:** tratamiento ético, identificación de discursos de odio y lucha contra la desinformación.\n"
-            "- **Deporte:** formación de entrenadores y voluntarios en valores olímpicos, igualdad y espacios seguros.\n"
-            "- **Comunidad y jóvenes:** talleres culturales para desafiar estereotipos."
-        )
-    with col_otras:
-        st.markdown("**Otras líneas de trabajo**")
-        st.markdown(
-            "- **Tecnología e IA:** base de datos y herramientas para monitorizar el odio en redes "
-            "(incl. análisis predictivo y OSINT).\n"
-            "- **Apoyo a víctimas:** puntos de atención con asistencia legal.\n"
-            "- Eventos deportivos y culturales para cohesión social.\n"
-            "- Producción audiovisual y estudios abiertos al público."
-        )
-
-    st.caption(
-        "Los paneles siguientes de este dashboard describen el análisis digital y la metodología del componente "
-        "de monitorización; no sustituyen la información institucional completa del consorcio."
-    )
 
 
 # ============================================================
