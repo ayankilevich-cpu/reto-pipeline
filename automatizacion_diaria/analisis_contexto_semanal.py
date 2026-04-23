@@ -588,8 +588,21 @@ def get_all_week_starts(conn) -> List[date]:
 
 
 def get_already_analyzed(conn) -> set:
+    """
+    Considera "ya analizada" solo aquella semana cuyo analisis_date
+    es posterior o igual al cierre real de la semana (semana_inicio + 6 días).
+
+    De esta forma, una semana que se guardó antes de cerrarse (p. ej. ejecución
+    del propio lunes de inicio) no queda bloqueada como "ya analizada" y puede
+    recalcularse en la corrida siguiente, ya con la semana completa.
+    """
     df = pd.read_sql(
-        "SELECT semana_inicio FROM processed.analisis_semanal", conn
+        """
+        SELECT semana_inicio
+        FROM processed.analisis_semanal
+        WHERE analisis_date::date >= (semana_inicio + INTERVAL '6 days')::date
+        """,
+        conn,
     )
     return {_to_py_date(x) for x in df["semana_inicio"].tolist()}
 
