@@ -983,8 +983,8 @@ def render_pipeline_status_banner(
     else:
         st.info(msg)
 
-    if state.get("desalineado"):
-        st.caption(f"⚠️ {state.get('desalineado_msg')}")
+    if state.get("desalineado") and st.session_state.get("role") == "admin":
+        st.caption("⚠️ Desalineación detectada: pipeline_runs legacy más antiguo/en error que pipeline_health cloud.")
 
 
 @st.cache_data(ttl=60)
