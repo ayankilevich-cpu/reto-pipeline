@@ -667,7 +667,94 @@ def load_kpis(
 
 
 @st.cache_data(ttl=60)
-def load_last_pipeline_run(pipeline_name: str = "reto_x_diario") -> dict:
+def load_last_pipeline_health_summary(pipeline_name: str = "reto_pipeline_diario") -> dict:
+    """
+    Lee la última corrida cloud registrada en processed.pipeline_health.
+
+    Devuelve un resumen por plataforma (x / youtube) para usar como
+    fuente principal del banner de estado en operación cloud-first.
+    """
+    try:
+        with get_conn() as conn:
+            last_run_df = pd.read_sql(
+                """
+                SELECT run_id, run_at
+                FROM processed.pipeline_health
+                WHERE pipeline_name = %s
+                ORDER BY run_at DESC
+                LIMIT 1
+                """,
+                conn,
+                params=(pipeline_name,),
+            )
+            if last_run_df.empty:
+                return {"exists": False}
+
+            run_id = str(last_run_df.iloc[0]["run_id"] or "")
+            run_at = last_run_df.iloc[0]["run_at"]
+
+            details_df = pd.read_sql(
+                """
+                SELECT
+                    platform,
+                    last_ingested_at,
+                    rows_new_window,
+                    stagnated,
+                    critical_stage_ok,
+                    failed_stages,
+                    warnings,
+                    errors
+                FROM processed.pipeline_health
+                WHERE pipeline_name = %s
+                  AND run_id = %s
+                ORDER BY platform ASC
+                """,
+                conn,
+                params=(pipeline_name, run_id),
+            )
+    except Exception:
+        return {"exists": False}
+
+    if details_df.empty:
+        return {"exists": False}
+
+    platforms: dict[str, dict] = {}
+    for _, row in details_df.iterrows():
+        p = str(row.get("platform") or "").strip().lower()
+        if not p:
+            continue
+        platforms[p] = {
+            "platform": p,
+            "last_ingested_at": row.get("last_ingested_at"),
+            "rows_new_window": int(row["rows_new_window"]) if row.get("rows_new_window") is not None else 0,
+            "stagnated": bool(row["stagnated"]) if row.get("stagnated") is not None else False,
+            "critical_stage_ok": bool(row["critical_stage_ok"]) if row.get("critical_stage_ok") is not None else False,
+            "failed_stages": (row.get("failed_stages") or "").strip(),
+            "warnings": (row.get("warnings") or "").strip(),
+            "errors": (row.get("errors") or "").strip(),
+        }
+
+    has_critical_error = any(not p["critical_stage_ok"] for p in platforms.values())
+    any_stagnated = any(p["stagnated"] for p in platforms.values())
+    has_errors_text = any(bool(p["errors"]) for p in platforms.values())
+    has_warnings_text = any(bool(p["warnings"]) for p in platforms.values())
+
+    return {
+        "exists": True,
+        "source": "pipeline_health",
+        "pipeline_name": pipeline_name,
+        "run_id": run_id,
+        "run_at": run_at,
+        "platforms": platforms,
+        "has_critical_error": has_critical_error,
+        "any_stagnated": any_stagnated,
+        "has_errors_text": has_errors_text,
+        "has_warnings_text": has_warnings_text,
+    }
+
+
+@st.cache_data(ttl=60)
+def load_last_pipeline_run_legacy(pipeline_name: str = "reto_x_diario") -> dict:
     """
     Lee la última corrida registrada en processed.pipeline_runs.
 
@@ -715,71 +802,230 @@ def load_last_pipeline_run(pipeline_name: str = "reto_x_diario") -> dict:
     }
 
 
-def render_pipeline_status_banner(pipeline_name: str = "reto_x_diario") -> None:
+@st.cache_data(ttl=60)
+def load_last_pipeline_run(pipeline_name: str = "reto_x_diario") -> dict:
     """
-    Muestra un banner con el estado de la última corrida del pipeline diario.
-
-    - Informa explícitamente si la actualización corrió HOY.
-    - Informa si se detectaron cambios o si la corrida fue "sin cambios"
-      (caso típico: día sin scrape nuevo de Apify).
-    - Muestra error si la última corrida falló.
+    Compatibilidad temporal: mantiene el nombre histórico de la función.
     """
-    info = load_last_pipeline_run(pipeline_name)
-    if not info.get("exists"):
-        st.info("Aún no hay registros de corridas del pipeline diario.")
-        return
+    return load_last_pipeline_run_legacy(pipeline_name=pipeline_name)
 
-    started = info["started_at"]
-    try:
-        started_ts = pd.Timestamp(started)
-    except Exception:
-        started_ts = None
 
-    ahora = pd.Timestamp.now(tz=started_ts.tz) if started_ts is not None and started_ts.tz is not None else pd.Timestamp.now()
-    hoy_local = ahora.date()
-    corrio_hoy = started_ts is not None and started_ts.date() == hoy_local
+def resolve_pipeline_banner_state(
+    health_pipeline_name: str = "reto_pipeline_diario",
+    legacy_pipeline_name: str = "reto_x_diario",
+    desalineacion_horas: int = 24,
+) -> dict:
+    """
+    Resuelve el estado operativo del banner con prioridad cloud-first:
 
-    fecha_txt = started_ts.strftime("%d/%m/%Y %H:%M") if started_ts is not None else "—"
-    origen_lbl = {
-        "scheduled": "programada",
-        "catch_up": "recuperación al arrancar",
-        "manual": "manual",
-    }.get(info.get("triggered_by") or "", info.get("triggered_by") or "")
+    1) Fuente principal: processed.pipeline_health
+    2) Fallback: processed.pipeline_runs (legacy)
+    3) Señal de desalineación cuando legacy quedó viejo/en error pero cloud ya corrió
+    """
+    health = load_last_pipeline_health_summary(pipeline_name=health_pipeline_name)
+    legacy = load_last_pipeline_run_legacy(pipeline_name=legacy_pipeline_name)
 
-    status = (info.get("status") or "").lower()
-    cambios = info.get("changes_detected", False)
-    detalle = info.get("detail") or ""
+    if health.get("exists"):
+        run_at = health.get("run_at")
+        run_ts = pd.Timestamp(run_at) if run_at is not None else None
+        platforms = health.get("platforms") or {}
 
-    if status == "error":
-        st.error(
-            f"❌ Última actualización ({fecha_txt}, {origen_lbl}) terminó con error. {detalle}"
-        )
-        return
+        expected_platforms = {"x", "youtube"}
+        missing_platforms = sorted(expected_platforms - set(platforms.keys()))
+        has_platform_gap = len(missing_platforms) > 0
 
-    if status == "partial":
-        st.warning(
-            f"⚠️ Actualización del {fecha_txt} ({origen_lbl}): "
-            f"{info['ok_count']} pasos OK y {info['fail_count']} fallos. "
-            + ("Se detectaron cambios nuevos." if cambios else "Sin cambios en los datos.")
-        )
-        return
+        has_critical_error = bool(health.get("has_critical_error"))
+        any_stagnated = bool(health.get("any_stagnated"))
+        has_errors_text = bool(health.get("has_errors_text"))
+        has_warnings_text = bool(health.get("has_warnings_text"))
 
-    if corrio_hoy:
-        if cambios:
-            st.success(
-                f"✅ Actualización diaria ejecutada hoy ({fecha_txt}, {origen_lbl}) — "
-                f"se detectaron cambios nuevos."
-            )
+        if has_critical_error:
+            severity = "error"
+        elif any_stagnated or has_platform_gap:
+            severity = "warning"
+        elif has_errors_text:
+            severity = "warning"
+        elif has_warnings_text:
+            severity = "info"
         else:
-            st.info(
-                f"ℹ️ Actualización diaria ejecutada hoy ({fecha_txt}, {origen_lbl}), "
-                f"pero **sin cambios nuevos** (posiblemente no hubo scrape en Apify)."
-            )
+            severity = "success"
+
+        issues = []
+        for p in sorted(platforms.keys()):
+            p_info = platforms[p]
+            if not p_info.get("critical_stage_ok", True):
+                fail_txt = p_info.get("failed_stages") or "etapas críticas"
+                issues.append(f"{p}: fallo crítico ({fail_txt})")
+            if p_info.get("stagnated", False):
+                issues.append(f"{p}: estancado")
+            if p_info.get("errors"):
+                issues.append(f"{p}: {p_info['errors']}")
+        if has_platform_gap:
+            issues.append(f"Plataformas faltantes en healthcheck: {', '.join(missing_platforms)}")
+
+        # Señal de desalineación con legacy (informativa)
+        desalineado = False
+        desalineado_msg = ""
+        if legacy.get("exists"):
+            legacy_ts_raw = legacy.get("started_at")
+            legacy_ts = pd.Timestamp(legacy_ts_raw) if legacy_ts_raw is not None else None
+            legacy_status = (legacy.get("status") or "").lower()
+            if run_ts is not None and legacy_ts is not None:
+                delta_horas = (run_ts - legacy_ts).total_seconds() / 3600.0
+                if delta_horas > desalineacion_horas and legacy_status in {"error", "partial"}:
+                    desalineado = True
+                    desalineado_msg = (
+                        "Se detecta desalineación: pipeline_runs (legacy) quedó más antiguo/en error, "
+                        "pero pipeline_health (cloud) tiene corrida más reciente."
+                    )
+
+        return {
+            "exists": True,
+            "source": "pipeline_health",
+            "severity": severity,
+            "run_at": run_ts,
+            "run_id": health.get("run_id") or "",
+            "platforms": platforms,
+            "issues": issues,
+            "has_critical_error": has_critical_error,
+            "any_stagnated": any_stagnated,
+            "has_platform_gap": has_platform_gap,
+            "missing_platforms": missing_platforms,
+            "desalineado": desalineado,
+            "desalineado_msg": desalineado_msg,
+            "legacy_fallback_used": False,
+        }
+
+    if legacy.get("exists"):
+        status = (legacy.get("status") or "").lower()
+        if status == "error":
+            severity = "error"
+        elif status == "partial":
+            severity = "warning"
+        elif status == "ok":
+            severity = "success" if legacy.get("changes_detected") else "info"
+        else:
+            severity = "info"
+
+        return {
+            "exists": True,
+            "source": "pipeline_runs_legacy",
+            "severity": severity,
+            "run_at": legacy.get("started_at"),
+            "run_id": "",
+            "platforms": {},
+            "issues": [],
+            "has_critical_error": status == "error",
+            "any_stagnated": False,
+            "has_platform_gap": False,
+            "missing_platforms": [],
+            "desalineado": False,
+            "desalineado_msg": "",
+            "legacy_fallback_used": True,
+            "legacy_info": legacy,
+        }
+
+    return {
+        "exists": False,
+        "source": "none",
+        "severity": "info",
+        "run_at": None,
+        "run_id": "",
+        "platforms": {},
+        "issues": [],
+        "has_critical_error": False,
+        "any_stagnated": False,
+        "has_platform_gap": False,
+        "missing_platforms": [],
+        "desalineado": False,
+        "desalineado_msg": "",
+        "legacy_fallback_used": False,
+    }
+
+
+def render_pipeline_status_banner(
+    health_pipeline_name: str = "reto_pipeline_diario",
+    legacy_pipeline_name: str = "reto_x_diario",
+) -> None:
+    """
+    Banner operativo cloud-first:
+    - Prioriza processed.pipeline_health (GitHub Actions).
+    - Usa fallback en processed.pipeline_runs (legacy) si no hay health.
+    - Señala desalineación entre fuentes cuando corresponda.
+    """
+    state = resolve_pipeline_banner_state(
+        health_pipeline_name=health_pipeline_name,
+        legacy_pipeline_name=legacy_pipeline_name,
+    )
+    if not state.get("exists"):
+        st.info("Aún no hay registros operativos del pipeline (ni cloud ni fallback legacy).")
+        return
+
+    run_ts_raw = state.get("run_at")
+    try:
+        run_ts = pd.Timestamp(run_ts_raw) if run_ts_raw is not None else None
+    except Exception:
+        run_ts = None
+    fecha_txt = run_ts.strftime("%d/%m/%Y %H:%M") if run_ts is not None else "—"
+
+    source = state.get("source")
+    if source == "pipeline_health":
+        source_lbl = "GitHub Actions (pipeline_health)"
+    elif source == "pipeline_runs_legacy":
+        source_lbl = "fallback local (pipeline_runs)"
     else:
-        st.warning(
-            f"⏱️ La última actualización fue el {fecha_txt} ({origen_lbl}). "
-            f"Hoy aún no corrió."
+        source_lbl = "desconocida"
+
+    severity = state.get("severity", "info")
+
+    if source == "pipeline_health":
+        platforms = state.get("platforms", {})
+        parts = []
+        for p in sorted(platforms.keys()):
+            p_info = platforms[p]
+            rows = p_info.get("rows_new_window", 0)
+            stg = "estancado" if p_info.get("stagnated") else "activo"
+            crit = "ok" if p_info.get("critical_stage_ok") else "fallo crítico"
+            parts.append(f"{p.upper()}: {stg}, {rows} filas ventana, etapas={crit}")
+        resumen_plataformas = " | ".join(parts) if parts else "sin detalle por plataforma"
+
+        issues = state.get("issues", [])
+        issues_txt = " ".join(f"[{x}]" for x in issues[:4]) if issues else ""
+
+        msg = (
+            f"Última corrida cloud: {fecha_txt}. "
+            f"Fuente: {source_lbl}. "
+            f"{resumen_plataformas}. "
+            f"{issues_txt}".strip()
         )
+    else:
+        legacy = state.get("legacy_info", {})
+        status = (legacy.get("status") or "").lower()
+        cambios = legacy.get("changes_detected", False)
+        detail = legacy.get("detail") or ""
+        origen_lbl = {
+            "scheduled": "programada",
+            "catch_up": "recuperación al arrancar",
+            "manual": "manual",
+        }.get(legacy.get("triggered_by") or "", legacy.get("triggered_by") or "")
+        msg = (
+            f"Última corrida fallback: {fecha_txt} ({origen_lbl}). "
+            f"Estado={status or 'desconocido'}, "
+            f"{'con cambios' if cambios else 'sin cambios'}. "
+            f"Fuente: {source_lbl}. {detail}"
+        ).strip()
+
+    if severity == "error":
+        st.error(f"❌ {msg}")
+    elif severity == "warning":
+        st.warning(f"⚠️ {msg}")
+    elif severity == "success":
+        st.success(f"✅ {msg}")
+    else:
+        st.info(f"ℹ️ {msg}")
+
+    if state.get("desalineado"):
+        st.caption(f"⚠️ {state.get('desalineado_msg')}")
 
 
 @st.cache_data(ttl=60)
