@@ -7800,24 +7800,31 @@ def render_proyecto():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    st.markdown(
-        "**Red de Tolerancia** — El proyecto Red de Tolerancia (ReTo) es una iniciativa estratégica europea, "
-        "financiada por el programa CERV-2024-CHAR-LITI de la Unión Europea, orientada a combatir el discurso "
-        "y los delitos de odio en España. Con una duración de 24 meses (junio 2025 – mayo 2027), toma a Andalucía "
-        "como modelo regional para su posterior replicación a nivel nacional."
-    )
+    col_img, col_texto = st.columns([2, 3])
+    with col_img:
+        st.image(
+            "automatizacion_diaria/ppt_assets/Portada_manual_Reto.jpg",
+            use_container_width=True,
+        )
+    with col_texto:
+        st.markdown(
+            "**Red de Tolerancia** — El proyecto Red de Tolerancia (ReTo) es una iniciativa estratégica europea, "
+            "financiada por el programa CERV-2024-CHAR-LITI de la Unión Europea, orientada a combatir el discurso "
+            "y los delitos de odio en España. Con una duración de 24 meses (junio 2025 – mayo 2027), toma a Andalucía "
+            "como modelo regional para su posterior replicación a nivel nacional."
+        )
 
-    st.markdown(
-        "**Objetivo general** — Crear un marco integral de colaboración entre la sociedad civil, autoridades públicas "
-        "y agentes comunitarios para fortalecer la capacidad de prevenir y responder al odio."
-    )
+        st.markdown(
+            "**Objetivo general** — Crear un marco integral de colaboración entre la sociedad civil, autoridades públicas "
+            "y agentes comunitarios para fortalecer la capacidad de prevenir y responder al odio."
+        )
 
-    st.markdown("**Objetivos específicos**")
-    st.markdown(
-        "- Mejorar la coordinación entre fuerzas del orden y organizaciones civiles para facilitar la denuncia.\n"
-        "- Fomentar la recopilación de datos con herramientas avanzadas (incl. IA) para entender tendencias del odio.\n"
-        "- Trabajar el tema desde la cultura, el deporte y los medios de comunicación."
-    )
+        st.markdown("**Objetivos específicos**")
+        st.markdown(
+            "- Mejorar la coordinación entre fuerzas del orden y organizaciones civiles para facilitar la denuncia.\n"
+            "- Fomentar la recopilación de datos con herramientas avanzadas (incl. IA) para entender tendencias del odio.\n"
+            "- Trabajar el tema desde la cultura, el deporte y los medios de comunicación."
+        )
 
     st.markdown("**Consorcio y paquetes de trabajo**")
     consorcio_df = pd.DataFrame(
