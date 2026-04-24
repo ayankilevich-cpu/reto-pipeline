@@ -7879,6 +7879,27 @@ def render_proyecto():
 # ============================================================
 # BUSCADOR Y ANÁLISIS — búsqueda por término y análisis agregado
 # ============================================================
+
+_MEDIOS_AUDITADOS = {
+    # X
+    "DiarioDAlmeria", "101tvMalaga", "diariosevilla", "DiarioJAENes",
+    "granadahoy", "europapress", "ideal_granada", "canalsur",
+    "EFEnoticias", "AhoraGranada", "granadadigital", "OndaCero_es",
+    "DiarioSUR", "HoraJaen", "malaga_ee", "opiniondemalaga",
+    "JaenHoyDiario", "CadizDirecto", "ElSoldAntequera", "IndeGranada",
+    "MijasCom", "8Directo_", "noticiasmira", "DiarioAvanza",
+    "101tvAntequera", "lacontradejaen", "EstrechoDigital", "andaluciainf",
+    "9laLoma", "Sur_de_Cordoba", "motrildigital", "NoticiasGr",
+    "RTVMarbella", "LosBarriosHoy", "CastilloSanFdo", "DIARIOBC",
+    "CordobaBN", "lasemana", "AljarafeDigital", "7TVAndalucia",
+    "fuengirolatv", "IInfoLinares",
+    # YouTube
+    "El País – Edición Andalucía", "Onda Cero Andalucía",
+    "Europa Press Andalucía", "COPE Andalucía", "Agencia EFE",
+    "Betis TV", "Cádiz Directo",
+}
+
+
 @st.cache_data(ttl=300)
 def _load_buscador_resultados(termino: str) -> Tuple[pd.DataFrame, bool]:
     """
@@ -7905,11 +7926,15 @@ def _load_buscador_resultados(termino: str) -> Tuple[pd.DataFrame, bool]:
             FROM processed.mensajes m
             LEFT JOIN processed.etiquetas_llm e ON m.message_uuid = e.message_uuid
             WHERE m.content_original ILIKE %(termino)s
+              AND m.source_media = ANY(%(medios)s)
             ORDER BY m.created_at DESC
             LIMIT 5001
             """,
             conn,
-            params={"termino": pattern},
+            params={
+                "termino": pattern,
+                "medios": list(_MEDIOS_AUDITADOS),
+            },
         )
 
     truncado = len(df) > 5000
