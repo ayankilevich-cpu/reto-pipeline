@@ -7882,7 +7882,7 @@ def render_proyecto():
 # BUSCADOR Y ANÁLISIS — búsqueda por término y análisis agregado
 # ============================================================
 
-_INTENSIDAD_NUMERICA = {"LEVE": 1, "MODERADA": 2, "ALTA": 3}
+_INTENSIDAD_NUMERICA = {"1": 1, "2": 2, "3": 3}
 
 _MEDIOS_AUDITADOS = {
     # X
