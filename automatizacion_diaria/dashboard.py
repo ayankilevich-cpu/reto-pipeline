@@ -7882,6 +7882,8 @@ def render_proyecto():
 # BUSCADOR Y ANÁLISIS — búsqueda por término y análisis agregado
 # ============================================================
 
+_INTENSIDAD_NUMERICA = {"LEVE": 1, "MODERADA": 2, "ALTA": 3}
+
 _MEDIOS_AUDITADOS = {
     # X
     "DiarioDAlmeria", "101tvMalaga", "diariosevilla", "DiarioJAENes",
@@ -8020,7 +8022,10 @@ def render_buscador_terminos() -> None:
     fmin = df["created_at"].min()
     fmax = df["created_at"].max()
 
-    k1, k2, k3, k4 = st.columns(4)
+    if solo_llm:
+        k1, k2, k3, k4, k5 = st.columns(5)
+    else:
+        k1, k2, k3, k4 = st.columns(4)
     k1.metric("Menciones encontradas", f"{total:,}")
     k2.metric("Medios distintos", f"{medios_distintos:,}")
     k3.metric("% clasificado por LLM", f"{pct_clasif:.1f}%")
@@ -8033,6 +8038,13 @@ def render_buscador_terminos() -> None:
         f"**Período cubierto**<br><span style='font-size:0.8rem'>{periodo_txt}</span>",
         unsafe_allow_html=True,
     )
+
+    if solo_llm:
+        df_odio = df[df["clasificacion_principal"] == "ODIO"].copy()
+        df_odio["intens_num"] = df_odio["intensidad_pred"].map(_INTENSIDAD_NUMERICA)
+        intens_media = df_odio["intens_num"].mean()
+        intens_txt = f"{intens_media:.2f} / 3" if pd.notna(intens_media) else "—"
+        k5.metric("Intensidad media (odio)", intens_txt)
 
     # 5) Evolución temporal
     st.markdown("### Evolución de menciones en el tiempo")
@@ -8093,6 +8105,11 @@ def render_buscador_terminos() -> None:
 
     # 6) Comparativa por medio
     st.markdown("### Reacción de audiencia por medio")
+
+    def _intens_media(s):
+        nums = s.map(_INTENSIDAD_NUMERICA)
+        return round(nums.mean(), 2) if nums.notna().any() else None
+
     por_medio = (
         df.groupby("source_media")
         .agg(
@@ -8101,6 +8118,7 @@ def render_buscador_terminos() -> None:
                 "clasificacion_principal",
                 lambda s: int((s == "ODIO").sum()),
             ),
+            intens_media=("intensidad_pred", _intens_media),
         )
         .reset_index()
         .sort_values("total_menciones", ascending=False)
@@ -8118,10 +8136,12 @@ def render_buscador_terminos() -> None:
             orientation="h",
             color="pct_odio",
             color_continuous_scale="Reds",
+            hover_data=["intens_media"],
             labels={
                 "total_menciones": "Menciones",
                 "pct_odio": "% ODIO",
                 "source_media": "Medio",
+                "intens_media": "Intensidad media",
             },
         )
     else:
