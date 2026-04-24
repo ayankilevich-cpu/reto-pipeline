@@ -7645,20 +7645,19 @@ def render_proyecto():
             "- Fomentar la recopilación de datos con herramientas avanzadas (incl. IA) para entender tendencias del odio.\n"
             "- Trabajar el tema desde la cultura, el deporte y los medios de comunicación."
         )
-
-    st.markdown("**Consorcio y paquetes de trabajo**")
-    consorcio_df = pd.DataFrame(
-        [
-            {"Organización": "CIFAL Málaga", "Rol": "Coordinación", "WP": "WP1"},
-            {"Organización": "Fundación CIEDES", "Rol": "Investigación y datos", "WP": "WP2"},
-            {"Organización": "Movimiento Contra la Intolerancia (MCI)", "Rol": "Concienciación y apoyo a víctimas", "WP": "WP3"},
-            {"Organización": "Colegio Profesional de Periodistas de Andalucía (CPPA)", "Rol": "Ética en medios", "WP": "WP4"},
-            {"Organización": "Comité Olímpico Español (COE)", "Rol": "Deporte e inclusión", "WP": "WP5"},
-            {"Organización": "Asociación La Guajira", "Rol": "Cultura y arte", "WP": "WP6"},
-        ]
-    )
-    st.table(consorcio_df)
-    st.markdown("Otros socios: Universidad de Almería, Almería Acoge, Yo Soy El Otro.")
+        consorcio_df = pd.DataFrame(
+            [
+                {"Organización": "CIFAL Málaga", "Rol": "Coordinación", "WP": "WP1"},
+                {"Organización": "Fundación CIEDES", "Rol": "Investigación y datos", "WP": "WP2"},
+                {"Organización": "Movimiento Contra la Intolerancia (MCI)", "Rol": "Concienciación y apoyo a víctimas", "WP": "WP3"},
+                {"Organización": "Colegio Profesional de Periodistas de Andalucía (CPPA)", "Rol": "Ética en medios", "WP": "WP4"},
+                {"Organización": "Comité Olímpico Español (COE)", "Rol": "Deporte e inclusión", "WP": "WP5"},
+                {"Organización": "Asociación La Guajira", "Rol": "Cultura y arte", "WP": "WP6"},
+            ]
+        )
+        st.markdown("**Consorcio y paquetes de trabajo**")
+        st.table(consorcio_df)
+        st.markdown("Otros socios: Universidad de Almería, Almería Acoge, Yo Soy El Otro.")
 
     st.markdown("**Alcance y actividades destacadas**")
     col_formacion, col_otras = st.columns(2)
