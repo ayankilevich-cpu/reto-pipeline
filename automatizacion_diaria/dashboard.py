@@ -8013,22 +8013,26 @@ def render_buscador_terminos() -> None:
     )
 
     # 4) KPIs
-    total = len(df_all)
+    total = len(df)
     medios_distintos = int(df["source_media"].nunique())
-    total_clasificados = int(df_all["clasificacion_principal"].notna().sum())
+    total_clasificados = int(df["clasificacion_principal"].notna().sum())
     pct_clasif = (total_clasificados / total * 100.0) if total else 0.0
-    fmin = df_all["created_at"].min()
-    fmax = df_all["created_at"].max()
-    if pd.notna(fmin) and pd.notna(fmax):
-        periodo_txt = f"{fmin.strftime('%d/%m/%Y')} → {fmax.strftime('%d/%m/%Y')}"
-    else:
-        periodo_txt = "—"
+    fmin = df["created_at"].min()
+    fmax = df["created_at"].max()
 
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Menciones encontradas", f"{total:,}")
     k2.metric("Medios distintos", f"{medios_distintos:,}")
     k3.metric("% clasificado por LLM", f"{pct_clasif:.1f}%")
-    k4.metric("Período cubierto", periodo_txt)
+    periodo_txt = (
+        f"{fmin.strftime('%d/%m/%y')} → {fmax.strftime('%d/%m/%y')}"
+        if pd.notna(fmin) and pd.notna(fmax)
+        else "—"
+    )
+    k4.markdown(
+        f"**Período cubierto**<br><span style='font-size:0.8rem'>{periodo_txt}</span>",
+        unsafe_allow_html=True,
+    )
 
     # 5) Evolución temporal
     st.markdown("### Evolución de menciones en el tiempo")
