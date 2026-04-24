@@ -7968,6 +7968,12 @@ def render_buscador_terminos() -> None:
             value=False,
             key="buscador_terminos_only_llm",
         )
+    plataforma = st.radio(
+        "Plataforma",
+        options=["Todas", "X", "YouTube"],
+        horizontal=True,
+        key="buscador_plataforma",
+    )
 
     if not termino:
         st.info("Ingresá un término para comenzar.")
@@ -7992,12 +7998,13 @@ def render_buscador_terminos() -> None:
         df = df_all[df_all["clasificacion_principal"].notna()].copy()
     else:
         df = df_all.copy()
+    if plataforma == "X":
+        df = df[df["platform"] == "x"].copy()
+    elif plataforma == "YouTube":
+        df = df[df["platform"] == "youtube"].copy()
 
     if df.empty:
-        st.info(
-            "No hay mensajes clasificados por LLM para este término. "
-            "Desactivá el filtro para ver todos los resultados."
-        )
+        st.info("No se encontraron mensajes para los filtros seleccionados.")
         return
 
     # Texto anonimizado reusable
