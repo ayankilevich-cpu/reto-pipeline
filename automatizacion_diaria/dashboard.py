@@ -7647,16 +7647,19 @@ def render_proyecto():
         )
         consorcio_df = pd.DataFrame(
             [
-                {"Organización": "CIFAL Málaga", "Rol": "Coordinación", "WP": "WP1"},
-                {"Organización": "Fundación CIEDES", "Rol": "Investigación y datos", "WP": "WP2"},
-                {"Organización": "Movimiento Contra la Intolerancia (MCI)", "Rol": "Concienciación y apoyo a víctimas", "WP": "WP3"},
-                {"Organización": "Colegio Profesional de Periodistas de Andalucía (CPPA)", "Rol": "Ética en medios", "WP": "WP4"},
-                {"Organización": "Comité Olímpico Español (COE)", "Rol": "Deporte e inclusión", "WP": "WP5"},
-                {"Organización": "Asociación La Guajira", "Rol": "Cultura y arte", "WP": "WP6"},
+                {"Organización": "CIFAL Málaga", "Rol": "Coordinación"},
+                {"Organización": "Fundación CIEDES", "Rol": "Investigación y datos"},
+                {"Organización": "Movimiento Contra la Intolerancia (MCI)", "Rol": "Concienciación y apoyo a víctimas"},
+                {"Organización": "Colegio Profesional de Periodistas de Andalucía (CPPA)", "Rol": "Ética en medios"},
+                {"Organización": "Comité Olímpico Español (COE)", "Rol": "Deporte e inclusión"},
+                {"Organización": "Asociación La Guajira", "Rol": "Cultura y arte"},
             ]
         )
         st.markdown("**Consorcio y paquetes de trabajo**")
-        st.table(consorcio_df)
+        st.markdown(
+            consorcio_df.to_html(index=False, justify="center"),
+            unsafe_allow_html=True
+        )
         st.markdown("Otros socios: Universidad de Almería, Almería Acoge, Yo Soy El Otro.")
 
     st.markdown("**Alcance y actividades destacadas**")
