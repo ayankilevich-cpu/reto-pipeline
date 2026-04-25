@@ -719,6 +719,19 @@ def load_last_pipeline_health_summary(pipeline_name: str = "reto_pipeline_diario
     if details_df.empty:
         return {"exists": False}
 
+    def _safe_text_cell(val) -> str:
+        if val is None:
+            return ""
+        try:
+            if pd.isna(val):
+                return ""
+        except Exception:
+            pass
+        if isinstance(val, (list, tuple, set)):
+            parts = [str(x).strip() for x in val if str(x).strip()]
+            return ", ".join(parts)
+        return str(val).strip()
+
     platforms: dict[str, dict] = {}
     for _, row in details_df.iterrows():
         p = str(row.get("platform") or "").strip().lower()
@@ -730,9 +743,9 @@ def load_last_pipeline_health_summary(pipeline_name: str = "reto_pipeline_diario
             "rows_new_window": int(row["rows_new_window"]) if row.get("rows_new_window") is not None else 0,
             "stagnated": bool(row["stagnated"]) if row.get("stagnated") is not None else False,
             "critical_stage_ok": bool(row["critical_stage_ok"]) if row.get("critical_stage_ok") is not None else False,
-            "failed_stages": (row.get("failed_stages") or "").strip(),
-            "warnings": (row.get("warnings") or "").strip(),
-            "errors": (row.get("errors") or "").strip(),
+            "failed_stages": _safe_text_cell(row.get("failed_stages")),
+            "warnings": _safe_text_cell(row.get("warnings")),
+            "errors": _safe_text_cell(row.get("errors")),
         }
 
     has_critical_error = any(not p["critical_stage_ok"] for p in platforms.values())
