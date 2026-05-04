@@ -7625,34 +7625,39 @@ _CARD_CSS = """
     margin-top: 0.5rem;
 }
 
-/* Proyecto ReTo: imagen alineada en altura con el bloque de texto (misma fila, sin hueco bajo la imagen) */
+/* Proyecto ReTo: misma altura imagen y texto (grid + fondo cover; evita fallos de img height:100% en Streamlit) */
 .reto-proyecto-top {
-    display: flex;
-    flex-direction: row;
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
     align-items: stretch;
     gap: 1.25rem;
     margin-bottom: 1rem;
     width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
 }
 .reto-proyecto-top__img-wrap {
-    flex: 2 1 0;
+    position: relative;
     min-width: 0;
-    display: flex;
+    min-height: 0;
+    align-self: stretch;
     border-radius: 10px;
     overflow: hidden;
     box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-    background: #edf2f7;
+    background-color: #edf2f7;
 }
 .reto-proyecto-top__img-wrap img {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     object-fit: cover;
     object-position: center;
     display: block;
-    min-height: 0;
+    margin: 0;
+    padding: 0;
 }
 .reto-proyecto-top__text {
-    flex: 3 1 0;
     min-width: 0;
     font-size: 0.95rem;
     line-height: 1.55;
@@ -7661,7 +7666,19 @@ _CARD_CSS = """
 .reto-proyecto-top__text p { margin: 0 0 0.65rem 0; }
 .reto-proyecto-top__text ul { margin: 0.35rem 0 0 1.1rem; padding: 0; }
 .reto-proyecto-top__text li { margin-bottom: 0.35rem; }
-.reto-proyecto-top--solo-texto .reto-proyecto-top__text { flex: 1 1 auto; }
+.reto-proyecto-top--solo-texto {
+    grid-template-columns: minmax(0, 1fr);
+}
+.reto-proyecto-consorcio {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    clear: both;
+}
+.reto-proyecto-consorcio table {
+    width: 100% !important;
+    border-collapse: collapse;
+}
 </style>
 """
 
@@ -7697,10 +7714,11 @@ def render_proyecto():
 """
 
     if _portada_b64:
+        _data_uri = f"data:image/png;base64,{_portada_b64}"
         st.markdown(
             f'<div class="reto-proyecto-top">'
             f'<div class="reto-proyecto-top__img-wrap">'
-            f'<img src="data:image/png;base64,{_portada_b64}" alt="Portada Manual ReTo" />'
+            f'<img src="{_data_uri}" alt="Portada Manual ReTo" loading="lazy" />'
             f"</div>{_proyecto_texto_html}</div>",
             unsafe_allow_html=True,
         )
@@ -7720,12 +7738,14 @@ def render_proyecto():
             {"Organización": "Asociación La Guajira", "Rol": "Cultura y arte"},
         ]
     )
-    st.markdown("**Consorcio y paquetes de trabajo**")
     st.markdown(
-        consorcio_df.to_html(index=False, justify="center"),
+        '<div class="reto-proyecto-consorcio">'
+        "<strong>Consorcio y paquetes de trabajo</strong>"
+        f"{consorcio_df.to_html(index=False, justify='center', classes=['dataframe'])}"
+        "<p>Otros socios: Universidad de Almería, Almería Acoge, Yo Soy El Otro.</p>"
+        "</div>",
         unsafe_allow_html=True,
     )
-    st.markdown("Otros socios: Universidad de Almería, Almería Acoge, Yo Soy El Otro.")
 
     st.markdown("**Alcance y actividades destacadas**")
     col_formacion, col_otras = st.columns(2)
