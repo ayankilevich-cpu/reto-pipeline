@@ -1,2 +1,10 @@
 [runner]
 magicEnabled = false
+
+[theme]
+base = "light"
+primaryColor = "#1F4E79"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F7FAFC"
+textColor = "#1A202C"
+font = "sans serif"

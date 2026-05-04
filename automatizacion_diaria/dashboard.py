@@ -57,6 +57,21 @@ try:
 except Exception:  # pragma: no cover
     pio = None
 
+# Dependencias opcionales para rediseño visual (fallback si Streamlit Cloud no las tiene)
+try:
+    from streamlit_option_menu import option_menu as _option_menu  # type: ignore
+    _HAS_OPTION_MENU = True
+except Exception:  # pragma: no cover
+    _option_menu = None  # type: ignore[assignment]
+    _HAS_OPTION_MENU = False
+
+try:
+    from streamlit_extras.stylable_container import stylable_container as _stylable_container  # type: ignore  # noqa: F401
+    _HAS_EXTRAS = True
+except Exception:  # pragma: no cover
+    _stylable_container = None  # type: ignore[assignment]
+    _HAS_EXTRAS = False
+
 _AUTO_DIR = Path(__file__).resolve().parent
 # Raíz del paquete ReTo (logo y carpeta logos/ están ahí, no dentro de automatizacion_diaria/)
 _RETO_ROOT = _AUTO_DIR.parent
@@ -108,6 +123,241 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ============================================================
+# TEMA VISUAL GLOBAL (CSS + Plotly template)
+# ============================================================
+_GLOBAL_CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+html, body, [class*="css"], .stMarkdown, .stButton>button,
+.stTextInput input, .stSelectbox, .stMultiSelect, [data-baseweb="tab"] {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+}
+
+/* --- Tipografía y jerarquía --- */
+h1 { font-weight: 700; letter-spacing: -0.02em; color: #1A202C; }
+h2 { font-weight: 600; letter-spacing: -0.015em; color: #1A202C; }
+h3 { font-weight: 600; color: #2D3748; }
+h4 { font-weight: 600; color: #2D3748; }
+
+/* --- Sidebar institucional --- */
+section[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #F7FAFC 0%, #EDF2F7 100%);
+    border-right: 1px solid #E2E8F0;
+}
+section[data-testid="stSidebar"] .stButton>button {
+    border-radius: 8px;
+    font-weight: 500;
+    border: 1px solid #CBD5E0;
+    background: #FFFFFF;
+    color: #2D3748;
+}
+section[data-testid="stSidebar"] .stButton>button:hover {
+    background: #EBF8FF;
+    border-color: #1F4E79;
+    color: #1F4E79;
+}
+
+/* --- Métricas: tarjetas limpias con hover --- */
+[data-testid="stMetric"] {
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+}
+[data-testid="stMetric"]:hover {
+    box-shadow: 0 6px 16px rgba(31,78,121,0.12);
+    transform: translateY(-1px);
+    border-color: #BEE3F8;
+}
+[data-testid="stMetricLabel"] {
+    color: #4A5568 !important;
+    font-size: 0.78rem !important;
+    font-weight: 600 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+[data-testid="stMetricValue"] {
+    color: #1F4E79 !important;
+    font-weight: 700 !important;
+    font-size: 1.85rem !important;
+}
+[data-testid="stMetricDelta"] {
+    font-weight: 500;
+}
+
+/* --- Tabs profesionales --- */
+[data-baseweb="tab-list"] {
+    gap: 4px;
+    border-bottom: 1px solid #E2E8F0;
+    background: transparent;
+}
+[data-baseweb="tab"] {
+    padding: 10px 22px !important;
+    border-radius: 8px 8px 0 0 !important;
+    font-weight: 500 !important;
+    color: #4A5568 !important;
+    transition: all 0.2s ease;
+}
+[data-baseweb="tab"]:hover {
+    background: #F7FAFC !important;
+    color: #1F4E79 !important;
+}
+[data-baseweb="tab"][aria-selected="true"] {
+    color: #1F4E79 !important;
+    font-weight: 600 !important;
+    background: transparent !important;
+}
+[data-baseweb="tab-highlight"] {
+    background: #1F4E79 !important;
+    height: 3px !important;
+}
+
+/* --- Dataframe mejorado --- */
+.stDataFrame thead tr th {
+    background: #F7FAFC !important;
+    color: #1A202C !important;
+    font-weight: 600 !important;
+    border-bottom: 2px solid #E2E8F0 !important;
+}
+.stDataFrame tbody tr:hover td {
+    background: #EBF8FF !important;
+}
+
+/* --- Section header con barra de acento --- */
+.reto-section-header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    margin: 0.2rem 0 1.4rem 0;
+    padding: 0.2rem 0 0.2rem 1rem;
+    border-left: 4px solid #1F4E79;
+}
+.reto-section-header h1 {
+    margin: 0 !important;
+    font-size: 1.9rem !important;
+    line-height: 1.2;
+}
+.reto-section-header .subtitle {
+    color: #4A5568;
+    font-size: 0.95rem;
+    line-height: 1.45;
+}
+
+/* --- Chip de actualización / estado --- */
+.reto-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    background: #EBF8FF;
+    color: #1F4E79;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    border: 1px solid #BEE3F8;
+    letter-spacing: 0.02em;
+}
+.reto-chip.success { background: #F0FFF4; color: #276749; border-color: #9AE6B4; }
+.reto-chip.warning { background: #FFFBEA; color: #975A16; border-color: #FAF089; }
+.reto-chip.danger  { background: #FFF5F5; color: #9B2C2C; border-color: #FEB2B2; }
+
+/* --- Separadores más sutiles --- */
+hr { border-color: #E2E8F0; margin: 1.2rem 0; }
+
+/* --- Buttons --- */
+.stButton>button {
+    border-radius: 8px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+.stButton>button[kind="primary"] {
+    background: #1F4E79;
+    border-color: #1F4E79;
+}
+.stButton>button[kind="primary"]:hover {
+    background: #2B6CB0;
+    border-color: #2B6CB0;
+}
+
+/* --- Expander --- */
+[data-testid="stExpander"] {
+    border: 1px solid #E2E8F0;
+    border-radius: 10px;
+    background: #FFFFFF;
+}
+[data-testid="stExpander"] summary {
+    font-weight: 500;
+    color: #2D3748;
+}
+
+/* --- Alert/info boxes: quitar color azul neon Streamlit --- */
+div[data-baseweb="notification"] {
+    border-radius: 10px !important;
+}
+
+/* --- Foco accesible --- */
+*:focus-visible {
+    outline: 2px solid #3182CE !important;
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+</style>
+"""
+
+
+def _inject_global_css() -> None:
+    """Inyecta el CSS global una sola vez por sesión."""
+    if st.session_state.get("_reto_css_injected"):
+        return
+    st.markdown(_GLOBAL_CSS, unsafe_allow_html=True)
+    st.session_state["_reto_css_injected"] = True
+
+
+def _register_plotly_theme() -> None:
+    """Registra el template Plotly 'reto' con paleta y estilo unificados. Idempotente."""
+    if pio is None:
+        return
+    if "reto" in pio.templates and pio.templates.default == "plotly_white+reto":
+        return
+    template = go.layout.Template()
+    template.layout = dict(
+        font=dict(family="Inter, -apple-system, sans-serif", size=13, color="#1A202C"),
+        title=dict(
+            font=dict(size=15, color="#1A202C", family="Inter"),
+            x=0.0, xanchor="left", pad=dict(t=4, b=8),
+        ),
+        paper_bgcolor="#FFFFFF",
+        plot_bgcolor="#FFFFFF",
+        colorway=list(CAT_COLOR_MAP.values()),
+        xaxis=dict(
+            gridcolor="#EDF2F7", linecolor="#CBD5E0", zerolinecolor="#E2E8F0",
+            tickcolor="#A0AEC0", tickfont=dict(size=12, color="#4A5568"),
+        ),
+        yaxis=dict(
+            gridcolor="#EDF2F7", linecolor="#CBD5E0", zerolinecolor="#E2E8F0",
+            tickcolor="#A0AEC0", tickfont=dict(size=12, color="#4A5568"),
+        ),
+        legend=dict(
+            font=dict(size=12, color="#2D3748"),
+            bgcolor="rgba(255,255,255,0)",
+            bordercolor="rgba(0,0,0,0)",
+        ),
+        margin=dict(l=40, r=24, t=48, b=44),
+        hoverlabel=dict(
+            bgcolor="#1F4E79", bordercolor="#1F4E79",
+            font=dict(color="white", family="Inter", size=12),
+        ),
+    )
+    pio.templates["reto"] = template
+    pio.templates.default = "plotly_white+reto"
+
+
+_register_plotly_theme()
+
 CATEGORIAS_LABELS = {
     "odio_etnico_cultural_religioso": "Étnico / Cultural / Religioso",
     "odio_genero_identidad_orientacion": "Género / Identidad / Orientación",
@@ -129,12 +379,56 @@ COLORS = {
     "current_week": "#EAB308",
 }
 
-CAT_COLORS = [
-    "#E74C3C", "#3498DB", "#2ECC71", "#F39C12", "#9B59B6", "#1ABC9C",
-]
+# Paleta fija por categoría de odio (orden estable, vinculada a las etiquetas visibles)
+# Mapea la LABEL visible (no la key interna) para funcionar con cualquier gráfico que use el label.
+CAT_COLOR_MAP = {
+    "Étnico / Cultural / Religioso": "#C0392B",
+    "Género / Identidad / Orientación": "#8E44AD",
+    "Condición Social / Económica / Salud": "#2E86AB",
+    "Ideológico / Político": "#D97706",
+    "Personal / Generacional": "#059669",
+    "Profesiones / Roles Públicos": "#6B7280",
+}
+CAT_COLORS = list(CAT_COLOR_MAP.values())
+
+# Paleta semántica unificada (mismos colores en toda la app para Odio/No Odio/Dudoso)
+SEMANTIC_COLORS = {
+    "Odio": "#C0392B",
+    "No Odio": "#2F855A",
+    "Dudoso": "#D69E2E",
+}
+
+# Intensidad (gradación coherente: ámbar claro → ámbar → rojo)
+INTENSITY_COLORS = {"1": "#FBD38D", "2": "#F59E0B", "3": "#C0392B"}
+
+# Colores fijos por plataforma (mixto: X = azul ReTo, YouTube = rojo oficial)
+PLATFORM_COLORS = {
+    "X": "#1F4E79",
+    "YouTube": "#FF0000",
+    "x": "#1F4E79",
+    "twitter": "#1F4E79",
+    "youtube": "#FF0000",
+}
+
+# Iconos bootstrap por sección para el sidebar (streamlit-option-menu)
+SECTION_ICONS: Dict[str, str] = {
+    "Proyecto ReTo": "info-circle",
+    "Panel general": "speedometer2",
+    "Categorías de odio (LLM)": "tags",
+    "Ranking de medios": "trophy",
+    "Análisis contextual": "graph-up",
+    "Comparativa modelos": "arrow-left-right",
+    "Calidad LLM": "check2-circle",
+    "Términos frecuentes": "cloud",
+    "Buscador y Análisis": "search",
+    "Dataset Gold": "database",
+    "Análisis Art. 510": "file-earmark-text",
+    "Anotación y validación": "pencil-square",
+    "Delitos de odio (oficial)": "shield-exclamation",
+}
 
 # Visible en sidebar: confirmar que el despliegue (Streamlit Cloud, etc.) sirvió este archivo.
-DASHBOARD_UI_VERSION = "2.1 · período por processed_at + sin bloque exclusiones manual"
+DASHBOARD_UI_VERSION = "2.2 · rediseño visual (paleta ReTo unificada)"
 
 # Mapeo de nombres de plataforma para mostrar
 PLATFORM_DISPLAY = {
@@ -1565,38 +1859,80 @@ def render_sidebar():
     st.sidebar.markdown("---")
 
     sections = _get_sections_for_role(role)
-    section = st.sidebar.radio("Sección", sections, index=0)
+
+    # Navegación profesional con streamlit-option-menu (fallback a radio si no está disponible)
+    if _HAS_OPTION_MENU and _option_menu is not None:
+        with st.sidebar:
+            try:
+                icons = [SECTION_ICONS.get(s, "circle") for s in sections]
+                section = _option_menu(
+                    menu_title=None,
+                    options=list(sections),
+                    icons=icons,
+                    default_index=0,
+                    key="nav_menu",
+                    styles={
+                        "container": {
+                            "padding": "0",
+                            "background-color": "transparent",
+                        },
+                        "icon": {"color": "#1F4E79", "font-size": "15px"},
+                        "nav-link": {
+                            "font-size": "14px",
+                            "text-align": "left",
+                            "margin": "2px 0",
+                            "padding": "8px 12px",
+                            "border-radius": "8px",
+                            "color": "#2D3748",
+                        },
+                        "nav-link-selected": {
+                            "background-color": "#1F4E79",
+                            "color": "white",
+                            "font-weight": "600",
+                        },
+                    },
+                )
+            except Exception:
+                section = st.sidebar.radio("Sección", sections, index=0)
+    else:
+        section = st.sidebar.radio("Sección", sections, index=0)
 
     st.sidebar.markdown("---")
-    st.sidebar.caption("Datos: PostgreSQL (reto_db)")
-    st.sidebar.caption(f"Interfaz: {DASHBOARD_UI_VERSION}")
-
-    _last_run = load_last_pipeline_run()
-    if _last_run.get("exists"):
-        try:
-            _ts = pd.Timestamp(_last_run["started_at"]).strftime("%d/%m %H:%M")
-        except Exception:
-            _ts = "—"
-        _status = (_last_run.get("status") or "").lower()
-        if _status == "error":
-            _icon = "🔴"
-        elif _status == "partial":
-            _icon = "🟡"
-        elif _last_run.get("changes_detected"):
-            _icon = "🟢"
-        else:
-            _icon = "⚪"
-        _cambios = "con cambios" if _last_run.get("changes_detected") else "sin cambios"
-        st.sidebar.caption(f"{_icon} Última corrida: {_ts} ({_cambios})")
 
     if st.sidebar.button("Refrescar datos"):
         st.cache_data.clear()
         st.rerun()
 
+    # Información técnica: solo visible para admin y plegada por defecto
+    if role == "admin":
+        with st.sidebar.expander("Información técnica", expanded=False):
+            st.caption("Datos: PostgreSQL (reto_db)")
+            st.caption(f"Interfaz: {DASHBOARD_UI_VERSION}")
+            _last_run = load_last_pipeline_run()
+            if _last_run.get("exists"):
+                try:
+                    _ts = pd.Timestamp(_last_run["started_at"]).strftime("%d/%m %H:%M")
+                except Exception:
+                    _ts = "—"
+                _status = (_last_run.get("status") or "").lower()
+                if _status == "error":
+                    _icon = "🔴"
+                elif _status == "partial":
+                    _icon = "🟡"
+                elif _last_run.get("changes_detected"):
+                    _icon = "🟢"
+                else:
+                    _icon = "⚪"
+                _cambios = "con cambios" if _last_run.get("changes_detected") else "sin cambios"
+                st.caption(f"{_icon} Última corrida: {_ts} ({_cambios})")
+
     eu_logo = _reto_asset_file("logos", "07_eu.png")
     if eu_logo is not None:
         st.sidebar.markdown("---")
         st.sidebar.image(str(eu_logo), use_container_width=True)
+        st.sidebar.caption(
+            "Proyecto financiado por la Unión Europea — Programa CERV (2024)."
+        )
 
     return section
 
@@ -1605,14 +1941,19 @@ def render_sidebar():
 # SECTIONS
 # ============================================================
 def render_panel_general():
-    st.title("Panel general")
-    st.markdown("Indicadores clave del proyecto RETO.")
+    st.markdown(
+        '<div class="reto-section-header">'
+        "<h1>Panel general</h1>"
+        '<div class="subtitle">Indicadores clave del proyecto ReTo · visión consolidada de volumen, '
+        "clasificaciones y validación humana.</div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
     render_pipeline_status_banner()
 
     opts = load_filter_options()
 
-    # Filtros
     fc1, fc2 = st.columns(2)
     sel_platforms = fc1.multiselect(
         "Plataforma", opts["platforms"], default=[], key="pg_plat",
@@ -1633,8 +1974,6 @@ def render_panel_general():
     col3.metric("Odio — Baseline", f"{kpis['total_odio_baseline']:,}")
     col4.metric("Odio — LLM", f"{kpis['total_odio_llm']:,}")
 
-    st.markdown("---")
-
     col5, col6, col7, col8 = st.columns(4)
     col5.metric("Etiquetados por LLM", f"{kpis['total_etiquetados_llm']:,}")
     col6.metric("Score promedio", f"{kpis['score_promedio']:.3f}")
@@ -1645,8 +1984,6 @@ def render_panel_general():
         delta=f"{kpis['total_gold_odio']:,} odio",
         delta_color="off",
     )
-
-    st.markdown("---")
 
     nuevos_total = kpis["nuevos_x"] + kpis["nuevos_yt"]
     col_n1, col_n2, col_n3 = st.columns(3)
@@ -1678,23 +2015,24 @@ def render_panel_general():
             f"**{n_llm:,}** etiquetados por LLM"
         )
 
-        # 1. Torta: Odio vs No Odio vs Dudoso
+        # 1. Torta: Odio vs No Odio vs Dudoso (paleta semántica unificada)
         pie_data = df_comb["odio_label"].value_counts().reset_index()
         pie_data.columns = ["Clasificación", "Cantidad"]
-        color_map = {"Odio": COLORS["danger"], "No Odio": COLORS["success"], "Dudoso": COLORS["warning"]}
 
         col_g1, col_g2 = st.columns(2)
 
         with col_g1:
             fig_pie = px.pie(
                 pie_data, names="Clasificación", values="Cantidad",
-                color="Clasificación", color_discrete_map=color_map,
-                hole=0.45, title="Distribución Odio vs No Odio",
+                color="Clasificación", color_discrete_map=SEMANTIC_COLORS,
+                hole=0.5, title="Distribución Odio vs No Odio",
             )
             fig_pie.update_traces(
                 textinfo="percent",
                 textposition="inside",
                 textfont_size=14,
+                textfont_color="white",
+                marker=dict(line=dict(color="#FFFFFF", width=2)),
             )
             fig_pie.update_layout(
                 height=380,
@@ -1703,7 +2041,7 @@ def render_panel_general():
             )
             st.plotly_chart(fig_pie, use_container_width=True)
 
-        # 2. Barras: Odio por plataforma
+        # 2. Barras: Odio por plataforma (semánticos + coherente con donut)
         with col_g2:
             plat_data = (
                 df_comb.groupby(["plataforma", "odio_label"])
@@ -1711,21 +2049,18 @@ def render_panel_general():
             )
             fig_plat = px.bar(
                 plat_data, x="plataforma", y="Cantidad", color="odio_label",
-                color_discrete_map=color_map, barmode="group",
+                color_discrete_map=SEMANTIC_COLORS, barmode="group",
                 labels={"plataforma": "Plataforma", "odio_label": "Clasificación"},
                 title="Distribución de odio por plataforma",
             )
             fig_plat.update_layout(height=380)
             st.plotly_chart(fig_plat, use_container_width=True)
 
-        st.markdown("---")
-
-        # Filtrar solo mensajes de odio para categoría e intensidad
         df_odio = df_comb[df_comb["odio_label"] == "Odio"].copy()
 
         col_g3, col_g4 = st.columns(2)
 
-        # 3. Distribución de intensidad
+        # 3. Distribución de intensidad (paleta coherente)
         with col_g3:
             df_int = df_odio[df_odio["intensidad"].notna()].copy()
             if not df_int.empty:
@@ -1736,7 +2071,7 @@ def render_panel_general():
                 fig_int = px.bar(
                     int_data, x="Intensidad", y="Cantidad",
                     color="Intensidad",
-                    color_discrete_map={"1": "#F39C12", "2": "#E67E22", "3": "#C0392B"},
+                    color_discrete_map=INTENSITY_COLORS,
                     title="Distribución de intensidad (mensajes de odio)",
                     text_auto=True,
                 )
@@ -1745,7 +2080,7 @@ def render_panel_general():
             else:
                 st.info("Sin datos de intensidad.")
 
-        # 4. Distribución de categoría
+        # 4. Distribución de categoría (paleta fija por categoría)
         with col_g4:
             df_cat = df_odio[df_odio["categoria"].notna()].copy()
             if not df_cat.empty:
@@ -1760,7 +2095,7 @@ def render_panel_general():
                 fig_cat = px.bar(
                     cat_data, x="Cantidad", y="Categoría", orientation="h",
                     color="Categoría",
-                    color_discrete_sequence=CAT_COLORS,
+                    color_discrete_map=CAT_COLOR_MAP,
                     title="Distribución por categoría de odio",
                     text_auto=True,
                 )
@@ -1790,12 +2125,13 @@ def render_panel_general():
             fig_avg = px.bar(
                 avg_int, x="Intensidad promedio", y="Categoría", orientation="h",
                 color="Intensidad promedio",
-                color_continuous_scale="YlOrRd",
+                color_continuous_scale=[[0, "#FBD38D"], [0.5, "#F59E0B"], [1, "#C0392B"]],
                 title="Intensidad promedio por categoría de odio",
                 text_auto=".2f",
             )
             fig_avg.update_layout(
                 height=380, yaxis=dict(autorange="reversed"),
+                coloraxis_colorbar=dict(title="Intensidad"),
             )
             st.plotly_chart(fig_avg, use_container_width=True)
 
@@ -1876,11 +2212,13 @@ def _load_panel_combined(
 
 
 def render_categorias():
-    st.title("Distribución por categoría de odio")
     st.markdown(
-        "Clasificación del LLM en las 6 categorías del proyecto ReTo. "
-        "**Primero** verás la muestra de mensajes; **debajo**, métricas y gráficos. "
-        "(No confundir con *Análisis contextual* en el menú.)"
+        '<div class="reto-section-header">'
+        "<h1>Distribución por categoría de odio</h1>"
+        '<div class="subtitle">Clasificación del LLM en las 6 categorías del proyecto ReTo. '
+        "<strong>Primero</strong> verás la muestra de mensajes; <strong>debajo</strong>, métricas y gráficos.</div>"
+        "</div>",
+        unsafe_allow_html=True,
     )
 
     # La muestra va antes de las métricas para que no quede “bajo el pliegue” en pantallas chicas.
@@ -1940,9 +2278,10 @@ def render_categorias():
     with col1:
         fig = px.bar(
             df, x="total", y="categoria_label", orientation="h",
-            color="categoria_label", color_discrete_sequence=CAT_COLORS,
+            color="categoria_label", color_discrete_map=CAT_COLOR_MAP,
             labels={"total": "Mensajes", "categoria_label": ""},
             title="Mensajes de odio por categoría",
+            text_auto=True,
         )
         fig.update_layout(showlegend=False, height=400, yaxis=dict(autorange="reversed"))
         st.plotly_chart(fig, use_container_width=True)
@@ -1950,16 +2289,20 @@ def render_categorias():
     with col2:
         fig2 = px.pie(
             df, values="total", names="categoria_label",
-            color_discrete_sequence=CAT_COLORS,
-            title="Proporción por categoría", hole=0.35,
+            color="categoria_label", color_discrete_map=CAT_COLOR_MAP,
+            title="Proporción por categoría", hole=0.5,
+        )
+        fig2.update_traces(
+            textposition="inside",
+            textinfo="percent",
+            textfont_color="white",
+            marker=dict(line=dict(color="#FFFFFF", width=2)),
         )
         fig2.update_layout(height=400)
         st.plotly_chart(fig2, use_container_width=True)
 
-    # Intensidad
     st.markdown("### Intensidad por categoría")
 
-    # Filtro adicional de categorías para el gráfico de intensidad
     sel_cats_int = st.multiselect(
         "Filtrar categorías",
         options=list(CATEGORIAS_LABELS.keys()),
@@ -1979,7 +2322,7 @@ def render_categorias():
         fig3 = px.bar(
             df_int, x="categoria_label", y="total", color="intensidad_pred",
             barmode="group",
-            color_discrete_map={"1": "#F9E79F", "2": "#F39C12", "3": "#E74C3C"},
+            color_discrete_map=INTENSITY_COLORS,
             labels={"total": "Mensajes", "categoria_label": "", "intensidad_pred": "Intensidad"},
             title="Distribución de intensidad (1=baja, 2=media, 3=alta)",
         )
@@ -2031,21 +2374,29 @@ def _render_ranking_simple(df: pd.DataFrame, top_n: int, key_suffix: str):
     with col1:
         fig1 = px.bar(
             df_vol, x="total_mensajes", y="source_media", orientation="h",
-            color="total_mensajes", color_continuous_scale="Blues",
             labels={"total_mensajes": "Total mensajes", "source_media": ""},
             title=f"Top {top_n} medios — Volumen de mensajes",
+            text_auto=",.0f",
         )
-        fig1.update_layout(height=chart_h, yaxis=dict(autorange="reversed"), showlegend=False)
+        fig1.update_traces(marker_color="#1F4E79", marker_line_color="#1A3C5C", marker_line_width=0.5)
+        fig1.update_layout(
+            height=chart_h, yaxis=dict(autorange="reversed"),
+            showlegend=False, coloraxis_showscale=False,
+        )
         st.plotly_chart(fig1, use_container_width=True, key=f"rm_vol_{key_suffix}")
 
     with col2:
         fig2 = px.bar(
             df_pct, x="pct_odio_any", y="source_media", orientation="h",
-            color="pct_odio_any", color_continuous_scale="Reds",
             labels={"pct_odio_any": "% Odio", "source_media": ""},
             title=f"Top {top_n} medios — % Odio",
+            text_auto=".1f",
         )
-        fig2.update_layout(height=chart_h, yaxis=dict(autorange="reversed"), showlegend=False)
+        fig2.update_traces(marker_color="#C0392B", marker_line_color="#8C2A20", marker_line_width=0.5)
+        fig2.update_layout(
+            height=chart_h, yaxis=dict(autorange="reversed"),
+            showlegend=False, coloraxis_showscale=False,
+        )
         st.plotly_chart(fig2, use_container_width=True, key=f"rm_pct_{key_suffix}")
 
     detail_cols = {
@@ -2055,9 +2406,21 @@ def _render_ranking_simple(df: pd.DataFrame, top_n: int, key_suffix: str):
         "pct_odio_any": "% Odio",
     }
     available = [c for c in detail_cols if c in df_vol.columns]
+    _column_config: Dict[str, Any] = {}
+    try:
+        _column_config = {
+            "Total": st.column_config.NumberColumn("Total", format="%d"),
+            "Odio": st.column_config.NumberColumn("Odio", format="%d"),
+            "% Odio": st.column_config.ProgressColumn(
+                "% Odio", format="%.1f%%", min_value=0, max_value=100,
+            ),
+        }
+    except Exception:
+        _column_config = {}
     st.dataframe(
         df_vol[available].rename(columns=detail_cols),
         use_container_width=True, hide_index=True,
+        column_config=_column_config if _column_config else None,
         key=f"rm_table_{key_suffix}",
     )
 
@@ -2261,8 +2624,13 @@ def _render_explorar_medio():
 
 
 def render_ranking_medios():
-    st.title("Ranking de medios")
-    st.markdown("Top 10 medios de comunicación por volumen de mensajes y porcentaje de odio.")
+    st.markdown(
+        '<div class="reto-section-header">'
+        "<h1>Ranking de medios</h1>"
+        '<div class="subtitle">Top 10 medios de comunicación por volumen de mensajes y porcentaje de odio.</div>'
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
     top_n = 10
 
@@ -8480,6 +8848,7 @@ def _scroll_main_to_top() -> None:
 
 
 def main():
+    _inject_global_css()
     if not _check_auth():
         _render_login()
         return
