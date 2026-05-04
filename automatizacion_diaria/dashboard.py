@@ -7624,6 +7624,44 @@ _CARD_CSS = """
     font-size: 0.95rem;
     margin-top: 0.5rem;
 }
+
+/* Proyecto ReTo: imagen alineada en altura con el bloque de texto (misma fila, sin hueco bajo la imagen) */
+.reto-proyecto-top {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 1.25rem;
+    margin-bottom: 1rem;
+    width: 100%;
+}
+.reto-proyecto-top__img-wrap {
+    flex: 2 1 0;
+    min-width: 0;
+    display: flex;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+    background: #edf2f7;
+}
+.reto-proyecto-top__img-wrap img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+    display: block;
+    min-height: 0;
+}
+.reto-proyecto-top__text {
+    flex: 3 1 0;
+    min-width: 0;
+    font-size: 0.95rem;
+    line-height: 1.55;
+    color: #2d3748;
+}
+.reto-proyecto-top__text p { margin: 0 0 0.65rem 0; }
+.reto-proyecto-top__text ul { margin: 0.35rem 0 0 1.1rem; padding: 0; }
+.reto-proyecto-top__text li { margin-bottom: 0.35rem; }
+.reto-proyecto-top--solo-texto .reto-proyecto-top__text { flex: 1 1 auto; }
 </style>
 """
 
@@ -7633,47 +7671,61 @@ def render_proyecto():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    col_img, col_texto = st.columns([2, 3])
-    with col_img:
-        st.image(
-            "automatizacion_diaria/ppt_assets/Portada_manual_Reto.png",
-            use_container_width=True,
-        )
-    with col_texto:
+    _portada_path = _reto_asset_file("ppt_assets", "Portada_manual_Reto.png")
+    _portada_b64 = ""
+    if _portada_path is not None:
+        try:
+            _portada_b64 = base64.b64encode(_portada_path.read_bytes()).decode("ascii")
+        except OSError:
+            _portada_b64 = ""
+
+    _proyecto_texto_html = """
+<div class="reto-proyecto-top__text">
+    <p><strong>Red de Tolerancia</strong> — El proyecto Red de Tolerancia (ReTo) es una iniciativa estratégica europea,
+    financiada por el programa CERV-2024-CHAR-LITI de la Unión Europea, orientada a combatir el discurso
+    y los delitos de odio en España. Con una duración de 24 meses (junio 2025 – mayo 2027), toma a Andalucía
+    como modelo regional para su posterior replicación a nivel nacional.</p>
+    <p><strong>Objetivo general</strong> — Crear un marco integral de colaboración entre la sociedad civil, autoridades públicas
+    y agentes comunitarios para fortalecer la capacidad de prevenir y responder al odio.</p>
+    <p><strong>Objetivos específicos</strong></p>
+    <ul>
+        <li>Mejorar la coordinación entre fuerzas del orden y organizaciones civiles para facilitar la denuncia.</li>
+        <li>Fomentar la recopilación de datos con herramientas avanzadas (incl. IA) para entender tendencias del odio.</li>
+        <li>Trabajar el tema desde la cultura, el deporte y los medios de comunicación.</li>
+    </ul>
+</div>
+"""
+
+    if _portada_b64:
         st.markdown(
-            "**Red de Tolerancia** — El proyecto Red de Tolerancia (ReTo) es una iniciativa estratégica europea, "
-            "financiada por el programa CERV-2024-CHAR-LITI de la Unión Europea, orientada a combatir el discurso "
-            "y los delitos de odio en España. Con una duración de 24 meses (junio 2025 – mayo 2027), toma a Andalucía "
-            "como modelo regional para su posterior replicación a nivel nacional."
+            f'<div class="reto-proyecto-top">'
+            f'<div class="reto-proyecto-top__img-wrap">'
+            f'<img src="data:image/png;base64,{_portada_b64}" alt="Portada Manual ReTo" />'
+            f"</div>{_proyecto_texto_html}</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            f'<div class="reto-proyecto-top reto-proyecto-top--solo-texto">{_proyecto_texto_html}</div>',
+            unsafe_allow_html=True,
         )
 
-        st.markdown(
-            "**Objetivo general** — Crear un marco integral de colaboración entre la sociedad civil, autoridades públicas "
-            "y agentes comunitarios para fortalecer la capacidad de prevenir y responder al odio."
-        )
-
-        st.markdown("**Objetivos específicos**")
-        st.markdown(
-            "- Mejorar la coordinación entre fuerzas del orden y organizaciones civiles para facilitar la denuncia.\n"
-            "- Fomentar la recopilación de datos con herramientas avanzadas (incl. IA) para entender tendencias del odio.\n"
-            "- Trabajar el tema desde la cultura, el deporte y los medios de comunicación."
-        )
-        consorcio_df = pd.DataFrame(
-            [
-                {"Organización": "CIFAL Málaga", "Rol": "Coordinación"},
-                {"Organización": "Fundación CIEDES", "Rol": "Investigación y datos"},
-                {"Organización": "Movimiento Contra la Intolerancia (MCI)", "Rol": "Concienciación y apoyo a víctimas"},
-                {"Organización": "Colegio Profesional de Periodistas de Andalucía (CPPA)", "Rol": "Ética en medios"},
-                {"Organización": "Comité Olímpico Español (COE)", "Rol": "Deporte e inclusión"},
-                {"Organización": "Asociación La Guajira", "Rol": "Cultura y arte"},
-            ]
-        )
-        st.markdown("**Consorcio y paquetes de trabajo**")
-        st.markdown(
-            consorcio_df.to_html(index=False, justify="center"),
-            unsafe_allow_html=True
-        )
-        st.markdown("Otros socios: Universidad de Almería, Almería Acoge, Yo Soy El Otro.")
+    consorcio_df = pd.DataFrame(
+        [
+            {"Organización": "CIFAL Málaga", "Rol": "Coordinación"},
+            {"Organización": "Fundación CIEDES", "Rol": "Investigación y datos"},
+            {"Organización": "Movimiento Contra la Intolerancia (MCI)", "Rol": "Concienciación y apoyo a víctimas"},
+            {"Organización": "Colegio Profesional de Periodistas de Andalucía (CPPA)", "Rol": "Ética en medios"},
+            {"Organización": "Comité Olímpico Español (COE)", "Rol": "Deporte e inclusión"},
+            {"Organización": "Asociación La Guajira", "Rol": "Cultura y arte"},
+        ]
+    )
+    st.markdown("**Consorcio y paquetes de trabajo**")
+    st.markdown(
+        consorcio_df.to_html(index=False, justify="center"),
+        unsafe_allow_html=True,
+    )
+    st.markdown("Otros socios: Universidad de Almería, Almería Acoge, Yo Soy El Otro.")
 
     st.markdown("**Alcance y actividades destacadas**")
     col_formacion, col_otras = st.columns(2)
