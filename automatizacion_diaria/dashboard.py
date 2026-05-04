@@ -730,6 +730,32 @@ def _load_valid_media_map() -> Tuple[Set[str], Dict[str, str]]:
     return valid_names, handle_to_name
 
 
+def _public_medio_label(source_media: Any) -> Optional[str]:
+    """Nombre del medio monitorizado seguro para UI pública.
+
+    Solo devuelve texto si `source_media` está en la lista maestra de medios (o su handle
+    mapea a un nombre válido). Cualquier otro valor (p. ej. cuenta personal no catalogada)
+    devuelve None para no exponer identificadores.
+    """
+    if source_media is None:
+        return None
+    if isinstance(source_media, float) and pd.isna(source_media):
+        return None
+    sm = str(source_media).strip()
+    if not sm:
+        return None
+    try:
+        valid_names, handle_to_name = _load_valid_media_map()
+    except Exception:
+        return None
+    display = handle_to_name.get(sm, sm)
+    if display in valid_names:
+        return display
+    if sm in valid_names:
+        return sm
+    return None
+
+
 # ============================================================
 # HELPERS — build dynamic WHERE clauses
 # ============================================================
@@ -1470,7 +1496,7 @@ def _anonimizar_texto_mensaje(texto: str) -> str:
 def _render_one_muestra_card(row) -> None:
     """Una sola tarjeta de mensaje (fila Series o dict-like)."""
     plat = platform_label(str(row.get("platform") or ""))
-    medio = (row.get("source_media") or "").strip() or "—"
+    medio_pub = _public_medio_label(row.get("source_media"))
     clasif = (row.get("clasificacion_principal") or "—").strip()
     raw_cat = (row.get("categoria_odio_pred") or "").strip()
     cat_label = CATEGORIAS_LABELS.get(raw_cat, raw_cat or "—")
@@ -1481,7 +1507,12 @@ def _render_one_muestra_card(row) -> None:
         texto = texto[:4000] + "…"
 
     with st.container(border=True):
-        st.markdown(f"**{plat}** · Medio: `{medio}`")
+        if medio_pub:
+            st.markdown(
+                f"**Plataforma:** {plat} · **Medio monitorizado:** {medio_pub}"
+            )
+        else:
+            st.markdown(f"**Plataforma:** {plat}")
         st.markdown(
             f"**Clasificación:** `{clasif}` · **Categoría:** {cat_label} · "
             f"**Intensidad:** `{intens}`"
@@ -1501,7 +1532,9 @@ def _render_muestra_ultima_corrida_llm_section(*, key_suffix: str = "") -> None:
     st.caption(
         "Hasta **20** mensajes al azar del **último día calendario** con etiquetas en "
         "`processed.etiquetas_llm` (misma fecha que la métrica *Última actualización*). "
-        "Navegación horizontal con **◀ ▶**; texto desde **processed.mensajes** (anonimizado)."
+        "Navegación horizontal con **◀ ▶**; texto desde **processed.mensajes** (anonimizado). "
+        "**No se muestran cuentas de usuario ni identificadores personales.** "
+        "El nombre del medio solo aparece si consta en el catálogo oficial de medios monitorizados."
     )
 
     c_btn, _ = st.columns([1, 4])
@@ -6472,8 +6505,12 @@ def _render_anotacion_youtube(annotator: str):
             height=130, disabled=True, label_visibility="collapsed",
         )
     with col_meta:
-        medio = msg.get("source_media") or "—"
-        st.markdown(f"**Medio:** {medio}")
+        st.markdown(
+            f"**Plataforma:** {platform_label(str(msg.get('platform') or ''))}"
+        )
+        _mp = _public_medio_label(msg.get("source_media"))
+        if _mp:
+            st.markdown(f"**Medio monitorizado:** {_mp}")
         video_id = msg.get("video_id")
         if video_id and pd.notna(video_id):
             yt_url = f"https://www.youtube.com/watch?v={video_id}"
@@ -6658,9 +6695,9 @@ def _render_validacion_art510(annotator: str):
         )
         plat_raw = str(msg.get("platform", ""))
         plat = platform_label(plat_raw)
-        if plat_raw == "youtube":
-            medio = msg.get("source_media") or "—"
-            st.caption(f"Plataforma: **{plat}** · Medio: **{medio}**")
+        _mp = _public_medio_label(msg.get("source_media"))
+        if _mp:
+            st.caption(f"Plataforma: **{plat}** · Medio monitorizado: **{_mp}**")
         else:
             st.caption(f"Plataforma: **{plat}**")
 
@@ -7524,13 +7561,17 @@ def _render_validacion_llm_youtube(annotator: str):
             "contenido_vllm", value=str(msg["content_original"]),
             height=140, disabled=True, label_visibility="collapsed",
         )
-        medio = msg.get("source_media") or "—"
+        plat_v = platform_label(str(msg.get("platform") or ""))
+        _mp = _public_medio_label(msg.get("source_media"))
         video_id = msg.get("video_id")
         vid_link = ""
         if video_id and pd.notna(video_id):
             yt_url = f"https://www.youtube.com/watch?v={video_id}"
             vid_link = f" · [Video]({yt_url})"
-        st.caption(f"Medio: **{medio}**{vid_link}")
+        if _mp:
+            st.caption(f"Plataforma: **{plat_v}** · Medio monitorizado: **{_mp}**{vid_link}")
+        else:
+            st.caption(f"Plataforma: **{plat_v}**{vid_link}")
 
     with col_llm:
         st.markdown("**Predicción del LLM:**")
@@ -8694,13 +8735,18 @@ def render_buscador_terminos() -> None:
     for _, row in df_sample.iloc[start:end].iterrows():
         with st.container(border=True):
             plat = platform_label(str(row["platform"] or ""))
-            medio = (row["source_media"] or "—")
+            medio_pub = _public_medio_label(row.get("source_media"))
             fecha = (
                 pd.to_datetime(row["created_at"]).strftime("%d/%m/%Y %H:%M")
                 if pd.notna(row["created_at"])
                 else "—"
             )
-            st.markdown(f"**{plat}** · Medio: `{medio}` · {fecha}")
+            if medio_pub:
+                st.markdown(
+                    f"**{plat}** · Medio monitorizado: **{medio_pub}** · {fecha}"
+                )
+            else:
+                st.markdown(f"**{plat}** · {fecha}")
             if solo_llm:
                 clasif = (row.get("clasificacion_principal") or "—")
                 raw_cat = row.get("categoria_odio_pred") or ""
@@ -8721,7 +8767,12 @@ def render_buscador_terminos() -> None:
             "categoria_odio_pred",
             "intensidad_pred",
         ]
-    df_export = df[export_cols].rename(
+    df_export = df[export_cols].copy()
+    if "source_media" in df_export.columns:
+        df_export["source_media"] = df_export["source_media"].apply(
+            lambda x: _public_medio_label(x) or ""
+        )
+    df_export = df_export.rename(
         columns={"content_clean": "content_original_anon"}
     )
     safe_tag = re.sub(r"[^a-zA-Z0-9_-]+", "_", termino)[:40] or "busqueda"
