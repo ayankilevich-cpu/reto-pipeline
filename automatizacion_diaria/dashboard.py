@@ -317,47 +317,6 @@ def _inject_global_css() -> None:
     st.session_state["_reto_css_injected"] = True
 
 
-def _register_plotly_theme() -> None:
-    """Registra el template Plotly 'reto' con paleta y estilo unificados. Idempotente."""
-    if pio is None:
-        return
-    if "reto" in pio.templates and pio.templates.default == "plotly_white+reto":
-        return
-    template = go.layout.Template()
-    template.layout = dict(
-        font=dict(family="Inter, -apple-system, sans-serif", size=13, color="#1A202C"),
-        title=dict(
-            font=dict(size=15, color="#1A202C", family="Inter"),
-            x=0.0, xanchor="left", pad=dict(t=4, b=8),
-        ),
-        paper_bgcolor="#FFFFFF",
-        plot_bgcolor="#FFFFFF",
-        colorway=list(CAT_COLOR_MAP.values()),
-        xaxis=dict(
-            gridcolor="#EDF2F7", linecolor="#CBD5E0", zerolinecolor="#E2E8F0",
-            tickcolor="#A0AEC0", tickfont=dict(size=12, color="#4A5568"),
-        ),
-        yaxis=dict(
-            gridcolor="#EDF2F7", linecolor="#CBD5E0", zerolinecolor="#E2E8F0",
-            tickcolor="#A0AEC0", tickfont=dict(size=12, color="#4A5568"),
-        ),
-        legend=dict(
-            font=dict(size=12, color="#2D3748"),
-            bgcolor="rgba(255,255,255,0)",
-            bordercolor="rgba(0,0,0,0)",
-        ),
-        margin=dict(l=40, r=24, t=48, b=44),
-        hoverlabel=dict(
-            bgcolor="#1F4E79", bordercolor="#1F4E79",
-            font=dict(color="white", family="Inter", size=12),
-        ),
-    )
-    pio.templates["reto"] = template
-    pio.templates.default = "plotly_white+reto"
-
-
-_register_plotly_theme()
-
 CATEGORIAS_LABELS = {
     "odio_etnico_cultural_religioso": "Étnico / Cultural / Religioso",
     "odio_genero_identidad_orientacion": "Género / Identidad / Orientación",
@@ -439,6 +398,48 @@ PLATFORM_DISPLAY = {
 
 # "twitter" y "x" son la misma plataforma en distintas épocas de scraping
 _PLATFORM_ALIASES = {"x": ("x", "twitter"), "twitter": ("x", "twitter")}
+
+
+def _register_plotly_theme() -> None:
+    """Registra el template Plotly 'reto' con paleta y estilo unificados. Idempotente."""
+    if pio is None:
+        return
+    if "reto" in pio.templates and pio.templates.default == "plotly_white+reto":
+        return
+    template = go.layout.Template()
+    template.layout = dict(
+        font=dict(family="Inter, -apple-system, sans-serif", size=13, color="#1A202C"),
+        title=dict(
+            font=dict(size=15, color="#1A202C", family="Inter"),
+            x=0.0, xanchor="left", pad=dict(t=4, b=8),
+        ),
+        paper_bgcolor="#FFFFFF",
+        plot_bgcolor="#FFFFFF",
+        colorway=list(CAT_COLOR_MAP.values()),
+        xaxis=dict(
+            gridcolor="#EDF2F7", linecolor="#CBD5E0", zerolinecolor="#E2E8F0",
+            tickcolor="#A0AEC0", tickfont=dict(size=12, color="#4A5568"),
+        ),
+        yaxis=dict(
+            gridcolor="#EDF2F7", linecolor="#CBD5E0", zerolinecolor="#E2E8F0",
+            tickcolor="#A0AEC0", tickfont=dict(size=12, color="#4A5568"),
+        ),
+        legend=dict(
+            font=dict(size=12, color="#2D3748"),
+            bgcolor="rgba(255,255,255,0)",
+            bordercolor="rgba(0,0,0,0)",
+        ),
+        margin=dict(l=40, r=24, t=48, b=44),
+        hoverlabel=dict(
+            bgcolor="#1F4E79", bordercolor="#1F4E79",
+            font=dict(color="white", family="Inter", size=12),
+        ),
+    )
+    pio.templates["reto"] = template
+    pio.templates.default = "plotly_white+reto"
+
+
+_register_plotly_theme()
 
 # ============================================================
 # EXPORT HELPERS (CSV / PDF por sección)
