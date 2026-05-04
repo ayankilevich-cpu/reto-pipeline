@@ -317,6 +317,19 @@ def _inject_global_css() -> None:
     st.session_state["_reto_css_injected"] = True
 
 
+def _render_section_header(title: str, subtitle_html: str = "") -> None:
+    """Cabecera de sección unificada (barra lateral, tipografía global). `subtitle_html` es HTML fijo en código."""
+    sub = (
+        f'<div class="subtitle">{subtitle_html}</div>'
+        if (subtitle_html and subtitle_html.strip())
+        else ""
+    )
+    st.markdown(
+        f'<div class="reto-section-header"><h1>{html.escape(title)}</h1>{sub}</div>',
+        unsafe_allow_html=True,
+    )
+
+
 CATEGORIAS_LABELS = {
     "odio_etnico_cultural_religioso": "Étnico / Cultural / Religioso",
     "odio_genero_identidad_orientacion": "Género / Identidad / Orientación",
@@ -387,7 +400,7 @@ SECTION_ICONS: Dict[str, str] = {
 }
 
 # Visible en sidebar: confirmar que el despliegue (Streamlit Cloud, etc.) sirvió este archivo.
-DASHBOARD_UI_VERSION = "2.2 · rediseño visual (paleta ReTo unificada)"
+DASHBOARD_UI_VERSION = "2.3 · cabeceras sección + paleta Gold/terminos + footer UE"
 
 # Mapeo de nombres de plataforma para mostrar
 PLATFORM_DISPLAY = {
@@ -1975,13 +1988,10 @@ def render_sidebar():
 # SECTIONS
 # ============================================================
 def render_panel_general():
-    st.markdown(
-        '<div class="reto-section-header">'
-        "<h1>Panel general</h1>"
-        '<div class="subtitle">Indicadores clave del proyecto ReTo · visión consolidada de volumen, '
-        "clasificaciones y validación humana.</div>"
-        "</div>",
-        unsafe_allow_html=True,
+    _render_section_header(
+        "Panel general",
+        "Indicadores clave del proyecto ReTo · visión consolidada de volumen, "
+        "clasificaciones y validación humana.",
     )
 
     render_pipeline_status_banner()
@@ -2246,13 +2256,10 @@ def _load_panel_combined(
 
 
 def render_categorias():
-    st.markdown(
-        '<div class="reto-section-header">'
-        "<h1>Distribución por categoría de odio</h1>"
-        '<div class="subtitle">Clasificación del LLM en las 6 categorías del proyecto ReTo. '
-        "<strong>Primero</strong> verás la muestra de mensajes; <strong>debajo</strong>, métricas y gráficos.</div>"
-        "</div>",
-        unsafe_allow_html=True,
+    _render_section_header(
+        "Distribución por categoría de odio",
+        "Clasificación del LLM en las 6 categorías del proyecto ReTo. "
+        "<strong>Primero</strong> la muestra de mensajes; <strong>debajo</strong>, métricas y gráficos.",
     )
 
     # La muestra va antes de las métricas para que no quede “bajo el pliegue” en pantallas chicas.
@@ -2658,12 +2665,9 @@ def _render_explorar_medio():
 
 
 def render_ranking_medios():
-    st.markdown(
-        '<div class="reto-section-header">'
-        "<h1>Ranking de medios</h1>"
-        '<div class="subtitle">Top 10 medios de comunicación por volumen de mensajes y porcentaje de odio.</div>'
-        "</div>",
-        unsafe_allow_html=True,
+    _render_section_header(
+        "Ranking de medios",
+        "Top 10 medios de comunicación por volumen de mensajes y porcentaje de odio.",
     )
 
     top_n = 10
@@ -2762,11 +2766,11 @@ def _bounds_semana_cal_reto(d: date) -> Tuple[date, date]:
 
 
 def render_analisis_contextual():
-    st.title("Análisis contextual semanal")
-    st.markdown(
-        "Evolución semanal del discurso de odio con detección de **alertas**, "
-        "identificación de **targets** y **temas dominantes**, "
-        "y análisis contextual generado por IA."
+    _render_section_header(
+        "Análisis contextual semanal",
+        "Evolución semanal del discurso de odio con <strong>alertas</strong>, "
+        "<strong>targets</strong> y <strong>temas dominantes</strong>; análisis contextual con IA "
+        "(solo mensajes de <strong>X</strong> clasificados por LLM).",
     )
     st.info(
         "📌 Esta sección analiza exclusivamente mensajes de **X (Twitter)** "
@@ -3227,8 +3231,10 @@ def render_analisis_contextual():
 
 
 def render_comparativa():
-    st.title("Comparativa: Baseline vs LLM")
-    st.markdown("Análisis de concordancia entre el modelo baseline (TF-IDF + LogReg) y el etiquetado LLM.")
+    _render_section_header(
+        "Comparativa: Baseline vs LLM",
+        "Concordancia entre el modelo baseline (TF-IDF + LogReg) y el etiquetado LLM.",
+    )
 
     opts = load_filter_options()
 
@@ -3288,7 +3294,8 @@ def render_comparativa():
         text=[[str(v) for v in row] for row in matrix],
         texttemplate="%{text}",
         textfont={"size": 18},
-        colorscale="Blues", showscale=False,
+        colorscale=[[0, "#EBF8FF"], [0.5, "#63B3ED"], [1, "#1F4E79"]],
+        showscale=False,
     ))
     fig.update_layout(title="Baseline vs LLM", height=350, xaxis_title="LLM", yaxis_title="Baseline")
     st.plotly_chart(fig, use_container_width=True)
@@ -3341,8 +3348,10 @@ def render_comparativa():
 
 
 def render_calidad_llm():
-    st.title("Calidad del etiquetado LLM")
-    st.markdown("Comparación entre la clasificación del LLM y la validación humana.")
+    _render_section_header(
+        "Calidad del etiquetado LLM",
+        "Comparación entre la clasificación del LLM y la validación humana.",
+    )
 
     opts = load_filter_options()
     annotators = load_annotators()
@@ -3430,10 +3439,9 @@ def render_calidad_llm():
 
 
 def render_terminos():
-    st.title("Términos de odio más frecuentes")
-    st.markdown(
-        "Análisis de los términos detectados en mensajes candidatos a odio. "
-        "Por defecto se ocultan palabras muy frecuentes pero poco informativas para el análisis de odio violento."
+    _render_section_header(
+        "Términos de odio más frecuentes",
+        "Términos detectados en mensajes candidatos a odio; por defecto se filtran lemas neutros o genéricos.",
     )
 
     opts = load_filter_options()
@@ -3532,7 +3540,8 @@ def render_terminos():
         df_terms = pd.DataFrame(top_terms, columns=["Término", "Frecuencia"])
         fig = px.bar(
             df_terms, x="Frecuencia", y="Término", orientation="h",
-            color="Frecuencia", color_continuous_scale="Reds",
+            color="Frecuencia",
+            color_continuous_scale=[[0, "#FFF5F5"], [0.5, "#F56565"], [1, "#C0392B"]],
             title=f"Top {top_n} términos más frecuentes",
         )
         fig.update_layout(height=max(400, top_n * 22), yaxis=dict(autorange="reversed"), showlegend=False)
@@ -3617,7 +3626,10 @@ def load_gold_full() -> pd.DataFrame:
 
 def render_gold_dataset():
     """Sección de análisis del dataset gold (LLM + validación humana)."""
-    st.header("Dataset Gold — Evaluación del etiquetado")
+    _render_section_header(
+        "Dataset Gold",
+        "Evaluación del etiquetado: muestras validadas manualmente frente al LLM y métricas de concordancia.",
+    )
     df = load_gold_full()
 
     if df.empty:
@@ -3694,7 +3706,10 @@ def render_gold_dataset():
             fig_plat = px.bar(
                 plat_summary_df, x="platform_label", y="total",
                 color="platform_label",
-                color_discrete_map={"X": "#1DA1F2", "YouTube": "#FF0000"},
+                color_discrete_map={
+                    "X": PLATFORM_COLORS["X"],
+                    "YouTube": PLATFORM_COLORS["YouTube"],
+                },
                 title="Muestras por plataforma",
                 text="total",
             )
@@ -3705,7 +3720,10 @@ def render_gold_dataset():
             fig_plat_odio = px.bar(
                 plat_summary_df, x="platform_label", y="% Odio",
                 color="platform_label",
-                color_discrete_map={"X": "#1DA1F2", "YouTube": "#FF0000"},
+                color_discrete_map={
+                    "X": PLATFORM_COLORS["X"],
+                    "YouTube": PLATFORM_COLORS["YouTube"],
+                },
                 title="% Odio por plataforma",
                 text="% Odio",
             )
@@ -3724,7 +3742,7 @@ def render_gold_dataset():
         fig_odio = px.pie(
             odio_counts, names="Label", values="Cantidad",
             color="Label",
-            color_discrete_map={"Odio": "#E74C3C", "No Odio": "#2ECC71", "Dudoso": "#F39C12"},
+            color_discrete_map=SEMANTIC_COLORS,
             title="Odio / No Odio / Dudoso",
         )
         fig_odio.update_layout(height=350)
@@ -5552,7 +5570,10 @@ def render_analisis_art510():
     # Asegurar que las tablas existan antes de cualquier consulta
     _art510_ensure_tables()
 
-    st.header("Análisis Art. 510 — Potenciales delitos de odio")
+    _render_section_header(
+        "Análisis Art. 510",
+        "Potenciales delitos de odio según el art. 510.1 CP (conductas 1a–1c; sin 510.2).",
+    )
     st.caption(
         "Evaluación de mensajes etiquetados como odio bajo el criterio del "
         "artículo 510.1 del Código Penal español (excluyendo apartado 2). "
@@ -5770,7 +5791,10 @@ def load_fiscalia_investigations() -> pd.DataFrame:
 
 def render_delitos():
     """Sección de datos oficiales de delitos de odio en España."""
-    st.header("Delitos de odio — Datos oficiales España")
+    _render_section_header(
+        "Delitos de odio — Datos oficiales",
+        "España: series publicadas por el Ministerio del Interior y la Fiscalía General del Estado.",
+    )
     st.caption("Fuente: Ministerio del Interior y Fiscalía General del Estado (2018-2024)")
 
     # ── Cargar todos los datasets ──
@@ -7892,11 +7916,9 @@ def _render_validacion_llm_x(annotator: str):
 
 def render_anotacion():
     """Sección de anotación humana: YouTube, Art. 510 y validación LLM (YT + X)."""
-    st.title("Anotación y validación")
-    st.markdown(
-        "Validación humana de mensajes: anotación de odio en YouTube, "
-        "validación de potenciales delitos Art. 510 (X + YouTube) "
-        "y validación de calidad del etiquetado LLM en YouTube y en X."
+    _render_section_header(
+        "Anotación y validación",
+        "Anotación en YouTube, validación Art. 510 (X + YouTube) y control de calidad del etiquetado LLM.",
     )
 
     # --- Identificación del anotador (compartido entre tabs) ---
@@ -7958,7 +7980,7 @@ _CARD_CSS = """
     height: 100%;
 }
 .reto-card h4 {
-    color: #2b6cb0;
+    color: #1F4E79;
     margin: 0 0 0.8rem 0;
     font-size: 1.05rem;
     border-bottom: 2px solid #bee3f8;
@@ -8096,6 +8118,11 @@ _CARD_CSS = """
 def render_proyecto():
     st.markdown(_CARD_CSS, unsafe_allow_html=True)
 
+    _render_section_header(
+        "Proyecto ReTo",
+        "Marco europeo CERV, consorcio y alcance del análisis digital en medios andaluces.",
+    )
+
     st.markdown("<br>", unsafe_allow_html=True)
 
     _portada_path = _reto_asset_file("ppt_assets", "Portada_manual_Reto.png")
@@ -8183,11 +8210,13 @@ def render_proyecto():
         "de monitorización; no sustituyen la información institucional completa del consorcio."
     )
 
-    # --- Hero ---
+    # --- Hero (sin repetir el título de página; ya está en la cabecera de sección) ---
     st.markdown(
         """
         <div class="reto-hero">
-            <h1>Proyecto ReTo</h1>
+            <h2 style="color:white; margin:0 0 0.45rem 0; font-size:1.65rem; font-weight:700;">
+                Componente de monitorización digital
+            </h2>
             <h3>Red de Tolerancia contra los delitos de odio</h3>
             <p>
                 ReTo es una iniciativa orientada al análisis, comprensión y prevención
@@ -8251,7 +8280,7 @@ def render_proyecto():
 
     # --- Metodología en 3 cards ---
     st.markdown(
-        "<h3 style='color:#2b6cb0; margin-bottom:0.8rem;'>Enfoque Metodológico</h3>",
+        "<h3 style='color:#1F4E79; margin-bottom:0.8rem;'>Enfoque Metodológico</h3>",
         unsafe_allow_html=True,
     )
     m1, m2, m3 = st.columns(3)
@@ -8314,7 +8343,7 @@ def render_proyecto():
 
     # --- Flujo visual ---
     st.markdown(
-        "<h3 style='color:#2b6cb0; margin-bottom:0.8rem;'>Flujo Metodológico</h3>",
+        "<h3 style='color:#1F4E79; margin-bottom:0.8rem;'>Flujo Metodológico</h3>",
         unsafe_allow_html=True,
     )
     flow_steps = [
@@ -8348,7 +8377,7 @@ def render_proyecto():
 
     # --- Principios ---
     st.markdown(
-        "<h3 style='color:#2b6cb0; margin-bottom:0.8rem;'>Principios del Proyecto</h3>",
+        "<h3 style='color:#1F4E79; margin-bottom:0.8rem;'>Principios del Proyecto</h3>",
         unsafe_allow_html=True,
     )
     principles = [
@@ -8444,11 +8473,9 @@ def _load_buscador_resultados(termino: str) -> Tuple[pd.DataFrame, bool]:
 
 
 def render_buscador_terminos() -> None:
-    # 1) Título y descripción
-    st.title("Buscador y Análisis")
-    st.markdown(
-        "Buscá un término o frase para analizar cómo reacciona la audiencia de "
-        "cada medio ante ese contenido."
+    _render_section_header(
+        "Buscador y análisis",
+        "Búsqueda de términos o frases en el corpus monitorizado (reacciones agregadas, sin identificar usuarios).",
     )
 
     # 2) Input + 3) Toggle LLM
@@ -8820,6 +8847,33 @@ def render_footer():
 
     st.markdown("---")
 
+    st.markdown(
+        """
+        <div class="reto-footer-copy" style="
+            text-align:center;
+            color:#4A5568;
+            font-size:0.9rem;
+            line-height:1.55;
+            max-width:46rem;
+            margin:0 auto 1.1rem auto;
+            padding:0 12px;
+        ">
+            <p style="margin:0 0 0.45rem 0;">
+                <strong style="color:#1F4E79;">ReTo</strong>
+                — Red de Tolerancia contra los delitos de odio.
+                Proyecto <strong>cofinanciado por la Unión Europea</strong>
+                (Programa <strong>CERV</strong> — derechos, igualdad y ciudadanía).
+            </p>
+            <p style="margin:0;font-size:0.85rem;color:#718096;">
+                Consorcio: CIFAL Málaga, Fundación CIEDES, Movimiento Contra la Intolerancia,
+                Colegio Profesional de Periodistas de Andalucía, Comité Olímpico Español,
+                Asociación La Guajira; con colaboración de Universidad de Almería, Almería Acoge y Yo Soy El Otro.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     imgs_html = ""
     for b64, alt in items:
         imgs_html += (
@@ -8835,7 +8889,7 @@ def render_footer():
             flex-wrap:wrap;
             justify-content:center;
             align-items:center;
-            padding:10px 8px 16px 8px;
+            padding:6px 8px 18px 8px;
             gap:4px;
         ">
             {imgs_html}
