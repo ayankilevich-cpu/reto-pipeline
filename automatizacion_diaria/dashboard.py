@@ -3254,6 +3254,10 @@ def render_analisis_contextual():
     st.subheader("Detalle semanal")
 
     df_selectable = df[df["total_mensajes"] >= MIN_MSGS_CHART].copy()
+    inicio_semana_actual = hoy - timedelta(days=hoy.weekday())
+    df_selectable = df_selectable[
+        df_selectable["semana_inicio"] < pd.Timestamp(inicio_semana_actual)
+    ]
     if df_selectable.empty:
         st.info("No hay semanas con suficientes datos para mostrar detalle.")
         return
