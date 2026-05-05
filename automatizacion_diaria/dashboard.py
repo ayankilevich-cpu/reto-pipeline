@@ -2270,8 +2270,9 @@ def render_panel_general():
                     .reset_index()
                 )
                 cat_data.columns = ["Categoría", "Cantidad"]
+                df_categoria = cat_data.sort_values("Cantidad", ascending=True)
                 fig_cat = px.bar(
-                    cat_data, x="Cantidad", y="Categoría", orientation="h",
+                    df_categoria, x="Cantidad", y="Categoría", orientation="h",
                     color="Categoría",
                     color_discrete_map=CAT_COLOR_MAP,
                     title="Distribución por categoría de odio",
