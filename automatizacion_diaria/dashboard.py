@@ -2077,19 +2077,92 @@ def render_panel_general():
         medios=tuple(sel_medios) if sel_medios else None,
     )
 
-    nuevos_total = kpis["nuevos_x"] + kpis["nuevos_yt"]
-    panel_cards = [
-        ("Mensajes totales (raw)", f"{kpis['total_raw']:,}", ""),
-        ("Candidatos a odio", f"{kpis['total_candidatos']:,}", ""),
-        ("Etiquetados por LLM", f"{kpis['total_etiquetados_llm']:,}", ""),
-        ("Score promedio", f"{kpis['score_promedio']:.3f}", ""),
-        ("Medios monitorizados", f"{kpis['total_medios']:,}", ""),
-        ("Mensajes validados", f"{kpis['total_gold']:,}", f"{kpis['total_gold_odio']:,} odio"),
-        ("Nuevos hoy", f"{nuevos_total:,}", ""),
-        ("Nuevos X hoy", f"{kpis['nuevos_x']:,}", ""),
-        ("Nuevos YouTube hoy", f"{kpis['nuevos_yt']:,}", ""),
-    ]
-    _render_pg_kpi_grid(panel_cards)
+    mensajes_totales = kpis["total_raw"]
+    candidatos_odio = kpis["total_candidatos"]
+    etiquetados_llm = kpis["total_etiquetados_llm"]
+    score_promedio = kpis["score_promedio"]
+    medios_monitorizados = kpis["total_medios"]
+    mensajes_validados = kpis["total_gold"]
+    mensajes_odio = kpis["total_gold_odio"]
+    nuevos_hoy = kpis["nuevos_x"] + kpis["nuevos_yt"]
+    nuevos_x_hoy = kpis["nuevos_x"]
+    nuevos_yt_hoy = kpis["nuevos_yt"]
+
+    st.markdown(f"""
+<style>
+.metric-grid {{
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+}}
+.metric-card {{
+    background-color: #1B3A6B;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    color: white;
+}}
+.metric-card .label {{
+    font-size: 13px;
+    font-weight: 400;
+    opacity: 0.85;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}}
+.metric-card .value {{
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1;
+}}
+.metric-card .sub {{
+    font-size: 12px;
+    opacity: 0.7;
+    margin-top: 6px;
+}}
+</style>
+
+<div class="metric-grid">
+  <div class="metric-card">
+    <div class="label">Mensajes totales (raw)</div>
+    <div class="value">{mensajes_totales:,}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Candidatos a odio</div>
+    <div class="value">{candidatos_odio:,}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Etiquetados por LLM</div>
+    <div class="value">{etiquetados_llm:,}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Score promedio</div>
+    <div class="value">{score_promedio:.3f}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Medios monitorizados</div>
+    <div class="value">{medios_monitorizados:,}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Mensajes validados</div>
+    <div class="value">{mensajes_validados:,}</div>
+    <div class="sub">🔴 {mensajes_odio:,} odio</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Nuevos hoy</div>
+    <div class="value">{nuevos_hoy:,}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Nuevos X hoy</div>
+    <div class="value">{nuevos_x_hoy:,}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Nuevos YouTube hoy</div>
+    <div class="value">{nuevos_yt_hoy:,}</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
     st.markdown("---")
 
