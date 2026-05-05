@@ -5568,13 +5568,73 @@ def _render_art510_full(summary, sel_platforms, sel_sources, solo_delitos):
     n_1b = (df_delitos_all["apartado_510"] == "1b").sum() if not df_delitos_all.empty else 0
     n_1c = (df_delitos_all["apartado_510"] == "1c").sum() if not df_delitos_all.empty else 0
 
-    k1, k2, k3, k4, k5, k6 = st.columns(6)
-    k1.metric("Total evaluados", f"{total_evaluados_db:,}")
-    k2.metric("Pot. delitos", f"{total_delitos_db:,}")
-    k3.metric("% Delitos", f"{pct_delitos_db:.1f}%")
-    k4.metric("Art. 510.1a", f"{n_1a:,}")
-    k5.metric("Art. 510.1b", f"{n_1b:,}")
-    k6.metric("Art. 510.1c", f"{n_1c:,}")
+    st.markdown(f"""
+<style>
+.metric-grid {{
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+}}
+.metric-card {{
+    background-color: #1B3A6B;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    color: white;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}}
+.metric-card .label {{
+    font-size: 13px;
+    font-weight: 400;
+    opacity: 0.85;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}}
+.metric-card .value {{
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1;
+}}
+.metric-card .sub {{
+    font-size: 12px;
+    opacity: 0.7;
+    margin-top: 6px;
+}}
+</style>
+
+<div class="metric-grid">
+  <div class="metric-card">
+    <div class="label">Total evaluados</div>
+    <div class="value">{total_evaluados_db:,}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Pot. delitos</div>
+    <div class="value">{total_delitos_db:,}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">% Delitos</div>
+    <div class="value">{pct_delitos_db:.1f}%</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Art. 510.1a</div>
+    <div class="value">{n_1a:,}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Art. 510.1b</div>
+    <div class="value">{n_1b:,}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Art. 510.1c</div>
+    <div class="value">{n_1c:,}</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
     if solo_delitos and len(df) < total_evaluados_db:
         st.caption(
