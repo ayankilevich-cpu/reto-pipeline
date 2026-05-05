@@ -2187,11 +2187,12 @@ def render_panel_general():
         total_msgs = len(df_comb)
         n_gold = (df_comb["fuente"] == "Gold").sum()
         n_llm = (df_comb["fuente"] == "LLM").sum()
-        st.caption(
-            f"Visualizaciones basadas en **{total_msgs:,}** mensajes clasificados: "
-            f"**{n_gold:,}** validados por humanos (Gold) · "
-            f"**{n_llm:,}** etiquetados por LLM"
-        )
+        if st.session_state.get("user_role", "admin") == "admin":
+            st.caption(
+                f"Visualizaciones basadas en **{total_msgs:,}** mensajes clasificados: "
+                f"**{n_gold:,}** validados por humanos (Gold) · "
+                f"**{n_llm:,}** etiquetados por LLM"
+            )
 
         # 1. Torta: Odio vs No Odio vs Dudoso (paleta semántica unificada)
         pie_data = df_comb["odio_label"].value_counts().reset_index()
