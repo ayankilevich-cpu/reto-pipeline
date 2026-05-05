@@ -2102,6 +2102,11 @@ def render_panel_general():
     padding: 20px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     color: white;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
 }}
 .metric-card .label {{
     font-size: 13px;
