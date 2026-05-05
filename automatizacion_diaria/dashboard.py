@@ -2516,8 +2516,9 @@ def render_categorias():
     col1, col2 = st.columns(2)
 
     with col1:
+        df_categoria = df.sort_values("total", ascending=True)
         fig = px.bar(
-            df, x="total", y="categoria_label", orientation="h",
+            df_categoria, x="total", y="categoria_label", orientation="h",
             color="categoria_label", color_discrete_map=CAT_COLOR_MAP,
             labels={"total": "Mensajes", "categoria_label": ""},
             title="Mensajes de odio por categoría",
