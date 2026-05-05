@@ -6208,11 +6208,65 @@ def render_delitos():
         if not df_kpi_yr.empty else "N/A"
     )
 
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric(f"Total delitos ({kpi_year})", f"{total_kpi:,}")
-    k2.metric(f"Var. vs {kpi_prev}", f"{variation:+.1f}%")
-    k3.metric(f"Esclarecimiento ({kpi_year})", f"{solve_rate:.1f}%")
-    k4.metric("Motivo principal", top_motive)
+    st.markdown(f"""
+<style>
+.metric-grid {{
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+}}
+.metric-card {{
+    background-color: #1B3A6B;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    color: white;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}}
+.metric-card .label {{
+    font-size: 13px;
+    font-weight: 400;
+    opacity: 0.85;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}}
+.metric-card .value {{
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1;
+}}
+.metric-card .sub {{
+    font-size: 12px;
+    opacity: 0.7;
+    margin-top: 6px;
+}}
+</style>
+
+<div class="metric-grid">
+  <div class="metric-card">
+    <div class="label">Total delitos ({kpi_year})</div>
+    <div class="value">{total_kpi:,}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Var. vs {kpi_prev}</div>
+    <div class="value">{variation:+.1f}%</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Esclarecimiento ({kpi_year})</div>
+    <div class="value">{solve_rate:.1f}%</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Motivo principal</div>
+    <div class="value">{top_motive}</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
     # ── 2. Evolución temporal ──
     st.markdown("---")
