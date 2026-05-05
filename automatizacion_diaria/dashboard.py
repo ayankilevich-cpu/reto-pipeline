@@ -300,6 +300,13 @@ section[data-testid="stSidebar"] .stButton>button:hover {
     margin-top: 0.28rem;
     font-weight: 600;
 }
+.pg-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.85rem;
+    margin: 0.35rem 0 1rem 0;
+    width: 100%;
+}
 
 /* --- Separadores más sutiles --- */
 hr { border-color: #E2E8F0; margin: 1.2rem 0; }
@@ -366,18 +373,24 @@ def _render_section_header(title: str, subtitle_html: str = "") -> None:
     )
 
 
-def _render_pg_kpi_card(label: str, value: str, delta: str = "") -> None:
-    """Tarjeta KPI del panel general (visual corporativa, valores centrados)."""
-    st.markdown(
-        '<div class="pg-kpi-card">'
-        f'<div class="pg-kpi-label">{html.escape(label)}</div>'
-        f'<div class="pg-kpi-value">{html.escape(value)}</div>'
-        + (
+def _render_pg_kpi_grid(cards: List[Tuple[str, str, str]]) -> None:
+    """Renderiza KPIs del panel general como grid responsive de tarjetas HTML/CSS."""
+    cards_html = []
+    for label, value, delta in cards:
+        d = (
             f'<div class="pg-kpi-delta">{html.escape(delta)}</div>'
             if delta
             else ""
         )
-        + "</div>",
+        cards_html.append(
+            '<div class="pg-kpi-card">'
+            f'<div class="pg-kpi-label">{html.escape(label)}</div>'
+            f'<div class="pg-kpi-value">{html.escape(value)}</div>'
+            f"{d}"
+            "</div>"
+        )
+    st.markdown(
+        f'<div class="pg-kpi-grid">{"".join(cards_html)}</div>',
         unsafe_allow_html=True,
     )
 
@@ -2064,42 +2077,19 @@ def render_panel_general():
         medios=tuple(sel_medios) if sel_medios else None,
     )
 
-    role = st.session_state.get("user_role", "admin")
-    top_cards = [
+    nuevos_total = kpis["nuevos_x"] + kpis["nuevos_yt"]
+    panel_cards = [
         ("Mensajes totales (raw)", f"{kpis['total_raw']:,}", ""),
         ("Candidatos a odio", f"{kpis['total_candidatos']:,}", ""),
-    ]
-    if role == "admin":
-        top_cards.extend(
-            [
-                ("Odio - Baseline", f"{kpis['total_odio_baseline']:,}", ""),
-                ("Odio - LLM", f"{kpis['total_odio_llm']:,}", ""),
-            ]
-        )
-    top_cols = st.columns(len(top_cards))
-    for c, (label, value, delta) in zip(top_cols, top_cards):
-        with c:
-            _render_pg_kpi_card(label, value, delta)
-
-    bottom_cards = [
         ("Etiquetados por LLM", f"{kpis['total_etiquetados_llm']:,}", ""),
         ("Score promedio", f"{kpis['score_promedio']:.3f}", ""),
         ("Medios monitorizados", f"{kpis['total_medios']:,}", ""),
         ("Mensajes validados", f"{kpis['total_gold']:,}", f"{kpis['total_gold_odio']:,} odio"),
+        ("Nuevos hoy", f"{nuevos_total:,}", ""),
+        ("Nuevos X hoy", f"{kpis['nuevos_x']:,}", ""),
+        ("Nuevos YouTube hoy", f"{kpis['nuevos_yt']:,}", ""),
     ]
-    bottom_cols = st.columns(len(bottom_cards))
-    for c, (label, value, delta) in zip(bottom_cols, bottom_cards):
-        with c:
-            _render_pg_kpi_card(label, value, delta)
-
-    nuevos_total = kpis["nuevos_x"] + kpis["nuevos_yt"]
-    col_n1, col_n2, col_n3 = st.columns(3)
-    with col_n1:
-        _render_pg_kpi_card("Nuevos hoy", f"{nuevos_total:,}")
-    with col_n2:
-        _render_pg_kpi_card("Nuevos X hoy", f"{kpis['nuevos_x']:,}")
-    with col_n3:
-        _render_pg_kpi_card("Nuevos YouTube hoy", f"{kpis['nuevos_yt']:,}")
+    _render_pg_kpi_grid(panel_cards)
 
     st.markdown("---")
 
