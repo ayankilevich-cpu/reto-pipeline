@@ -3847,19 +3847,39 @@ def render_gold_dataset():
 
     # ── Filtros ──
     st.markdown("### Filtros")
-    col_f0, col_f1, col_f2, col_f3 = st.columns(4)
-    with col_f0:
-        platforms = sorted(df["platform_label"].dropna().unique())
-        sel_platforms = st.multiselect("Plataforma", platforms, default=platforms, key="gold_plat")
-    with col_f1:
-        splits = sorted(df["split"].dropna().unique())
-        sel_splits = st.multiselect("Split", splits, default=splits, key="gold_split")
-    with col_f2:
-        annotators = sorted(df["annotator_id"].dropna().unique())
-        sel_annotators = st.multiselect("Anotador", annotators, default=annotators, key="gold_annot")
-    with col_f3:
-        labels = sorted(df["y_odio_final"].dropna().unique())
-        sel_labels = st.multiselect("Label final", labels, default=labels, key="gold_label")
+    role = st.session_state.get("user_role", "admin")
+    platforms = sorted(df["platform_label"].dropna().unique())
+    splits = sorted(df["split"].dropna().unique())
+    annotators = sorted(df["annotator_id"].dropna().unique())
+    labels = sorted(df["y_odio_final"].dropna().unique())
+
+    if role == "admin":
+        col_f0, col_f1, col_f2, col_f3 = st.columns(4)
+        with col_f0:
+            sel_platforms = st.multiselect("Plataforma", platforms, default=platforms, key="gold_plat")
+        with col_f1:
+            sel_splits = st.multiselect("Split", splits, default=splits, key="gold_split")
+        with col_f2:
+            sel_annotators = st.multiselect("Anotador", annotators, default=annotators, key="gold_annot")
+        with col_f3:
+            sel_labels = st.multiselect("Label final", labels, default=labels, key="gold_label")
+    elif role == "editor":
+        col_f0, col_f1, col_f2 = st.columns(3)
+        with col_f0:
+            sel_platforms = st.multiselect("Plataforma", platforms, default=platforms, key="gold_plat")
+        with col_f1:
+            sel_annotators = st.multiselect("Anotador", annotators, default=annotators, key="gold_annot")
+        with col_f2:
+            sel_labels = st.multiselect("Label final", labels, default=labels, key="gold_label")
+        sel_splits = splits
+    else:
+        col_f0, col_f1 = st.columns(2)
+        with col_f0:
+            sel_platforms = st.multiselect("Plataforma", platforms, default=platforms, key="gold_plat")
+        with col_f1:
+            sel_labels = st.multiselect("Label final", labels, default=labels, key="gold_label")
+        sel_splits = splits
+        sel_annotators = annotators
 
     if not sel_splits or not sel_annotators or not sel_labels or not sel_platforms:
         st.warning("Selecciona al menos un valor en cada filtro.")
@@ -3884,12 +3904,70 @@ def render_gold_dataset():
     pct_corr_odio = pd.to_numeric(df_f["corrigio_odio"], errors="coerce").mean() * 100
     pct_corr_cat = pd.to_numeric(df_f["corrigio_categoria"], errors="coerce").mean() * 100
 
-    k1, k2, k3, k4, k5 = st.columns(5)
-    k1.metric("Total muestras", f"{total:,}")
-    k2.metric("Odio", f"{n_odio} ({n_odio/total*100:.0f}%)" if total else "0")
-    k3.metric("Concordancia LLM", f"{concordancia:.1f}%")
-    k4.metric("Corrección odio", f"{pct_corr_odio:.1f}%")
-    k5.metric("Corrección categoría", f"{pct_corr_cat:.1f}%")
+    odio_display = f"{n_odio:,} ({n_odio/total*100:.0f}%)" if total else "0"
+    st.markdown(f"""
+<style>
+.metric-grid {{
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+}}
+.metric-card {{
+    background-color: #1B3A6B;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    color: white;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}}
+.metric-card .label {{
+    font-size: 13px;
+    font-weight: 400;
+    opacity: 0.85;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}}
+.metric-card .value {{
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1;
+}}
+.metric-card .sub {{
+    font-size: 12px;
+    opacity: 0.7;
+    margin-top: 6px;
+}}
+</style>
+
+<div class="metric-grid">
+  <div class="metric-card">
+    <div class="label">Total muestras</div>
+    <div class="value">{total:,}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Odio</div>
+    <div class="value">{odio_display}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Concordancia LLM</div>
+    <div class="value">{concordancia:.1f}%</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Corrección odio</div>
+    <div class="value">{pct_corr_odio:.1f}%</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Corrección categoría</div>
+    <div class="value">{pct_corr_cat:.1f}%</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
     # ── 1b. Comparativa por plataforma ──
     if len(sel_platforms) > 1:
