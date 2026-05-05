@@ -2099,7 +2099,7 @@ def render_panel_general():
 .metric-card {{
     background-color: #1B3A6B;
     border-radius: 12px;
-    padding: 20px;
+    padding: 19px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     color: white;
     text-align: center;
@@ -2107,6 +2107,8 @@ def render_panel_general():
     flex-direction: column;
     align-items: center;
     justify-content: center;
+    min-height: 124px;
+    box-sizing: border-box;
 }}
 .metric-card .label {{
     font-size: 13px;
@@ -2117,7 +2119,7 @@ def render_panel_general():
     letter-spacing: 0.5px;
 }}
 .metric-card .value {{
-    font-size: 28px;
+    font-size: 27px;
     font-weight: 700;
     line-height: 1;
 }}
@@ -2125,6 +2127,7 @@ def render_panel_general():
     font-size: 12px;
     opacity: 0.7;
     margin-top: 6px;
+    min-height: 14px;
 }}
 </style>
 
