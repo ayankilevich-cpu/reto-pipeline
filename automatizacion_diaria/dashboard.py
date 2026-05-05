@@ -265,6 +265,42 @@ section[data-testid="stSidebar"] .stButton>button:hover {
 .reto-chip.warning { background: #FFFBEA; color: #975A16; border-color: #FAF089; }
 .reto-chip.danger  { background: #FFF5F5; color: #9B2C2C; border-color: #FEB2B2; }
 
+/* --- Panel general: tarjetas KPI visuales --- */
+.pg-kpi-card {
+    background: linear-gradient(135deg, #1F4E79 0%, #2B6CB0 100%);
+    border: 1px solid #1A3C5C;
+    border-radius: 12px;
+    box-shadow: 0 4px 14px rgba(31, 78, 121, 0.22);
+    padding: 0.9rem 1rem;
+    min-height: 112px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+}
+.pg-kpi-label {
+    color: #E6F0FF;
+    font-size: 0.77rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    line-height: 1.25;
+    margin-bottom: 0.38rem;
+}
+.pg-kpi-value {
+    color: #FFFFFF;
+    font-size: 2rem;
+    font-weight: 800;
+    line-height: 1.05;
+}
+.pg-kpi-delta {
+    color: #D6E9FF;
+    font-size: 0.8rem;
+    margin-top: 0.28rem;
+    font-weight: 600;
+}
+
 /* --- Separadores más sutiles --- */
 hr { border-color: #E2E8F0; margin: 1.2rem 0; }
 
@@ -326,6 +362,22 @@ def _render_section_header(title: str, subtitle_html: str = "") -> None:
     )
     st.markdown(
         f'<div class="reto-section-header"><h1>{html.escape(title)}</h1>{sub}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _render_pg_kpi_card(label: str, value: str, delta: str = "") -> None:
+    """Tarjeta KPI del panel general (visual corporativa, valores centrados)."""
+    st.markdown(
+        '<div class="pg-kpi-card">'
+        f'<div class="pg-kpi-label">{html.escape(label)}</div>'
+        f'<div class="pg-kpi-value">{html.escape(value)}</div>'
+        + (
+            f'<div class="pg-kpi-delta">{html.escape(delta)}</div>'
+            if delta
+            else ""
+        )
+        + "</div>",
         unsafe_allow_html=True,
     )
 
@@ -2012,31 +2064,42 @@ def render_panel_general():
         medios=tuple(sel_medios) if sel_medios else None,
     )
 
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Mensajes totales (raw)", f"{kpis['total_raw']:,}")
-    col2.metric("Candidatos a odio", f"{kpis['total_candidatos']:,}")
-    col3.metric("Odio — Baseline", f"{kpis['total_odio_baseline']:,}")
-    col4.metric("Odio — LLM", f"{kpis['total_odio_llm']:,}")
+    role = st.session_state.get("user_role", "admin")
+    top_cards = [
+        ("Mensajes totales (raw)", f"{kpis['total_raw']:,}", ""),
+        ("Candidatos a odio", f"{kpis['total_candidatos']:,}", ""),
+    ]
+    if role == "admin":
+        top_cards.extend(
+            [
+                ("Odio - Baseline", f"{kpis['total_odio_baseline']:,}", ""),
+                ("Odio - LLM", f"{kpis['total_odio_llm']:,}", ""),
+            ]
+        )
+    top_cols = st.columns(len(top_cards))
+    for c, (label, value, delta) in zip(top_cols, top_cards):
+        with c:
+            _render_pg_kpi_card(label, value, delta)
 
-    col5, col6, col7, col8 = st.columns(4)
-    col5.metric("Etiquetados por LLM", f"{kpis['total_etiquetados_llm']:,}")
-    col6.metric("Score promedio", f"{kpis['score_promedio']:.3f}")
-    col7.metric("Medios monitorizados", f"{kpis['total_medios']:,}")
-    col8.metric(
-        "Mensajes validados",
-        f"{kpis['total_gold']:,}",
-        delta=f"{kpis['total_gold_odio']:,} odio",
-        delta_color="off",
-    )
+    bottom_cards = [
+        ("Etiquetados por LLM", f"{kpis['total_etiquetados_llm']:,}", ""),
+        ("Score promedio", f"{kpis['score_promedio']:.3f}", ""),
+        ("Medios monitorizados", f"{kpis['total_medios']:,}", ""),
+        ("Mensajes validados", f"{kpis['total_gold']:,}", f"{kpis['total_gold_odio']:,} odio"),
+    ]
+    bottom_cols = st.columns(len(bottom_cards))
+    for c, (label, value, delta) in zip(bottom_cols, bottom_cards):
+        with c:
+            _render_pg_kpi_card(label, value, delta)
 
     nuevos_total = kpis["nuevos_x"] + kpis["nuevos_yt"]
     col_n1, col_n2, col_n3 = st.columns(3)
-    col_n1.metric(
-        "Nuevos hoy",
-        f"{nuevos_total:,}",
-    )
-    col_n2.metric("Nuevos X hoy", f"{kpis['nuevos_x']:,}")
-    col_n3.metric("Nuevos YouTube hoy", f"{kpis['nuevos_yt']:,}")
+    with col_n1:
+        _render_pg_kpi_card("Nuevos hoy", f"{nuevos_total:,}")
+    with col_n2:
+        _render_pg_kpi_card("Nuevos X hoy", f"{kpis['nuevos_x']:,}")
+    with col_n3:
+        _render_pg_kpi_card("Nuevos YouTube hoy", f"{kpis['nuevos_yt']:,}")
 
     st.markdown("---")
 
