@@ -2405,23 +2405,81 @@ def render_categorias():
 
     llm_stats = load_llm_stats()
 
-    kc1, kc2, kc3 = st.columns(3)
-    kc1.metric("Total mensajes procesados", f"{llm_stats['total_procesados']:,}")
-    kc2.metric(
-        "Agregados en última actualización",
-        f"{llm_stats['agregados_ultima']:,}",
-    )
     uf = llm_stats["ultima_fecha"]
-    kc3.metric(
-        "Última actualización",
-        uf.strftime("%d/%m/%Y") if uf is not None and not pd.isna(uf) else "—",
-    )
+    total_mensajes_procesados = llm_stats["total_procesados"]
+    agregados_ultima_actualizacion = llm_stats["agregados_ultima"]
+    ultima_actualizacion = uf.strftime("%d/%m/%Y") if uf is not None and not pd.isna(uf) else "—"
+    x_total = llm_stats["total_x"]
+    x_ultimos = llm_stats["agregados_x"]
+    yt_total = llm_stats["total_yt"]
+    yt_ultimos = llm_stats["agregados_yt"]
 
-    kp1, kp2, kp3, kp4 = st.columns(4)
-    kp1.metric("X — Total", f"{llm_stats['total_x']:,}")
-    kp2.metric("X — Últimos agregados", f"{llm_stats['agregados_x']:,}")
-    kp3.metric("YouTube — Total", f"{llm_stats['total_yt']:,}")
-    kp4.metric("YouTube — Últimos agregados", f"{llm_stats['agregados_yt']:,}")
+    st.markdown(f"""
+<style>
+.metric-grid {{
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+}}
+.metric-card {{
+    background-color: #1B3A6B;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    color: white;
+}}
+.metric-card .label {{
+    font-size: 13px;
+    font-weight: 400;
+    opacity: 0.85;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}}
+.metric-card .value {{
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1;
+}}
+.metric-card .sub {{
+    font-size: 12px;
+    opacity: 0.7;
+    margin-top: 6px;
+}}
+</style>
+
+<div class="metric-grid">
+  <div class="metric-card">
+    <div class="label">Total mensajes procesados</div>
+    <div class="value">{total_mensajes_procesados:,}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Agregados en última actualización</div>
+    <div class="value">{agregados_ultima_actualizacion:,}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Última actualización</div>
+    <div class="value">{ultima_actualizacion}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">X — Total</div>
+    <div class="value">{x_total:,}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">X — Últimos agregados</div>
+    <div class="value">{x_ultimos:,}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">YouTube — Total</div>
+    <div class="value">{yt_total:,}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">YouTube — Últimos agregados</div>
+    <div class="value">{yt_ultimos:,}</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
     st.markdown("---")
 
