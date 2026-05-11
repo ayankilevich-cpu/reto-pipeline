@@ -616,6 +616,29 @@ def _ann_pick_sticky_row(
     return row
 
 
+def _ann_get_or_load_queue(
+    cache_key: str,
+    loader: Callable[..., pd.DataFrame],
+    cache_args: Tuple = (),
+) -> pd.DataFrame:
+    """Cachea la cola de mensajes en session_state hasta el próximo Guardar/Saltar.
+
+    Sin esta caché, las queries con `df.sample(frac=1)` reordenan la cola en
+    cada rerun (por ejemplo al cambiar el radio del paso 1 fuera del
+    st.form) y el mensaje mostrado puede cambiar antes de que el anotador
+    pulse Guardar. `cache_args` invalida la caché si cambia (p. ej. al
+    cambiar el filtro de clasificación LLM).
+    """
+    cached = st.session_state.get(cache_key)
+    if cached is not None:
+        saved_args, df = cached
+        if saved_args == cache_args:
+            return df
+    df = loader(*cache_args)
+    st.session_state[cache_key] = (cache_args, df)
+    return df
+
+
 _ANN_FOOTER_CSS = """
 {
     background: #F7FAFC;
@@ -7221,7 +7244,7 @@ def _render_anotacion_youtube(annotator: str):
     if "ann_skipped" not in st.session_state:
         st.session_state["ann_skipped"] = set()
 
-    queue = _load_annotation_queue()
+    queue = _ann_get_or_load_queue("_ann_yt_queue_cache", _load_annotation_queue)
 
     if queue.empty:
         st.success("No hay mensajes pendientes de anotación.")
@@ -7232,6 +7255,8 @@ def _render_anotacion_youtube(annotator: str):
         )
         if st.button("Limpiar saltos y recargar"):
             st.session_state["ann_skipped"] = set()
+            st.session_state.pop("_ann_yt_queue_cache", None)
+            st.session_state.pop("_ann_yt_current_uuid", None)
             st.rerun()
         st.caption(
             "**Limpiar saltos:** borra la memoria de mensajes que pasaste con **Saltar**; "
@@ -7409,11 +7434,13 @@ def _render_anotacion_youtube(annotator: str):
             "annotator_id": annotator,
         }
         st.session_state.pop("_ann_yt_current_uuid", None)
+        st.session_state.pop("_ann_yt_queue_cache", None)
         st.rerun()
 
     if skipped:
         st.session_state["ann_skipped"].add(msg_uuid)
         st.session_state.pop("_ann_yt_current_uuid", None)
+        st.session_state.pop("_ann_yt_queue_cache", None)
         st.rerun()
 
 
@@ -7456,7 +7483,7 @@ def _render_validacion_art510(annotator: str):
     if "v510_skipped" not in st.session_state:
         st.session_state["v510_skipped"] = set()
 
-    queue = _load_v510_queue()
+    queue = _ann_get_or_load_queue("_v510_queue_cache", _load_v510_queue)
 
     if queue.empty:
         summary = load_art510_summary()
@@ -7479,6 +7506,8 @@ def _render_validacion_art510(annotator: str):
                 _render_art510_validacion_humana(summary)
         if st.button("Limpiar saltos Art. 510 y recargar", key="v510_clear"):
             st.session_state["v510_skipped"] = set()
+            st.session_state.pop("_v510_queue_cache", None)
+            st.session_state.pop("_v510_current_id", None)
             st.rerun()
         st.caption(
             "**Limpiar saltos:** borra los pares (mensaje + fuente de etiqueta) que pasaste con **Saltar**; "
@@ -7645,11 +7674,13 @@ def _render_validacion_art510(annotator: str):
             "annotator_id": annotator,
         }
         st.session_state.pop("_v510_current_id", None)
+        st.session_state.pop("_v510_queue_cache", None)
         st.rerun()
 
     if skipped:
         st.session_state.setdefault("v510_skipped", set()).add(msg_key)
         st.session_state.pop("_v510_current_id", None)
+        st.session_state.pop("_v510_queue_cache", None)
         st.rerun()
 
 
@@ -8360,7 +8391,11 @@ def _render_validacion_llm_youtube(annotator: str):
     if "vllm_yt_skipped" not in st.session_state:
         st.session_state["vllm_yt_skipped"] = set()
 
-    queue = _load_vllm_yt_queue(clasif_filter)
+    queue = _ann_get_or_load_queue(
+        "_vllm_yt_queue_cache",
+        _load_vllm_yt_queue,
+        (clasif_filter,),
+    )
 
     if queue.empty:
         if kpis["pendientes"] == 0 and kpis["total_etiquetados_llm"] > 0:
@@ -8374,6 +8409,8 @@ def _render_validacion_llm_youtube(annotator: str):
             st.info("No hay mensajes pendientes con el filtro seleccionado.")
         if st.button("Limpiar saltos y recargar", key="vllm_yt_clear"):
             st.session_state["vllm_yt_skipped"] = set()
+            st.session_state.pop("_vllm_yt_queue_cache", None)
+            st.session_state.pop("_vllm_yt_current_uuid", None)
             st.rerun()
         st.caption(
             "**Limpiar saltos:** borra la memoria de mensajes que pasaste con **Saltar**; "
@@ -8571,11 +8608,13 @@ def _render_validacion_llm_youtube(annotator: str):
             "coincide_con_llm": coincide,
         }
         st.session_state.pop("_vllm_yt_current_uuid", None)
+        st.session_state.pop("_vllm_yt_queue_cache", None)
         st.rerun()
 
     if skipped:
         st.session_state.setdefault("vllm_yt_skipped", set()).add(msg_uuid)
         st.session_state.pop("_vllm_yt_current_uuid", None)
+        st.session_state.pop("_vllm_yt_queue_cache", None)
         st.rerun()
 
 
@@ -8630,7 +8669,11 @@ def _render_validacion_llm_x(annotator: str):
     if "vllm_x_skipped" not in st.session_state:
         st.session_state["vllm_x_skipped"] = set()
 
-    queue = _load_vllm_x_queue(clasif_filter)
+    queue = _ann_get_or_load_queue(
+        "_vllm_x_queue_cache",
+        _load_vllm_x_queue,
+        (clasif_filter,),
+    )
 
     if queue.empty:
         if kpis["pendientes"] == 0 and kpis["total_etiquetados_llm"] > 0:
@@ -8644,6 +8687,8 @@ def _render_validacion_llm_x(annotator: str):
             st.info("No hay mensajes pendientes con el filtro seleccionado.")
         if st.button("Limpiar saltos y recargar", key="vllm_x_clear"):
             st.session_state["vllm_x_skipped"] = set()
+            st.session_state.pop("_vllm_x_queue_cache", None)
+            st.session_state.pop("_vllm_x_current_uuid", None)
             st.rerun()
         st.caption(
             "**Limpiar saltos:** borra la memoria de mensajes que pasaste con **Saltar**; "
@@ -8827,11 +8872,13 @@ def _render_validacion_llm_x(annotator: str):
             "coincide_con_llm": coincide,
         }
         st.session_state.pop("_vllm_x_current_uuid", None)
+        st.session_state.pop("_vllm_x_queue_cache", None)
         st.rerun()
 
     if skipped:
         st.session_state.setdefault("vllm_x_skipped", set()).add(msg_uuid)
         st.session_state.pop("_vllm_x_current_uuid", None)
+        st.session_state.pop("_vllm_x_queue_cache", None)
         st.rerun()
 
 
