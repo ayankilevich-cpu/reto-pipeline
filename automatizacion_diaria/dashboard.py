@@ -433,30 +433,49 @@ _ANN_FORM_CSS = """
 # CSS scopeado (vía stylable_container) para los 3 sub-bloques visuales
 _ANN_CHIPS_CSS = """
 div[role="radiogroup"] {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 0.5rem;
-    flex-wrap: wrap;
+    width: 100%;
+    box-sizing: border-box;
 }
 div[role="radiogroup"] > label {
-    flex: 1 1 0;
-    min-width: 110px;
-    padding: 0.65rem 1rem;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 0.65rem 0.45rem;
     border-radius: 8px;
     border: 1.5px solid #CBD5E0;
     background: #FFFFFF;
     cursor: pointer;
     transition: all 0.15s ease;
     margin: 0 !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
 }
 div[role="radiogroup"] > label > div:first-child { display: none; }
+div[role="radiogroup"] > label > div:not(:first-child) {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+}
 div[role="radiogroup"] > label p {
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     font-size: 0.85rem;
-    margin: 0;
+    margin: 0 auto;
     text-align: center;
     width: 100%;
+    display: block;
+    line-height: 1.25;
+    word-break: break-word;
+    hyphens: auto;
 }
 div[role="radiogroup"] > label:nth-child(1) { border-color: #C0392B; color: #C0392B; }
 div[role="radiogroup"] > label:nth-child(2) { border-color: #2F855A; color: #2F855A; }
@@ -479,31 +498,49 @@ div[role="radiogroup"] > label:has(input:checked) p { color: #FFFFFF; }
 # Chips de intensidad (mismo patrón que odio/no/dudoso; colores leve→hostil)
 _ANN_INTENSITY_CHIPS_CSS = """
 div[role="radiogroup"] {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 0.5rem;
-    flex-wrap: wrap;
+    width: 100%;
+    box-sizing: border-box;
 }
 div[role="radiogroup"] > label {
-    flex: 1 1 0;
-    min-width: 100px;
-    padding: 0.7rem 0.55rem;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 0.7rem 0.4rem;
     border-radius: 8px;
     border: 1.5px solid #CBD5E0;
     background: #FFFFFF;
     cursor: pointer;
     transition: all 0.15s ease;
     margin: 0 !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
 }
 div[role="radiogroup"] > label > div:first-child { display: none; }
+div[role="radiogroup"] > label > div:not(:first-child) {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+}
 div[role="radiogroup"] > label p {
     font-weight: 600;
     text-transform: none;
     letter-spacing: 0.02em;
     font-size: 0.8rem;
-    margin: 0;
+    margin: 0 auto;
     text-align: center;
     width: 100%;
-    line-height: 1.35;
+    display: block;
+    line-height: 1.3;
+    word-break: break-word;
+    hyphens: auto;
 }
 div[role="radiogroup"] > label:nth-child(1) { border-color: #D97706; color: #B45309; }
 div[role="radiogroup"] > label:nth-child(2) { border-color: #EA580C; color: #C2410C; }
