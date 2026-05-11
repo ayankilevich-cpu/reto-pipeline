@@ -4033,16 +4033,20 @@ def render_gold_dataset():
     with col_pie2:
         cat_counts = df_f["y_categoria_final"].dropna().value_counts().reset_index()
         cat_counts.columns = ["Categoría", "Cantidad"]
-        # Etiquetas legibles
         cat_counts["Categoría"] = cat_counts["Categoría"].map(
             lambda x: CATEGORIAS_LABELS.get(x, x)
         )
-        fig_cat = px.pie(
-            cat_counts, names="Categoría", values="Cantidad",
-            color_discrete_sequence=CAT_COLORS,
+        cat_counts = cat_counts.sort_values("Cantidad", ascending=True)
+        fig_cat = px.bar(
+            cat_counts, x="Cantidad", y="Categoría", orientation="h",
+            color="Categoría", color_discrete_map=CAT_COLOR_MAP,
+            labels={"Cantidad": "Mensajes", "Categoría": ""},
             title="Categorías de odio (label final)",
+            text_auto=True,
         )
-        fig_cat.update_layout(height=350)
+        fig_cat.update_layout(
+            showlegend=False, height=400, yaxis=dict(autorange="reversed"),
+        )
         st.plotly_chart(fig_cat, use_container_width=True)
 
     # ── 3. Distribución de intensidad ──
@@ -4099,6 +4103,33 @@ def render_gold_dataset():
             )
             fig_int_cat.update_layout(height=350, xaxis_tickangle=-30)
             st.plotly_chart(fig_int_cat, use_container_width=True)
+
+        df_cat_int = df_odio.dropna(
+            subset=["y_categoria_final", "y_intensidad_final"]
+        ).copy()
+        if not df_cat_int.empty:
+            df_cat_int["y_intensidad_final"] = df_cat_int["y_intensidad_final"].astype(float)
+            df_cat_int["categoria_label"] = df_cat_int["y_categoria_final"].map(
+                CATEGORIAS_LABELS
+            ).fillna(df_cat_int["y_categoria_final"])
+            avg_int_gold = (
+                df_cat_int.groupby("categoria_label")["y_intensidad_final"]
+                .mean().round(2).sort_values(ascending=False)
+                .reset_index()
+            )
+            avg_int_gold.columns = ["Categoría", "Intensidad promedio"]
+            fig_avg_gold = px.bar(
+                avg_int_gold, x="Intensidad promedio", y="Categoría", orientation="h",
+                color="Intensidad promedio",
+                color_continuous_scale=[[0, "#FBD38D"], [0.5, "#F59E0B"], [1, "#C0392B"]],
+                title="Intensidad promedio por categoría de odio",
+                text_auto=".2f",
+            )
+            fig_avg_gold.update_layout(
+                height=380, yaxis=dict(autorange="reversed"),
+                coloraxis_colorbar=dict(title="Intensidad"),
+            )
+            st.plotly_chart(fig_avg_gold, use_container_width=True)
     else:
         st.info("No hay casos de odio en la selección actual.")
 
