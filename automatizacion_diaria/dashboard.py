@@ -7255,9 +7255,9 @@ def _render_anotacion_youtube(annotator: str):
     st.divider()
 
     # --- Formulario (paso 1 fuera del st.form para poder deshabilitar 2–4 hasta elegir Odio) ---
+    # fk incluye message_uuid: cada mensaje nuevo = claves nuevas en session_state (sin arrastre de la última selección).
     _inject_anotacion_form_css()
-    form_seq = st.session_state.get("_ann_form_seq", 0)
-    fk = f"ann_form_{form_seq}"
+    fk = f"ann_yt_{msg_uuid}"
 
     st.markdown(
         '<div class="ann-form-title">Clasificación de la muestra</div>'
@@ -7371,12 +7371,10 @@ def _render_anotacion_youtube(annotator: str):
             "humor_flag": humor if es_odio else False,
             "annotator_id": annotator,
         }
-        st.session_state["_ann_form_seq"] = form_seq + 1
         st.rerun()
 
     if skipped:
         st.session_state["ann_skipped"].add(msg_uuid)
-        st.session_state["_ann_form_seq"] = form_seq + 1
         st.rerun()
 
 
@@ -7488,8 +7486,7 @@ def _render_validacion_art510(annotator: str):
     st.divider()
 
     # --- Formulario de validación (decisión principal fuera del form para habilitar/deshabilitar corrección) ---
-    form_seq = st.session_state.get("_v510_form_seq", 0)
-    fk = f"v510_form_{form_seq}"
+    fk = "v510_" + re.sub(r"[^0-9a-zA-Z_-]", "_", msg_key)
 
     st.markdown("**Validación**")
     validacion = st.radio(
@@ -7592,12 +7589,10 @@ def _render_validacion_art510(annotator: str):
             "comentario": comentario.strip() or None,
             "annotator_id": annotator,
         }
-        st.session_state["_v510_form_seq"] = form_seq + 1
         st.rerun()
 
     if skipped:
         st.session_state.setdefault("v510_skipped", set()).add(msg_key)
-        st.session_state["_v510_form_seq"] = form_seq + 1
         st.rerun()
 
 
@@ -8374,8 +8369,7 @@ def _render_validacion_llm_youtube(annotator: str):
 
     # --- Formulario (paso 1 fuera del st.form para deshabilitar 2–4 si no es Odio) ---
     _inject_anotacion_form_css()
-    form_seq = st.session_state.get("_vllm_yt_form_seq", 0)
-    fk = f"vllm_yt_form_{form_seq}"
+    fk = f"vllm_yt_{msg_uuid}"
 
     llm_odio_idx = (
         {"ODIO": 0, "NO_ODIO": 1, "DUDOSO": 2}.get(llm_clasif)
@@ -8506,12 +8500,10 @@ def _render_validacion_llm_youtube(annotator: str):
             "annotator_id": annotator,
             "coincide_con_llm": coincide,
         }
-        st.session_state["_vllm_yt_form_seq"] = form_seq + 1
         st.rerun()
 
     if skipped:
         st.session_state.setdefault("vllm_yt_skipped", set()).add(msg_uuid)
-        st.session_state["_vllm_yt_form_seq"] = form_seq + 1
         st.rerun()
 
 
@@ -8619,8 +8611,7 @@ def _render_validacion_llm_x(annotator: str):
     st.divider()
 
     _inject_anotacion_form_css()
-    form_seq = st.session_state.get("_vllm_x_form_seq", 0)
-    fk = f"vllm_x_form_{form_seq}"
+    fk = f"vllm_x_{msg_uuid}"
 
     llm_odio_idx = (
         {"ODIO": 0, "NO_ODIO": 1, "DUDOSO": 2}.get(llm_clasif)
@@ -8750,12 +8741,10 @@ def _render_validacion_llm_x(annotator: str):
             "annotator_id": annotator,
             "coincide_con_llm": coincide,
         }
-        st.session_state["_vllm_x_form_seq"] = form_seq + 1
         st.rerun()
 
     if skipped:
         st.session_state.setdefault("vllm_x_skipped", set()).add(msg_uuid)
-        st.session_state["_vllm_x_form_seq"] = form_seq + 1
         st.rerun()
 
 
