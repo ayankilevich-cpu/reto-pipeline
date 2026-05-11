@@ -594,6 +594,28 @@ def _ann_intensity_radio_index(default_1_2_3: int) -> int:
     return d - 1
 
 
+def _ann_pick_sticky_row(
+    queue: pd.DataFrame,
+    state_key: str,
+    id_col: str = "message_uuid",
+) -> pd.Series:
+    """Devuelve la fila "activa" de una cola y la fija en session_state.
+
+    Evita que los reruns (p. ej. al cambiar el radio del paso 1 fuera del
+    st.form) cambien el mensaje mostrado por culpa de queries con
+    ORDER BY RANDOM() / df.sample(). El mensaje activo solo cambia tras
+    Guardar/Saltar (la sección hace pop de `state_key`).
+    """
+    ids = queue[id_col].astype(str)
+    current = st.session_state.get(state_key)
+    if current is not None and current in set(ids):
+        row = queue.loc[ids == current].iloc[0]
+    else:
+        row = queue.iloc[0]
+        st.session_state[state_key] = str(row[id_col])
+    return row
+
+
 _ANN_FOOTER_CSS = """
 {
     background: #F7FAFC;
@@ -7217,8 +7239,8 @@ def _render_anotacion_youtube(annotator: str):
         )
         return
 
-    # Tomar el primer mensaje
-    msg = queue.iloc[0]
+    # Mantener el mismo mensaje activo entre reruns hasta Guardar/Saltar.
+    msg = _ann_pick_sticky_row(queue, state_key="_ann_yt_current_uuid")
     msg_uuid = str(msg["message_uuid"])
 
     st.subheader(f"Mensaje a anotar  ({queue.shape[0]} en cola)")
@@ -7386,10 +7408,12 @@ def _render_anotacion_youtube(annotator: str):
             "humor_flag": humor if es_odio else False,
             "annotator_id": annotator,
         }
+        st.session_state.pop("_ann_yt_current_uuid", None)
         st.rerun()
 
     if skipped:
         st.session_state["ann_skipped"].add(msg_uuid)
+        st.session_state.pop("_ann_yt_current_uuid", None)
         st.rerun()
 
 
@@ -7462,7 +7486,13 @@ def _render_validacion_art510(annotator: str):
         )
         return
 
-    msg = queue.iloc[0]
+    queue = queue.copy()
+    queue["_v510_id"] = (
+        queue["message_uuid"].astype(str) + "|" + queue["label_source"].astype(str)
+    )
+    msg = _ann_pick_sticky_row(
+        queue, state_key="_v510_current_id", id_col="_v510_id"
+    )
     msg_uuid = str(msg["message_uuid"])
     msg_label_source = str(msg["label_source"])
     msg_key = f"{msg_uuid}|{msg_label_source}"
@@ -7614,10 +7644,12 @@ def _render_validacion_art510(annotator: str):
             "comentario": comentario.strip() or None,
             "annotator_id": annotator,
         }
+        st.session_state.pop("_v510_current_id", None)
         st.rerun()
 
     if skipped:
         st.session_state.setdefault("v510_skipped", set()).add(msg_key)
+        st.session_state.pop("_v510_current_id", None)
         st.rerun()
 
 
@@ -8349,7 +8381,7 @@ def _render_validacion_llm_youtube(annotator: str):
         )
         return
 
-    msg = queue.iloc[0]
+    msg = _ann_pick_sticky_row(queue, state_key="_vllm_yt_current_uuid")
     msg_uuid = str(msg["message_uuid"])
 
     st.subheader(f"Mensaje a validar  ({queue.shape[0]} en cola)")
@@ -8538,10 +8570,12 @@ def _render_validacion_llm_youtube(annotator: str):
             "annotator_id": annotator,
             "coincide_con_llm": coincide,
         }
+        st.session_state.pop("_vllm_yt_current_uuid", None)
         st.rerun()
 
     if skipped:
         st.session_state.setdefault("vllm_yt_skipped", set()).add(msg_uuid)
+        st.session_state.pop("_vllm_yt_current_uuid", None)
         st.rerun()
 
 
@@ -8617,7 +8651,7 @@ def _render_validacion_llm_x(annotator: str):
         )
         return
 
-    msg = queue.iloc[0]
+    msg = _ann_pick_sticky_row(queue, state_key="_vllm_x_current_uuid")
     msg_uuid = str(msg["message_uuid"])
 
     st.subheader(f"Mensaje a validar  ({queue.shape[0]} en cola)")
@@ -8792,10 +8826,12 @@ def _render_validacion_llm_x(annotator: str):
             "annotator_id": annotator,
             "coincide_con_llm": coincide,
         }
+        st.session_state.pop("_vllm_x_current_uuid", None)
         st.rerun()
 
     if skipped:
         st.session_state.setdefault("vllm_x_skipped", set()).add(msg_uuid)
+        st.session_state.pop("_vllm_x_current_uuid", None)
         st.rerun()
 
 
