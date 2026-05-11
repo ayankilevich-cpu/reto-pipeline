@@ -7280,6 +7280,21 @@ def _render_anotacion_youtube(annotator: str):
         )
     only_odio = odio_choice == "Odio"
 
+    if odio_choice is None:
+        st.caption(
+            "Elegí **Odio**, **No Odio** o **Dudoso**; la pantalla se actualiza al cambiar la opción, "
+            "pero **nada se guarda en la base** hasta que pulses **Guardar y siguiente** (o **Saltar**)."
+        )
+    elif odio_choice in ("No Odio", "Dudoso"):
+        st.info(
+            "**No se guarda automáticamente** al marcar No odio o Dudoso: solo se desbloquea la vista. "
+            "Para registrar la clasificación y ver el **siguiente mensaje**, pulsá **Guardar y siguiente** abajo."
+        )
+    else:
+        st.caption(
+            "Completá los pasos 2 a 4 si corresponde y pulsá **Guardar y siguiente** para guardar."
+        )
+
     with st.form(key=fk, clear_on_submit=False):
         if only_odio:
             st.markdown(
@@ -7498,6 +7513,16 @@ def _render_validacion_art510(annotator: str):
         help="Confirmar: el LLM acertó. Rechazar: no es delito. Corregir: es delito pero con datos distintos.",
     )
     only_corregir = validacion == "Corregir"
+
+    if validacion is None:
+        st.caption(
+            "Elegí **Confirmar**, **Rechazar** o **Corregir**; **nada se guarda** hasta pulsar "
+            "**Guardar y siguiente** (o **Saltar**)."
+        )
+    else:
+        st.caption(
+            "La opción del radio **no guarda sola**: usá **Guardar y siguiente** abajo para registrar y pasar al siguiente."
+        )
 
     with st.form(key=fk, clear_on_submit=False):
         st.markdown("---")
@@ -8401,6 +8426,19 @@ def _render_validacion_llm_youtube(annotator: str):
         )
     only_odio = odio_choice == "Odio"
 
+    if odio_choice is None:
+        st.caption(
+            "La predicción del LLM viene precargada; podés cambiarla. "
+            "**Nada se guarda** hasta pulsar **Guardar y siguiente** (o **Saltar**)."
+        )
+    elif odio_choice in ("No Odio", "Dudoso"):
+        st.info(
+            "**No se guarda automáticamente** al cambiar a No odio o Dudoso. "
+            "Pulsá **Guardar y siguiente** abajo para registrar y pasar al siguiente mensaje."
+        )
+    else:
+        st.caption("Ajustá los pasos 2 a 4 si hace falta y pulsá **Guardar y siguiente**.")
+
     with st.form(key=fk, clear_on_submit=False):
         if only_odio:
             st.markdown(
@@ -8642,6 +8680,19 @@ def _render_validacion_llm_x(annotator: str):
             label_visibility="collapsed",
         )
     only_odio = odio_choice == "Odio"
+
+    if odio_choice is None:
+        st.caption(
+            "La predicción del LLM viene precargada; podés cambiarla. "
+            "**Nada se guarda** hasta pulsar **Guardar y siguiente** (o **Saltar**)."
+        )
+    elif odio_choice in ("No Odio", "Dudoso"):
+        st.info(
+            "**No se guarda automáticamente** al cambiar a No odio o Dudoso. "
+            "Pulsá **Guardar y siguiente** abajo para registrar y pasar al siguiente mensaje."
+        )
+    else:
+        st.caption("Ajustá los pasos 2 a 4 si hace falta y pulsá **Guardar y siguiente**.")
 
     with st.form(key=fk, clear_on_submit=False):
         if only_odio:
