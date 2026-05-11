@@ -7254,37 +7254,44 @@ def _render_anotacion_youtube(annotator: str):
 
     st.divider()
 
-    # --- Formulario ---
+    # --- Formulario (paso 1 fuera del st.form para poder deshabilitar 2–4 hasta elegir Odio) ---
     _inject_anotacion_form_css()
     form_seq = st.session_state.get("_ann_form_seq", 0)
     fk = f"ann_form_{form_seq}"
 
+    st.markdown(
+        '<div class="ann-form-title">Clasificación de la muestra</div>'
+        '<div class="ann-form-subtitle">Completa los siguientes 4 pasos y guarda para pasar al siguiente mensaje.</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div class="ann-step-header"><span class="ann-step-num">1</span> ¿Contiene discurso de odio?</div>'
+        '<div class="ann-step-desc">Selecciona la clasificación principal del mensaje.</div>',
+        unsafe_allow_html=True,
+    )
+    with _ann_styled_box(key=f"chips_{fk}", css=_ANN_CHIPS_CSS):
+        odio_choice = st.radio(
+            "¿Es discurso de odio?",
+            ["Odio", "No Odio", "Dudoso"],
+            horizontal=True,
+            index=None,
+            key=f"{fk}_odio",
+            label_visibility="collapsed",
+        )
+    only_odio = odio_choice == "Odio"
+
     with st.form(key=fk, clear_on_submit=False):
-        st.markdown(
-            '<div class="ann-form-title">Clasificación de la muestra</div>'
-            '<div class="ann-form-subtitle">Completa los siguientes 4 pasos y guarda para pasar al siguiente mensaje.</div>',
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(
-            '<div class="ann-step-header"><span class="ann-step-num">1</span> ¿Contiene discurso de odio?</div>'
-            '<div class="ann-step-desc">Selecciona la clasificación principal del mensaje.</div>',
-            unsafe_allow_html=True,
-        )
-        with _ann_styled_box(key=f"chips_{fk}", css=_ANN_CHIPS_CSS):
-            odio_choice = st.radio(
-                "¿Es discurso de odio?",
-                ["Odio", "No Odio", "Dudoso"],
-                horizontal=True,
-                index=None,
-                key=f"{fk}_odio",
-                label_visibility="collapsed",
+        if only_odio:
+            st.markdown(
+                '<div class="ann-cond-banner">Completar los siguientes campos <b>solo si la clasificación es Odio</b> (se ignorarán en No Odio / Dudoso).</div>',
+                unsafe_allow_html=True,
             )
-
-        st.markdown(
-            '<div class="ann-cond-banner">Completar los siguientes campos <b>solo si la clasificación es Odio</b> (se ignorarán en No Odio / Dudoso).</div>',
-            unsafe_allow_html=True,
-        )
+        else:
+            st.markdown(
+                '<div class="ann-cond-banner" style="background:#EDF2F7;border-left-color:#718096;color:#4A5568;">'
+                "Los pasos <b>2 a 4</b> solo aplican si marcas <b>Odio</b>. Con <b>No Odio</b> o <b>Dudoso</b> quedan deshabilitados.</div>",
+                unsafe_allow_html=True,
+            )
         st.markdown(
             '<div class="ann-step-header ann-step-header--standalone">'
             '<span class="ann-step-num">2</span> Categoría de odio</div>',
@@ -7296,9 +7303,10 @@ def _render_anotacion_youtube(annotator: str):
                 "Categoría de odio",
                 options=list(CATEGORIAS_LABELS.keys()),
                 format_func=lambda x: CATEGORIAS_LABELS.get(x, x),
-                index=None,
+                index=None if only_odio else 0,
                 key=f"{fk}_cat",
                 label_visibility="collapsed",
+                disabled=not only_odio,
             )
 
             st.markdown(
@@ -7314,6 +7322,7 @@ def _render_anotacion_youtube(annotator: str):
                     index=_ann_intensity_radio_index(2),
                     key=f"{fk}_int_lvl",
                     label_visibility="collapsed",
+                    disabled=not only_odio,
                 )
             intensidad = _ANN_INTENSITY_LABEL_TO_INT[_int_lbl]
 
@@ -7325,6 +7334,7 @@ def _render_anotacion_youtube(annotator: str):
             humor = st.checkbox(
                 "El mensaje usa humor o sarcasmo",
                 key=f"{fk}_humor",
+                disabled=not only_odio,
             )
 
         with _ann_styled_box(key=f"footer_{fk}", css=_ANN_FOOTER_CSS):
@@ -7477,26 +7487,33 @@ def _render_validacion_art510(annotator: str):
 
     st.divider()
 
-    # --- Formulario de validación ---
+    # --- Formulario de validación (decisión principal fuera del form para habilitar/deshabilitar corrección) ---
     form_seq = st.session_state.get("_v510_form_seq", 0)
     fk = f"v510_form_{form_seq}"
 
-    with st.form(key=fk, clear_on_submit=False):
-        st.markdown("**Validación**")
-        validacion = st.radio(
-            "¿Es potencial delito Art. 510.1?",
-            ["Confirmar", "Rechazar", "Corregir"],
-            horizontal=True,
-            index=None,
-            key=f"{fk}_val",
-            help="Confirmar: el LLM acertó. Rechazar: no es delito. Corregir: es delito pero con datos distintos.",
-        )
+    st.markdown("**Validación**")
+    validacion = st.radio(
+        "¿Es potencial delito Art. 510.1?",
+        ["Confirmar", "Rechazar", "Corregir"],
+        horizontal=True,
+        index=None,
+        key=f"{fk}_val",
+        help="Confirmar: el LLM acertó. Rechazar: no es delito. Corregir: es delito pero con datos distintos.",
+    )
+    only_corregir = validacion == "Corregir"
 
+    with st.form(key=fk, clear_on_submit=False):
         st.markdown("---")
-        st.caption(
-            "Completar solo si seleccionas **Corregir** "
-            "(se usarán los valores del LLM si se confirma)."
-        )
+        if only_corregir:
+            st.caption(
+                "Completar apartado, grupo y conducta solo si mantienes **Corregir** "
+                "(se usarán los valores del LLM si eliges **Confirmar**)."
+            )
+        else:
+            st.caption(
+                "Apartado, grupo protegido y conducta solo se editan si eliges **Corregir**; "
+                "con **Confirmar** o **Rechazar** quedan deshabilitados."
+            )
 
         apartado_opts = ["1a", "1b", "1c"]
         apartado_default = (
@@ -7508,6 +7525,7 @@ def _render_validacion_art510(annotator: str):
             format_func=lambda x: APARTADO_LABELS.get(x, x),
             index=apartado_default,
             key=f"{fk}_ap",
+            disabled=not only_corregir,
         )
 
         grupo_sel = st.text_input(
@@ -7515,12 +7533,14 @@ def _render_validacion_art510(annotator: str):
             value=msg.get("grupo_protegido") or "",
             key=f"{fk}_gp",
             help="Ej: raza, religión, orientación sexual, discapacidad...",
+            disabled=not only_corregir,
         )
 
         conducta_sel = st.text_input(
             "Conducta detectada",
             value=msg.get("conducta_detectada") or "",
             key=f"{fk}_cond",
+            disabled=not only_corregir,
         )
 
         comentario = st.text_area(
@@ -8352,7 +8372,7 @@ def _render_validacion_llm_youtube(annotator: str):
 
     st.divider()
 
-    # --- Formulario ---
+    # --- Formulario (paso 1 fuera del st.form para deshabilitar 2–4 si no es Odio) ---
     _inject_anotacion_form_css()
     form_seq = st.session_state.get("_vllm_yt_form_seq", 0)
     fk = f"vllm_yt_form_{form_seq}"
@@ -8366,32 +8386,39 @@ def _render_validacion_llm_youtube(annotator: str):
         llm_cat_idx = cat_keys.index(llm_cat_raw)
     llm_int_val = int(llm_int) if str(llm_int) in {"1", "2", "3"} else 2
 
+    st.markdown(
+        '<div class="ann-form-title">Clasificación de la muestra</div>'
+        '<div class="ann-form-subtitle">Los campos vienen precargados con la predicción del LLM. Confirma o corrige y guarda.</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div class="ann-step-header"><span class="ann-step-num">1</span> ¿Contiene discurso de odio?</div>'
+        '<div class="ann-step-desc">Selecciona la clasificación principal del mensaje.</div>',
+        unsafe_allow_html=True,
+    )
+    with _ann_styled_box(key=f"chips_{fk}", css=_ANN_CHIPS_CSS):
+        odio_choice = st.radio(
+            "¿Es discurso de odio?",
+            ["Odio", "No Odio", "Dudoso"],
+            horizontal=True,
+            index=llm_odio_idx,
+            key=f"{fk}_odio",
+            label_visibility="collapsed",
+        )
+    only_odio = odio_choice == "Odio"
+
     with st.form(key=fk, clear_on_submit=False):
-        st.markdown(
-            '<div class="ann-form-title">Clasificación de la muestra</div>'
-            '<div class="ann-form-subtitle">Los campos vienen precargados con la predicción del LLM. Confirma o corrige y guarda.</div>',
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(
-            '<div class="ann-step-header"><span class="ann-step-num">1</span> ¿Contiene discurso de odio?</div>'
-            '<div class="ann-step-desc">Selecciona la clasificación principal del mensaje.</div>',
-            unsafe_allow_html=True,
-        )
-        with _ann_styled_box(key=f"chips_{fk}", css=_ANN_CHIPS_CSS):
-            odio_choice = st.radio(
-                "¿Es discurso de odio?",
-                ["Odio", "No Odio", "Dudoso"],
-                horizontal=True,
-                index=llm_odio_idx,
-                key=f"{fk}_odio",
-                label_visibility="collapsed",
+        if only_odio:
+            st.markdown(
+                '<div class="ann-cond-banner">Completar los siguientes campos <b>solo si la clasificación es Odio</b> (se ignorarán en No Odio / Dudoso).</div>',
+                unsafe_allow_html=True,
             )
-
-        st.markdown(
-            '<div class="ann-cond-banner">Completar los siguientes campos <b>solo si la clasificación es Odio</b> (se ignorarán en No Odio / Dudoso).</div>',
-            unsafe_allow_html=True,
-        )
+        else:
+            st.markdown(
+                '<div class="ann-cond-banner" style="background:#EDF2F7;border-left-color:#718096;color:#4A5568;">'
+                "Los pasos <b>2 a 4</b> solo aplican si marcas <b>Odio</b>. Con <b>No Odio</b> o <b>Dudoso</b> quedan deshabilitados.</div>",
+                unsafe_allow_html=True,
+            )
         st.markdown(
             '<div class="ann-step-header ann-step-header--standalone">'
             '<span class="ann-step-num">2</span> Categoría de odio</div>',
@@ -8403,9 +8430,10 @@ def _render_validacion_llm_youtube(annotator: str):
                 "Categoría de odio",
                 options=cat_keys,
                 format_func=lambda x: CATEGORIAS_LABELS.get(x, x),
-                index=llm_cat_idx,
+                index=llm_cat_idx if only_odio else 0,
                 key=f"{fk}_cat",
                 label_visibility="collapsed",
+                disabled=not only_odio,
             )
 
             st.markdown(
@@ -8421,6 +8449,7 @@ def _render_validacion_llm_youtube(annotator: str):
                     index=_ann_intensity_radio_index(llm_int_val),
                     key=f"{fk}_int_lvl",
                     label_visibility="collapsed",
+                    disabled=not only_odio,
                 )
             intensidad = _ANN_INTENSITY_LABEL_TO_INT[_int_lbl]
 
@@ -8432,6 +8461,7 @@ def _render_validacion_llm_youtube(annotator: str):
             humor = st.checkbox(
                 "El mensaje usa humor o sarcasmo",
                 key=f"{fk}_humor",
+                disabled=not only_odio,
             )
 
         with _ann_styled_box(key=f"footer_{fk}", css=_ANN_FOOTER_CSS):
@@ -8601,32 +8631,39 @@ def _render_validacion_llm_x(annotator: str):
         llm_cat_idx = cat_keys.index(llm_cat_raw)
     llm_int_val = int(llm_int) if str(llm_int) in {"1", "2", "3"} else 2
 
+    st.markdown(
+        '<div class="ann-form-title">Clasificación de la muestra</div>'
+        '<div class="ann-form-subtitle">Los campos vienen precargados con la predicción del LLM. Confirma o corrige y guarda.</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div class="ann-step-header"><span class="ann-step-num">1</span> ¿Contiene discurso de odio?</div>'
+        '<div class="ann-step-desc">Selecciona la clasificación principal del mensaje.</div>',
+        unsafe_allow_html=True,
+    )
+    with _ann_styled_box(key=f"chips_{fk}", css=_ANN_CHIPS_CSS):
+        odio_choice = st.radio(
+            "¿Es discurso de odio?",
+            ["Odio", "No Odio", "Dudoso"],
+            horizontal=True,
+            index=llm_odio_idx,
+            key=f"{fk}_odio",
+            label_visibility="collapsed",
+        )
+    only_odio = odio_choice == "Odio"
+
     with st.form(key=fk, clear_on_submit=False):
-        st.markdown(
-            '<div class="ann-form-title">Clasificación de la muestra</div>'
-            '<div class="ann-form-subtitle">Los campos vienen precargados con la predicción del LLM. Confirma o corrige y guarda.</div>',
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(
-            '<div class="ann-step-header"><span class="ann-step-num">1</span> ¿Contiene discurso de odio?</div>'
-            '<div class="ann-step-desc">Selecciona la clasificación principal del mensaje.</div>',
-            unsafe_allow_html=True,
-        )
-        with _ann_styled_box(key=f"chips_{fk}", css=_ANN_CHIPS_CSS):
-            odio_choice = st.radio(
-                "¿Es discurso de odio?",
-                ["Odio", "No Odio", "Dudoso"],
-                horizontal=True,
-                index=llm_odio_idx,
-                key=f"{fk}_odio",
-                label_visibility="collapsed",
+        if only_odio:
+            st.markdown(
+                '<div class="ann-cond-banner">Completar los siguientes campos <b>solo si la clasificación es Odio</b> (se ignorarán en No Odio / Dudoso).</div>',
+                unsafe_allow_html=True,
             )
-
-        st.markdown(
-            '<div class="ann-cond-banner">Completar los siguientes campos <b>solo si la clasificación es Odio</b> (se ignorarán en No Odio / Dudoso).</div>',
-            unsafe_allow_html=True,
-        )
+        else:
+            st.markdown(
+                '<div class="ann-cond-banner" style="background:#EDF2F7;border-left-color:#718096;color:#4A5568;">'
+                "Los pasos <b>2 a 4</b> solo aplican si marcas <b>Odio</b>. Con <b>No Odio</b> o <b>Dudoso</b> quedan deshabilitados.</div>",
+                unsafe_allow_html=True,
+            )
         st.markdown(
             '<div class="ann-step-header ann-step-header--standalone">'
             '<span class="ann-step-num">2</span> Categoría de odio</div>',
@@ -8638,9 +8675,10 @@ def _render_validacion_llm_x(annotator: str):
                 "Categoría de odio",
                 options=cat_keys,
                 format_func=lambda x: CATEGORIAS_LABELS.get(x, x),
-                index=llm_cat_idx,
+                index=llm_cat_idx if only_odio else 0,
                 key=f"{fk}_cat",
                 label_visibility="collapsed",
+                disabled=not only_odio,
             )
 
             st.markdown(
@@ -8656,6 +8694,7 @@ def _render_validacion_llm_x(annotator: str):
                     index=_ann_intensity_radio_index(llm_int_val),
                     key=f"{fk}_int_lvl",
                     label_visibility="collapsed",
+                    disabled=not only_odio,
                 )
             intensidad = _ANN_INTENSITY_LABEL_TO_INT[_int_lbl]
 
@@ -8667,6 +8706,7 @@ def _render_validacion_llm_x(annotator: str):
             humor = st.checkbox(
                 "El mensaje usa humor o sarcasmo",
                 key=f"{fk}_humor",
+                disabled=not only_odio,
             )
 
         with _ann_styled_box(key=f"footer_{fk}", css=_ANN_FOOTER_CSS):
