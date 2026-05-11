@@ -38,6 +38,7 @@ import sys
 import unicodedata
 from io import BytesIO
 from collections import Counter
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
@@ -358,6 +359,180 @@ def _inject_global_css() -> None:
         return
     st.markdown(_GLOBAL_CSS, unsafe_allow_html=True)
     st.session_state["_reto_css_injected"] = True
+
+
+# ============================================================
+# CSS específico de los formularios de anotación / validación
+# (4 subsecciones: odio · categoría · intensidad · humor)
+# Inyección 1 vez por sesión; los selectores están scopeados con clases
+# propias y con stylable_container para no afectar otros widgets.
+# ============================================================
+_ANN_FORM_CSS = """
+<style>
+.ann-form-title {
+    font-family: 'Inter', sans-serif;
+    color: #1B3A6B;
+    font-weight: 700;
+    font-size: 1.05rem;
+    margin: 0.25rem 0 0.15rem 0;
+}
+.ann-form-subtitle {
+    color: #5A6675;
+    font-size: 0.85rem;
+    margin: 0 0 0.85rem 0;
+}
+.ann-step-header {
+    color: #1B3A6B;
+    font-weight: 600;
+    font-size: 0.95rem;
+    margin: 0.6rem 0 0.35rem 0;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+.ann-step-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    background: #1B3A6B;
+    color: white;
+    border-radius: 50%;
+    font-size: 0.78rem;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+.ann-step-desc {
+    color: #5A6675;
+    font-size: 0.83rem;
+    margin: 0 0 0.5rem 30px;
+}
+.ann-cond-banner {
+    background: #EEF4FB;
+    border-left: 4px solid #1B3A6B;
+    border-radius: 6px;
+    padding: 0.55rem 0.85rem;
+    margin: 1rem 0 0.6rem 0;
+    color: #1B3A6B;
+    font-size: 0.82rem;
+    font-weight: 500;
+}
+.ann-intensity-labels {
+    display: flex;
+    justify-content: space-between;
+    margin: 0.4rem 0.2rem 0.1rem 0.2rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+}
+.ann-intensity-labels .lvl-1 { color: #B7791F; }
+.ann-intensity-labels .lvl-2 { color: #D97706; }
+.ann-intensity-labels .lvl-3 { color: #C0392B; }
+.ann-humor-hint {
+    color: #5A6675;
+    font-size: 0.82rem;
+    margin: 0.15rem 0 0.35rem 30px;
+}
+</style>
+"""
+
+# CSS scopeado (vía stylable_container) para los 3 sub-bloques visuales
+_ANN_CHIPS_CSS = """
+div[role="radiogroup"] {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+div[role="radiogroup"] > label {
+    flex: 1 1 0;
+    min-width: 110px;
+    padding: 0.65rem 1rem;
+    border-radius: 8px;
+    border: 1.5px solid #CBD5E0;
+    background: #FFFFFF;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    margin: 0 !important;
+}
+div[role="radiogroup"] > label > div:first-child { display: none; }
+div[role="radiogroup"] > label p {
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 0.85rem;
+    margin: 0;
+    text-align: center;
+    width: 100%;
+}
+div[role="radiogroup"] > label:nth-child(1) { border-color: #C0392B; color: #C0392B; }
+div[role="radiogroup"] > label:nth-child(2) { border-color: #2F855A; color: #2F855A; }
+div[role="radiogroup"] > label:nth-child(3) { border-color: #B7791F; color: #B7791F; }
+div[role="radiogroup"] > label:nth-child(1):hover { background: #FEE2E2; }
+div[role="radiogroup"] > label:nth-child(2):hover { background: #DCFCE7; }
+div[role="radiogroup"] > label:nth-child(3):hover { background: #FEF3C7; }
+div[role="radiogroup"] > label:nth-child(1):has(input:checked) {
+    background: #C0392B; border-color: #C0392B;
+}
+div[role="radiogroup"] > label:nth-child(2):has(input:checked) {
+    background: #2F855A; border-color: #2F855A;
+}
+div[role="radiogroup"] > label:nth-child(3):has(input:checked) {
+    background: #B7791F; border-color: #B7791F;
+}
+div[role="radiogroup"] > label:has(input:checked) p { color: #FFFFFF; }
+"""
+
+_ANN_COND_CSS = """
+{
+    background: #F7FAFC;
+    border-left: 4px solid #1B3A6B;
+    border-radius: 0 8px 8px 0;
+    padding: 0.85rem 1.1rem 0.6rem 1.1rem;
+    margin: 0 0 0.5rem 0;
+}
+"""
+
+_ANN_FOOTER_CSS = """
+{
+    background: #F7FAFC;
+    border-top: 1px solid #E2E8F0;
+    border-radius: 0 0 8px 8px;
+    padding: 0.85rem 1rem 0.6rem 1rem;
+    margin-top: 0.85rem;
+}
+button[kind="primaryFormSubmit"], button[kind="primary"] {
+    background: #1B3A6B !important;
+    border-color: #1B3A6B !important;
+}
+button[kind="primaryFormSubmit"]:hover, button[kind="primary"]:hover {
+    background: #2C5282 !important;
+    border-color: #2C5282 !important;
+}
+"""
+
+
+def _inject_anotacion_form_css() -> None:
+    """Inyecta el CSS específico de los formularios de anotación (1 vez por sesión)."""
+    if st.session_state.get("_reto_ann_css_injected"):
+        return
+    st.markdown(_ANN_FORM_CSS, unsafe_allow_html=True)
+    st.session_state["_reto_ann_css_injected"] = True
+
+
+@contextmanager
+def _ann_styled_box(key: str, css: str):
+    """Context manager para scopear CSS a un bloque del form.
+
+    Usa streamlit-extras.stylable_container si está disponible; si no, hace
+    fallback transparente a st.container() para no romper la app.
+    """
+    if _stylable_container is not None:
+        with _stylable_container(key=key, css_styles=css):
+            yield
+    else:
+        with st.container():
+            yield
 
 
 def _render_section_header(title: str, subtitle_html: str = "") -> None:
@@ -6979,52 +7154,89 @@ def _render_anotacion_youtube(annotator: str):
     st.divider()
 
     # --- Formulario ---
+    _inject_anotacion_form_css()
     form_seq = st.session_state.get("_ann_form_seq", 0)
     fk = f"ann_form_{form_seq}"
 
     with st.form(key=fk, clear_on_submit=False):
-        st.markdown("**Clasificación**")
-        odio_choice = st.radio(
-            "¿Es discurso de odio?",
-            ["Odio", "No Odio", "Dudoso"],
-            horizontal=True,
-            index=None,
-            key=f"{fk}_odio",
+        st.markdown(
+            '<div class="ann-form-title">Clasificación de la muestra</div>'
+            '<div class="ann-form-subtitle">Completa los siguientes 4 pasos y guarda para pasar al siguiente mensaje.</div>',
+            unsafe_allow_html=True,
         )
 
-        st.markdown("---")
-        st.caption(
-            "Completar solo si la clasificación es **Odio** "
-            "(se ignorarán si se selecciona No Odio / Dudoso)."
+        st.markdown(
+            '<div class="ann-step-header"><span class="ann-step-num">1</span> ¿Contiene discurso de odio?</div>'
+            '<div class="ann-step-desc">Selecciona la clasificación principal del mensaje.</div>',
+            unsafe_allow_html=True,
+        )
+        with _ann_styled_box(key=f"chips_{fk}", css=_ANN_CHIPS_CSS):
+            odio_choice = st.radio(
+                "¿Es discurso de odio?",
+                ["Odio", "No Odio", "Dudoso"],
+                horizontal=True,
+                index=None,
+                key=f"{fk}_odio",
+                label_visibility="collapsed",
+            )
+
+        st.markdown(
+            '<div class="ann-cond-banner">Completar los siguientes campos <b>solo si la clasificación es Odio</b> (se ignorarán en No Odio / Dudoso).</div>',
+            unsafe_allow_html=True,
         )
 
-        categoria = st.selectbox(
-            "Categoría de odio",
-            options=list(CATEGORIAS_LABELS.keys()),
-            format_func=lambda x: CATEGORIAS_LABELS.get(x, x),
-            index=None,
-            key=f"{fk}_cat",
-        )
+        with _ann_styled_box(key=f"cond_{fk}", css=_ANN_COND_CSS):
+            st.markdown(
+                '<div class="ann-step-header"><span class="ann-step-num">2</span> Categoría de odio</div>',
+                unsafe_allow_html=True,
+            )
+            categoria = st.selectbox(
+                "Categoría de odio",
+                options=list(CATEGORIAS_LABELS.keys()),
+                format_func=lambda x: CATEGORIAS_LABELS.get(x, x),
+                index=None,
+                key=f"{fk}_cat",
+                label_visibility="collapsed",
+            )
 
-        intensidad = st.select_slider(
-            "Intensidad (1 = baja, 3 = alta)",
-            options=[1, 2, 3],
-            value=2,
-            key=f"{fk}_int",
-        )
+            st.markdown(
+                '<div class="ann-step-header"><span class="ann-step-num">3</span> Intensidad</div>',
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                '<div class="ann-intensity-labels">'
+                '<span class="lvl-1">1 · Leve</span>'
+                '<span class="lvl-2">2 · Ofensivo</span>'
+                '<span class="lvl-3">3 · Hostil</span>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+            intensidad = st.select_slider(
+                "Intensidad (1 = baja, 3 = alta)",
+                options=[1, 2, 3],
+                value=2,
+                key=f"{fk}_int",
+                label_visibility="collapsed",
+            )
 
-        humor = st.checkbox(
-            "¿Contiene humor / sarcasmo?", key=f"{fk}_humor",
-        )
+            st.markdown(
+                '<div class="ann-step-header"><span class="ann-step-num">4</span> Humor o sarcasmo</div>'
+                '<div class="ann-humor-hint">Marca si el mensaje usa humor o sarcasmo como vector del odio.</div>',
+                unsafe_allow_html=True,
+            )
+            humor = st.checkbox(
+                "El mensaje usa humor o sarcasmo",
+                key=f"{fk}_humor",
+            )
 
-        st.markdown("---")
-        col_save, col_skip = st.columns(2)
-        submitted = col_save.form_submit_button(
-            "Guardar y siguiente", type="primary", use_container_width=True,
-        )
-        skipped = col_skip.form_submit_button(
-            "Saltar", use_container_width=True,
-        )
+        with _ann_styled_box(key=f"footer_{fk}", css=_ANN_FOOTER_CSS):
+            col_save, col_skip = st.columns(2)
+            submitted = col_save.form_submit_button(
+                "Guardar y siguiente", type="primary", use_container_width=True,
+            )
+            skipped = col_skip.form_submit_button(
+                "Saltar", use_container_width=True,
+            )
 
     # --- Procesar acciones del formulario ---
     if submitted:
@@ -8043,6 +8255,7 @@ def _render_validacion_llm_youtube(annotator: str):
     st.divider()
 
     # --- Formulario ---
+    _inject_anotacion_form_css()
     form_seq = st.session_state.get("_vllm_yt_form_seq", 0)
     fk = f"vllm_yt_form_{form_seq}"
 
@@ -8056,48 +8269,84 @@ def _render_validacion_llm_youtube(annotator: str):
     llm_int_val = int(llm_int) if str(llm_int) in {"1", "2", "3"} else 2
 
     with st.form(key=fk, clear_on_submit=False):
-        st.markdown("**Clasificación** (precargada con la predicción del LLM)")
-        odio_choice = st.radio(
-            "¿Es discurso de odio?",
-            ["Odio", "No Odio", "Dudoso"],
-            horizontal=True,
-            index=llm_odio_idx,
-            key=f"{fk}_odio",
+        st.markdown(
+            '<div class="ann-form-title">Clasificación de la muestra</div>'
+            '<div class="ann-form-subtitle">Los campos vienen precargados con la predicción del LLM. Confirma o corrige y guarda.</div>',
+            unsafe_allow_html=True,
         )
 
-        st.markdown("---")
-        st.caption(
-            "Completar solo si la clasificación es **Odio** "
-            "(se ignorarán si se selecciona No Odio / Dudoso)."
+        st.markdown(
+            '<div class="ann-step-header"><span class="ann-step-num">1</span> ¿Contiene discurso de odio?</div>'
+            '<div class="ann-step-desc">Selecciona la clasificación principal del mensaje.</div>',
+            unsafe_allow_html=True,
+        )
+        with _ann_styled_box(key=f"chips_{fk}", css=_ANN_CHIPS_CSS):
+            odio_choice = st.radio(
+                "¿Es discurso de odio?",
+                ["Odio", "No Odio", "Dudoso"],
+                horizontal=True,
+                index=llm_odio_idx,
+                key=f"{fk}_odio",
+                label_visibility="collapsed",
+            )
+
+        st.markdown(
+            '<div class="ann-cond-banner">Completar los siguientes campos <b>solo si la clasificación es Odio</b> (se ignorarán en No Odio / Dudoso).</div>',
+            unsafe_allow_html=True,
         )
 
-        categoria = st.selectbox(
-            "Categoría de odio",
-            options=cat_keys,
-            format_func=lambda x: CATEGORIAS_LABELS.get(x, x),
-            index=llm_cat_idx,
-            key=f"{fk}_cat",
-        )
+        with _ann_styled_box(key=f"cond_{fk}", css=_ANN_COND_CSS):
+            st.markdown(
+                '<div class="ann-step-header"><span class="ann-step-num">2</span> Categoría de odio</div>',
+                unsafe_allow_html=True,
+            )
+            categoria = st.selectbox(
+                "Categoría de odio",
+                options=cat_keys,
+                format_func=lambda x: CATEGORIAS_LABELS.get(x, x),
+                index=llm_cat_idx,
+                key=f"{fk}_cat",
+                label_visibility="collapsed",
+            )
 
-        intensidad = st.select_slider(
-            "Intensidad (1 = baja, 3 = alta)",
-            options=[1, 2, 3],
-            value=llm_int_val,
-            key=f"{fk}_int",
-        )
+            st.markdown(
+                '<div class="ann-step-header"><span class="ann-step-num">3</span> Intensidad</div>',
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                '<div class="ann-intensity-labels">'
+                '<span class="lvl-1">1 · Leve</span>'
+                '<span class="lvl-2">2 · Ofensivo</span>'
+                '<span class="lvl-3">3 · Hostil</span>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+            intensidad = st.select_slider(
+                "Intensidad (1 = baja, 3 = alta)",
+                options=[1, 2, 3],
+                value=llm_int_val,
+                key=f"{fk}_int",
+                label_visibility="collapsed",
+            )
 
-        humor = st.checkbox(
-            "¿Contiene humor / sarcasmo?", key=f"{fk}_humor",
-        )
+            st.markdown(
+                '<div class="ann-step-header"><span class="ann-step-num">4</span> Humor o sarcasmo</div>'
+                '<div class="ann-humor-hint">Marca si el mensaje usa humor o sarcasmo como vector del odio.</div>',
+                unsafe_allow_html=True,
+            )
+            humor = st.checkbox(
+                "El mensaje usa humor o sarcasmo",
+                key=f"{fk}_humor",
+            )
 
-        st.markdown("---")
-        col_save, col_skip = st.columns(2)
-        submitted = col_save.form_submit_button(
-            "Guardar y siguiente", type="primary", use_container_width=True,
-        )
-        skipped = col_skip.form_submit_button(
-            "Saltar", use_container_width=True,
-        )
+        with _ann_styled_box(key=f"footer_{fk}", css=_ANN_FOOTER_CSS):
+            col_save, col_skip = st.columns(2)
+            submitted = col_save.form_submit_button(
+                "Guardar y siguiente", type="primary", use_container_width=True,
+            )
+            skipped = col_skip.form_submit_button(
+                "Saltar", use_container_width=True,
+            )
 
     # --- Procesar acciones ---
     if submitted:
@@ -8244,6 +8493,7 @@ def _render_validacion_llm_x(annotator: str):
 
     st.divider()
 
+    _inject_anotacion_form_css()
     form_seq = st.session_state.get("_vllm_x_form_seq", 0)
     fk = f"vllm_x_form_{form_seq}"
 
@@ -8257,48 +8507,84 @@ def _render_validacion_llm_x(annotator: str):
     llm_int_val = int(llm_int) if str(llm_int) in {"1", "2", "3"} else 2
 
     with st.form(key=fk, clear_on_submit=False):
-        st.markdown("**Clasificación** (precargada con la predicción del LLM)")
-        odio_choice = st.radio(
-            "¿Es discurso de odio?",
-            ["Odio", "No Odio", "Dudoso"],
-            horizontal=True,
-            index=llm_odio_idx,
-            key=f"{fk}_odio",
+        st.markdown(
+            '<div class="ann-form-title">Clasificación de la muestra</div>'
+            '<div class="ann-form-subtitle">Los campos vienen precargados con la predicción del LLM. Confirma o corrige y guarda.</div>',
+            unsafe_allow_html=True,
         )
 
-        st.markdown("---")
-        st.caption(
-            "Completar solo si la clasificación es **Odio** "
-            "(se ignorarán si se selecciona No Odio / Dudoso)."
+        st.markdown(
+            '<div class="ann-step-header"><span class="ann-step-num">1</span> ¿Contiene discurso de odio?</div>'
+            '<div class="ann-step-desc">Selecciona la clasificación principal del mensaje.</div>',
+            unsafe_allow_html=True,
+        )
+        with _ann_styled_box(key=f"chips_{fk}", css=_ANN_CHIPS_CSS):
+            odio_choice = st.radio(
+                "¿Es discurso de odio?",
+                ["Odio", "No Odio", "Dudoso"],
+                horizontal=True,
+                index=llm_odio_idx,
+                key=f"{fk}_odio",
+                label_visibility="collapsed",
+            )
+
+        st.markdown(
+            '<div class="ann-cond-banner">Completar los siguientes campos <b>solo si la clasificación es Odio</b> (se ignorarán en No Odio / Dudoso).</div>',
+            unsafe_allow_html=True,
         )
 
-        categoria = st.selectbox(
-            "Categoría de odio",
-            options=cat_keys,
-            format_func=lambda x: CATEGORIAS_LABELS.get(x, x),
-            index=llm_cat_idx,
-            key=f"{fk}_cat",
-        )
+        with _ann_styled_box(key=f"cond_{fk}", css=_ANN_COND_CSS):
+            st.markdown(
+                '<div class="ann-step-header"><span class="ann-step-num">2</span> Categoría de odio</div>',
+                unsafe_allow_html=True,
+            )
+            categoria = st.selectbox(
+                "Categoría de odio",
+                options=cat_keys,
+                format_func=lambda x: CATEGORIAS_LABELS.get(x, x),
+                index=llm_cat_idx,
+                key=f"{fk}_cat",
+                label_visibility="collapsed",
+            )
 
-        intensidad = st.select_slider(
-            "Intensidad (1 = baja, 3 = alta)",
-            options=[1, 2, 3],
-            value=llm_int_val,
-            key=f"{fk}_int",
-        )
+            st.markdown(
+                '<div class="ann-step-header"><span class="ann-step-num">3</span> Intensidad</div>',
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                '<div class="ann-intensity-labels">'
+                '<span class="lvl-1">1 · Leve</span>'
+                '<span class="lvl-2">2 · Ofensivo</span>'
+                '<span class="lvl-3">3 · Hostil</span>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+            intensidad = st.select_slider(
+                "Intensidad (1 = baja, 3 = alta)",
+                options=[1, 2, 3],
+                value=llm_int_val,
+                key=f"{fk}_int",
+                label_visibility="collapsed",
+            )
 
-        humor = st.checkbox(
-            "¿Contiene humor / sarcasmo?", key=f"{fk}_humor",
-        )
+            st.markdown(
+                '<div class="ann-step-header"><span class="ann-step-num">4</span> Humor o sarcasmo</div>'
+                '<div class="ann-humor-hint">Marca si el mensaje usa humor o sarcasmo como vector del odio.</div>',
+                unsafe_allow_html=True,
+            )
+            humor = st.checkbox(
+                "El mensaje usa humor o sarcasmo",
+                key=f"{fk}_humor",
+            )
 
-        st.markdown("---")
-        col_save, col_skip = st.columns(2)
-        submitted = col_save.form_submit_button(
-            "Guardar y siguiente", type="primary", use_container_width=True,
-        )
-        skipped = col_skip.form_submit_button(
-            "Saltar", use_container_width=True,
-        )
+        with _ann_styled_box(key=f"footer_{fk}", css=_ANN_FOOTER_CSS):
+            col_save, col_skip = st.columns(2)
+            submitted = col_save.form_submit_button(
+                "Guardar y siguiente", type="primary", use_container_width=True,
+            )
+            skipped = col_skip.form_submit_button(
+                "Saltar", use_container_width=True,
+            )
 
     if submitted:
         if odio_choice is None:
