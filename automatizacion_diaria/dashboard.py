@@ -418,29 +418,6 @@ _ANN_FORM_CSS = """
     font-size: 0.82rem;
     font-weight: 500;
 }
-/* Escala de intensidad: tres columnas separadas (evita que el texto se pegue) */
-.ann-intensity-labels {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 0.65rem 1rem;
-    margin: 0.45rem 0 0.5rem 0;
-    width: 100%;
-    box-sizing: border-box;
-}
-.ann-int-lbl {
-    text-align: center;
-    font-size: 0.82rem;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    padding: 0.45rem 0.35rem;
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.85);
-    border: 1px solid #E2E8F0;
-    line-height: 1.35;
-}
-.ann-int-lbl.lvl-1 { color: #92400E; border-color: #FCD34D; background: #FFFBEB; }
-.ann-int-lbl.lvl-2 { color: #B45309; border-color: #FBBF24; background: #FFFBEB; }
-.ann-int-lbl.lvl-3 { color: #991B1B; border-color: #F87171; background: #FEF2F2; }
 /* Encabezado de paso justo encima del bloque gris (fuera del stylable_container) */
 .ann-step-header--standalone {
     margin: 0.35rem 0 0.65rem 0;
@@ -499,6 +476,53 @@ div[role="radiogroup"] > label:nth-child(3):has(input:checked) {
 div[role="radiogroup"] > label:has(input:checked) p { color: #FFFFFF; }
 """
 
+# Chips de intensidad (mismo patrón que odio/no/dudoso; colores leve→hostil)
+_ANN_INTENSITY_CHIPS_CSS = """
+div[role="radiogroup"] {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+div[role="radiogroup"] > label {
+    flex: 1 1 0;
+    min-width: 100px;
+    padding: 0.7rem 0.55rem;
+    border-radius: 8px;
+    border: 1.5px solid #CBD5E0;
+    background: #FFFFFF;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    margin: 0 !important;
+}
+div[role="radiogroup"] > label > div:first-child { display: none; }
+div[role="radiogroup"] > label p {
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0.02em;
+    font-size: 0.8rem;
+    margin: 0;
+    text-align: center;
+    width: 100%;
+    line-height: 1.35;
+}
+div[role="radiogroup"] > label:nth-child(1) { border-color: #D97706; color: #B45309; }
+div[role="radiogroup"] > label:nth-child(2) { border-color: #EA580C; color: #C2410C; }
+div[role="radiogroup"] > label:nth-child(3) { border-color: #C0392B; color: #991B1B; }
+div[role="radiogroup"] > label:nth-child(1):hover { background: #FFFBEB; }
+div[role="radiogroup"] > label:nth-child(2):hover { background: #FFF7ED; }
+div[role="radiogroup"] > label:nth-child(3):hover { background: #FEF2F2; }
+div[role="radiogroup"] > label:nth-child(1):has(input:checked) {
+    background: #D97706; border-color: #D97706;
+}
+div[role="radiogroup"] > label:nth-child(2):has(input:checked) {
+    background: #EA580C; border-color: #EA580C;
+}
+div[role="radiogroup"] > label:nth-child(3):has(input:checked) {
+    background: #C0392B; border-color: #C0392B;
+}
+div[role="radiogroup"] > label:has(input:checked) p { color: #FFFFFF; }
+"""
+
 _ANN_COND_CSS = """
 {
     background: #F7FAFC;
@@ -511,14 +535,27 @@ _ANN_COND_CSS = """
 }
 """
 
-# HTML reutilizable: leyenda de intensidad (tres celdas separadas)
-_ANN_INTENSITY_LABELS_HTML = """
-<div class="ann-intensity-labels">
-  <div class="ann-int-lbl lvl-1">1 = Leve</div>
-  <div class="ann-int-lbl lvl-2">2 = Ofensivo</div>
-  <div class="ann-int-lbl lvl-3">3 = Hostil</div>
-</div>
-"""
+_ANN_INTENSITY_RADIO_LABELS: Tuple[str, str, str] = (
+    "1 — Leve",
+    "2 — Ofensivo",
+    "3 — Hostil",
+)
+_ANN_INTENSITY_LABEL_TO_INT: Dict[str, int] = {
+    "1 — Leve": 1,
+    "2 — Ofensivo": 2,
+    "3 — Hostil": 3,
+}
+
+
+def _ann_intensity_radio_index(default_1_2_3: int) -> int:
+    """Índice 0..2 para st.radio según intensidad por defecto (1, 2 o 3)."""
+    try:
+        d = int(default_1_2_3)
+    except (TypeError, ValueError):
+        d = 2
+    d = max(1, min(3, d))
+    return d - 1
+
 
 _ANN_FOOTER_CSS = """
 {
@@ -7228,17 +7265,20 @@ def _render_anotacion_youtube(annotator: str):
             )
 
             st.markdown(
-                '<div class="ann-step-header"><span class="ann-step-num">3</span> Intensidad</div>',
+                '<div class="ann-step-header"><span class="ann-step-num">3</span> Intensidad</div>'
+                '<div class="ann-step-desc">Elegí un nivel tocando una de las tres opciones.</div>',
                 unsafe_allow_html=True,
             )
-            st.markdown(_ANN_INTENSITY_LABELS_HTML, unsafe_allow_html=True)
-            intensidad = st.select_slider(
-                "Intensidad (1 = baja, 3 = alta)",
-                options=[1, 2, 3],
-                value=2,
-                key=f"{fk}_int",
-                label_visibility="collapsed",
-            )
+            with _ann_styled_box(key=f"intchips_{fk}", css=_ANN_INTENSITY_CHIPS_CSS):
+                _int_lbl = st.radio(
+                    "Intensidad del mensaje",
+                    list(_ANN_INTENSITY_RADIO_LABELS),
+                    horizontal=True,
+                    index=_ann_intensity_radio_index(2),
+                    key=f"{fk}_int_lvl",
+                    label_visibility="collapsed",
+                )
+            intensidad = _ANN_INTENSITY_LABEL_TO_INT[_int_lbl]
 
             st.markdown(
                 '<div class="ann-step-header"><span class="ann-step-num">4</span> Humor o sarcasmo</div>'
@@ -8332,17 +8372,20 @@ def _render_validacion_llm_youtube(annotator: str):
             )
 
             st.markdown(
-                '<div class="ann-step-header"><span class="ann-step-num">3</span> Intensidad</div>',
+                '<div class="ann-step-header"><span class="ann-step-num">3</span> Intensidad</div>'
+                '<div class="ann-step-desc">Elegí un nivel tocando una de las tres opciones.</div>',
                 unsafe_allow_html=True,
             )
-            st.markdown(_ANN_INTENSITY_LABELS_HTML, unsafe_allow_html=True)
-            intensidad = st.select_slider(
-                "Intensidad (1 = baja, 3 = alta)",
-                options=[1, 2, 3],
-                value=llm_int_val,
-                key=f"{fk}_int",
-                label_visibility="collapsed",
-            )
+            with _ann_styled_box(key=f"intchips_{fk}", css=_ANN_INTENSITY_CHIPS_CSS):
+                _int_lbl = st.radio(
+                    "Intensidad del mensaje",
+                    list(_ANN_INTENSITY_RADIO_LABELS),
+                    horizontal=True,
+                    index=_ann_intensity_radio_index(llm_int_val),
+                    key=f"{fk}_int_lvl",
+                    label_visibility="collapsed",
+                )
+            intensidad = _ANN_INTENSITY_LABEL_TO_INT[_int_lbl]
 
             st.markdown(
                 '<div class="ann-step-header"><span class="ann-step-num">4</span> Humor o sarcasmo</div>'
@@ -8564,17 +8607,20 @@ def _render_validacion_llm_x(annotator: str):
             )
 
             st.markdown(
-                '<div class="ann-step-header"><span class="ann-step-num">3</span> Intensidad</div>',
+                '<div class="ann-step-header"><span class="ann-step-num">3</span> Intensidad</div>'
+                '<div class="ann-step-desc">Elegí un nivel tocando una de las tres opciones.</div>',
                 unsafe_allow_html=True,
             )
-            st.markdown(_ANN_INTENSITY_LABELS_HTML, unsafe_allow_html=True)
-            intensidad = st.select_slider(
-                "Intensidad (1 = baja, 3 = alta)",
-                options=[1, 2, 3],
-                value=llm_int_val,
-                key=f"{fk}_int",
-                label_visibility="collapsed",
-            )
+            with _ann_styled_box(key=f"intchips_{fk}", css=_ANN_INTENSITY_CHIPS_CSS):
+                _int_lbl = st.radio(
+                    "Intensidad del mensaje",
+                    list(_ANN_INTENSITY_RADIO_LABELS),
+                    horizontal=True,
+                    index=_ann_intensity_radio_index(llm_int_val),
+                    key=f"{fk}_int_lvl",
+                    label_visibility="collapsed",
+                )
+            intensidad = _ANN_INTENSITY_LABEL_TO_INT[_int_lbl]
 
             st.markdown(
                 '<div class="ann-step-header"><span class="ann-step-num">4</span> Humor o sarcasmo</div>'
