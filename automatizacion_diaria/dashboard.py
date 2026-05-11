@@ -418,17 +418,33 @@ _ANN_FORM_CSS = """
     font-size: 0.82rem;
     font-weight: 500;
 }
+/* Escala de intensidad: tres columnas separadas (evita que el texto se pegue) */
 .ann-intensity-labels {
-    display: flex;
-    justify-content: space-between;
-    margin: 0.4rem 0.2rem 0.1rem 0.2rem;
-    font-size: 0.78rem;
-    font-weight: 600;
-    letter-spacing: 0.3px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0.65rem 1rem;
+    margin: 0.45rem 0 0.5rem 0;
+    width: 100%;
+    box-sizing: border-box;
 }
-.ann-intensity-labels .lvl-1 { color: #B7791F; }
-.ann-intensity-labels .lvl-2 { color: #D97706; }
-.ann-intensity-labels .lvl-3 { color: #C0392B; }
+.ann-int-lbl {
+    text-align: center;
+    font-size: 0.82rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    padding: 0.45rem 0.35rem;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.85);
+    border: 1px solid #E2E8F0;
+    line-height: 1.35;
+}
+.ann-int-lbl.lvl-1 { color: #92400E; border-color: #FCD34D; background: #FFFBEB; }
+.ann-int-lbl.lvl-2 { color: #B45309; border-color: #FBBF24; background: #FFFBEB; }
+.ann-int-lbl.lvl-3 { color: #991B1B; border-color: #F87171; background: #FEF2F2; }
+/* Encabezado de paso justo encima del bloque gris (fuera del stylable_container) */
+.ann-step-header--standalone {
+    margin: 0.35rem 0 0.65rem 0;
+}
 .ann-humor-hint {
     color: #5A6675;
     font-size: 0.82rem;
@@ -488,9 +504,20 @@ _ANN_COND_CSS = """
     background: #F7FAFC;
     border-left: 4px solid #1B3A6B;
     border-radius: 0 8px 8px 0;
-    padding: 0.85rem 1.1rem 0.6rem 1.1rem;
+    padding: 0.85rem 1.1rem 0.75rem 1.1rem;
     margin: 0 0 0.5rem 0;
+    overflow: visible !important;
+    min-height: 0;
 }
+"""
+
+# HTML reutilizable: leyenda de intensidad (tres celdas separadas)
+_ANN_INTENSITY_LABELS_HTML = """
+<div class="ann-intensity-labels">
+  <div class="ann-int-lbl lvl-1">1 = Leve</div>
+  <div class="ann-int-lbl lvl-2">2 = Ofensivo</div>
+  <div class="ann-int-lbl lvl-3">3 = Hostil</div>
+</div>
 """
 
 _ANN_FOOTER_CSS = """
@@ -7184,12 +7211,13 @@ def _render_anotacion_youtube(annotator: str):
             '<div class="ann-cond-banner">Completar los siguientes campos <b>solo si la clasificación es Odio</b> (se ignorarán en No Odio / Dudoso).</div>',
             unsafe_allow_html=True,
         )
+        st.markdown(
+            '<div class="ann-step-header ann-step-header--standalone">'
+            '<span class="ann-step-num">2</span> Categoría de odio</div>',
+            unsafe_allow_html=True,
+        )
 
         with _ann_styled_box(key=f"cond_{fk}", css=_ANN_COND_CSS):
-            st.markdown(
-                '<div class="ann-step-header"><span class="ann-step-num">2</span> Categoría de odio</div>',
-                unsafe_allow_html=True,
-            )
             categoria = st.selectbox(
                 "Categoría de odio",
                 options=list(CATEGORIAS_LABELS.keys()),
@@ -7203,14 +7231,7 @@ def _render_anotacion_youtube(annotator: str):
                 '<div class="ann-step-header"><span class="ann-step-num">3</span> Intensidad</div>',
                 unsafe_allow_html=True,
             )
-            st.markdown(
-                '<div class="ann-intensity-labels">'
-                '<span class="lvl-1">1 · Leve</span>'
-                '<span class="lvl-2">2 · Ofensivo</span>'
-                '<span class="lvl-3">3 · Hostil</span>'
-                '</div>',
-                unsafe_allow_html=True,
-            )
+            st.markdown(_ANN_INTENSITY_LABELS_HTML, unsafe_allow_html=True)
             intensidad = st.select_slider(
                 "Intensidad (1 = baja, 3 = alta)",
                 options=[1, 2, 3],
@@ -8294,12 +8315,13 @@ def _render_validacion_llm_youtube(annotator: str):
             '<div class="ann-cond-banner">Completar los siguientes campos <b>solo si la clasificación es Odio</b> (se ignorarán en No Odio / Dudoso).</div>',
             unsafe_allow_html=True,
         )
+        st.markdown(
+            '<div class="ann-step-header ann-step-header--standalone">'
+            '<span class="ann-step-num">2</span> Categoría de odio</div>',
+            unsafe_allow_html=True,
+        )
 
         with _ann_styled_box(key=f"cond_{fk}", css=_ANN_COND_CSS):
-            st.markdown(
-                '<div class="ann-step-header"><span class="ann-step-num">2</span> Categoría de odio</div>',
-                unsafe_allow_html=True,
-            )
             categoria = st.selectbox(
                 "Categoría de odio",
                 options=cat_keys,
@@ -8313,14 +8335,7 @@ def _render_validacion_llm_youtube(annotator: str):
                 '<div class="ann-step-header"><span class="ann-step-num">3</span> Intensidad</div>',
                 unsafe_allow_html=True,
             )
-            st.markdown(
-                '<div class="ann-intensity-labels">'
-                '<span class="lvl-1">1 · Leve</span>'
-                '<span class="lvl-2">2 · Ofensivo</span>'
-                '<span class="lvl-3">3 · Hostil</span>'
-                '</div>',
-                unsafe_allow_html=True,
-            )
+            st.markdown(_ANN_INTENSITY_LABELS_HTML, unsafe_allow_html=True)
             intensidad = st.select_slider(
                 "Intensidad (1 = baja, 3 = alta)",
                 options=[1, 2, 3],
@@ -8532,12 +8547,13 @@ def _render_validacion_llm_x(annotator: str):
             '<div class="ann-cond-banner">Completar los siguientes campos <b>solo si la clasificación es Odio</b> (se ignorarán en No Odio / Dudoso).</div>',
             unsafe_allow_html=True,
         )
+        st.markdown(
+            '<div class="ann-step-header ann-step-header--standalone">'
+            '<span class="ann-step-num">2</span> Categoría de odio</div>',
+            unsafe_allow_html=True,
+        )
 
         with _ann_styled_box(key=f"cond_{fk}", css=_ANN_COND_CSS):
-            st.markdown(
-                '<div class="ann-step-header"><span class="ann-step-num">2</span> Categoría de odio</div>',
-                unsafe_allow_html=True,
-            )
             categoria = st.selectbox(
                 "Categoría de odio",
                 options=cat_keys,
@@ -8551,14 +8567,7 @@ def _render_validacion_llm_x(annotator: str):
                 '<div class="ann-step-header"><span class="ann-step-num">3</span> Intensidad</div>',
                 unsafe_allow_html=True,
             )
-            st.markdown(
-                '<div class="ann-intensity-labels">'
-                '<span class="lvl-1">1 · Leve</span>'
-                '<span class="lvl-2">2 · Ofensivo</span>'
-                '<span class="lvl-3">3 · Hostil</span>'
-                '</div>',
-                unsafe_allow_html=True,
-            )
+            st.markdown(_ANN_INTENSITY_LABELS_HTML, unsafe_allow_html=True)
             intensidad = st.select_slider(
                 "Intensidad (1 = baja, 3 = alta)",
                 options=[1, 2, 3],
