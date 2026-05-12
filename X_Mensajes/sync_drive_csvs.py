@@ -16,7 +16,7 @@ Requisitos:
 Uso (ejemplos):
   # Con argumentos de línea de comandos:
   python sync_drive_csvs.py --credentials "service-account.json" --folder-id "<ID_CARPETA>" --out-dir "data/raw"
-  python sync_drive_csvs.py --credentials "service-account.json" --folder-id "<ID_CARPETA>" --out-dir "data/raw" --pattern "Scrap_Batch_*.csv"
+  python sync_drive_csvs.py --credentials "service-account.json" --folder-id "<ID_CARPETA>" --out-dir "data/raw" --pattern "Scrap_*.csv"
   
   # Con variables de entorno (opcional):
   export GOOGLE_DRIVE_CREDENTIALS="service-account.json"
@@ -28,6 +28,9 @@ Notas:
 - Para obtener el folder id: es la parte entre /folders/ y el ? en la URL.
 - La carpeta debe estar compartida con el email de la Service Account.
 - Los argumentos de línea de comandos tienen prioridad sobre las variables de entorno.
+- Pipeline ReTo (captura X): hay **4 exports** de Apify separados — `batch_timelines`
+  (solo timelines de medios auditados) más `batch1_busqueda`, `batch2_busqueda` y
+  `batch3_busqueda` (antes eran 3 runs que mezclaban timelines y búsquedas).
 """
 
 from __future__ import annotations
@@ -208,7 +211,12 @@ def main() -> int:
         default=os.getenv("GOOGLE_DRIVE_OUT_DIR", str(script_dir / "data" / "raw")),
         help="Directorio local destino (o usar env var GOOGLE_DRIVE_OUT_DIR, default: /Users/alejandroyankilevich/Documents/MASTER DATA SCIENCE/Data/raw)",
     )
-    parser.add_argument("--pattern", default=DEFAULT_PATTERN, type=str, help="Patrón glob (ej: Scrap_Batch_*.csv)")
+    parser.add_argument(
+        "--pattern",
+        default=DEFAULT_PATTERN,
+        type=str,
+        help="Patrón glob sobre el nombre en Drive (default: *.csv). Ej.: Scrap_*.csv para los 4 lotes Apify.",
+    )
     parser.add_argument(
         "--keep-drive-name",
         action="store_true",
