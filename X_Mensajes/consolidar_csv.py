@@ -258,6 +258,10 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
             rename_map[col] = COLUMN_ALIASES[key]
     df = df.rename(columns=rename_map)
 
+    # url y twitterUrl pueden mapearse ambos a "url" → columna duplicada; quedarse con la primera
+    if df.columns.duplicated().any():
+        df = df.loc[:, ~df.columns.duplicated(keep="first")]
+
     # Asegurar columnas del esquema
     for col in SCHEMA:
         if col not in df.columns:
