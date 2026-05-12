@@ -60,7 +60,8 @@ from typing import Dict, List, Optional, Tuple
 import pandas as pd
 
 CONSOLIDAR_STATE_FILE = ".consolidar_state.json"
-
+# No incluir JSON cuyo nombre empiece por "." (p. ej. .drive_sync_state.json de sync_drive_csvs):
+# glob("*.json") los recoge y no son datasets Apify.
 
 SCHEMA: List[str] = [
     "message_uuid",
@@ -424,7 +425,8 @@ def read_input_jsons_from_list(json_files: List[Path]) -> pd.DataFrame:
             print(f"  ✗ Error al leer {p.name}: {e}", file=sys.stderr)
 
     if not frames:
-        raise ValueError("No se pudieron leer archivos JSON válidos")
+        print("  ⚠ Ningún JSON aportó filas (omitidos o vacíos).", file=sys.stderr)
+        return pd.DataFrame()
 
     print(f"Total: {len(frames)} archivos JSON procesados")
     return pd.concat(frames, ignore_index=True)
@@ -438,7 +440,9 @@ def read_input_files_from_list(paths: List[Path]) -> pd.DataFrame:
     if csv_paths:
         parts.append(read_input_csvs_from_list(csv_paths))
     if json_paths:
-        parts.append(read_input_jsons_from_list(json_paths))
+        json_df = read_input_jsons_from_list(json_paths)
+        if len(json_df) > 0:
+            parts.append(json_df)
     if not parts:
         raise ValueError("No hay archivos CSV ni JSON válidos en la lista")
     return pd.concat(parts, ignore_index=True)
@@ -578,7 +582,9 @@ def main() -> int:
         [
             p
             for p in in_dir.glob("*.json")
-            if p.is_file() and p.name != CONSOLIDAR_STATE_FILE
+            if p.is_file()
+            and not p.name.startswith(".")
+            and p.name != CONSOLIDAR_STATE_FILE
         ]
     )
     all_inputs = sorted(all_csvs + all_jsons, key=lambda p: p.name.lower())
