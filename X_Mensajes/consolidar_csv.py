@@ -4,8 +4,9 @@ Consolida exportaciones CSV de Apify (X/Twitter) descargadas localmente y normal
 las columnas a un esquema fijo para etiquetado manual.
 
 Entrada:
-- Un directorio local con múltiples CSV (por ejemplo, data/raw/)
-  (idealmente sincronizados desde Drive con sync_drive_csvs.py)
+- Un directorio local con múltiples **CSV y/o JSON** (por ejemplo, data/raw/),
+  idealmente sincronizados desde Drive con sync_drive_csvs.py.
+  El pipeline ReTo usa **4 lotes** Apify: `batch_timelines` + tres `batch*_busqueda`.
 
 Salida:
 - Un CSV maestro acumulativo (por ejemplo, data/master/reto_x_master.csv)
@@ -161,10 +162,10 @@ def _file_fingerprint(p: Path) -> Dict:
     return {"size": st.st_size, "mtime": st.st_mtime}
 
 
-def _filter_new_csvs(csv_files: List[Path], state: Dict[str, Dict]) -> List[Path]:
-    """Devuelve solo los CSVs nuevos o modificados respecto al estado previo."""
+def _filter_new_input_files(input_files: List[Path], state: Dict[str, Dict]) -> List[Path]:
+    """Devuelve solo CSV/JSON nuevos o modificados respecto al estado previo."""
     new_files = []
-    for p in csv_files:
+    for p in input_files:
         fp = _file_fingerprint(p)
         prev = state.get(p.name)
         if prev is None or prev.get("size") != fp["size"] or prev.get("mtime") != fp["mtime"]:
@@ -177,12 +178,12 @@ def parse_args() -> argparse.Namespace:
     default_in_dir = Path(os.getenv("DATA_RAW_DIR", str(script_dir / "data" / "raw")))
     default_out_file = Path(os.getenv("CONSOLIDAR_OUT_FILE", str(script_dir / "data" / "master" / "reto_x_master.csv")))
     
-    p = argparse.ArgumentParser(description="Consolidar CSVs de Apify a un master normalizado")
+    p = argparse.ArgumentParser(description="Consolidar CSV/JSON de Apify a un master normalizado")
     p.add_argument(
         "--in-dir",
         type=str,
         default=str(default_in_dir) if default_in_dir.exists() else None,
-        help=f"Directorio con CSVs (ej: data/raw) (default: {default_in_dir})",
+        help=f"Directorio con CSV y/o JSON (ej: data/raw) (default: {default_in_dir})",
     )
     p.add_argument(
         "--out-file",
@@ -270,6 +271,26 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     df["_created_at_dt"] = df["created_at"].apply(_parse_datetime_like)
     df["_scrape_date_dt"] = df["scrape_date"].apply(_parse_datetime_like)
 
+    # Rellenar author_username vacíos desde URL (no sobreescribir los que ya vienen rellenos)
+    if "url" in df.columns and "author_username" in df.columns:
+        aus = (
+            df["author_username"]
+            .astype(str)
+            .str.strip()
+            .replace({"nan": "", "None": "", "<NA>": ""})
+        )
+        mask_vacio = aus.eq("")
+        if mask_vacio.any():
+            extracted = (
+                df.loc[mask_vacio, "url"]
+                .astype(str)
+                .str.extract(r"(?:x|twitter)\.com/([^/]+)/status/", expand=False)
+            )
+            if isinstance(extracted, pd.DataFrame):
+                extracted = extracted.iloc[:, 0]
+            extracted = extracted.fillna("").astype(str).str.strip()
+            df.loc[mask_vacio, "author_username"] = extracted.to_numpy()
+
     return df
 
 
@@ -307,6 +328,18 @@ def apply_defaults(df: pd.DataFrame, args: argparse.Namespace) -> pd.DataFrame:
 
     if args.scrape_date and (df["scrape_date"].astype(str).str.strip() == "").any():
         df.loc[df["scrape_date"].astype(str).str.strip() == "", "scrape_date"] = args.scrape_date
+
+    # batch_timelines: el autor del tweet es el medio; propagar a source_media si estaba vacío
+    if "batch_id" in df.columns and "author_username" in df.columns:
+        sm = df["source_media"].astype(str).str.strip().replace({"nan": "", "None": "", "<NA>": ""})
+        mask_timelines = (
+            df["batch_id"].astype(str).str.contains("timeline", case=False, na=False)
+            & sm.eq("")
+        )
+        if mask_timelines.any():
+            df.loc[mask_timelines, "source_media"] = (
+                df.loc[mask_timelines, "author_username"].astype(str).str.strip().to_numpy()
+            )
 
     return df
 
@@ -351,10 +384,60 @@ def read_input_csvs_from_list(csv_files: List[Path]) -> pd.DataFrame:
         frames.append(df)
 
     if not frames:
-        raise ValueError(f"No se pudieron leer archivos CSV válidos de la lista proporcionada")
+        raise ValueError("No se pudieron leer archivos CSV válidos de la lista proporcionada")
 
-    print(f"Total: {len(frames)} archivos procesados")
+    print(f"Total: {len(frames)} archivos CSV procesados")
     return pd.concat(frames, ignore_index=True)
+
+
+def read_input_jsons_from_list(json_files: List[Path]) -> pd.DataFrame:
+    """Lee archivos JSON exportados por Apify (array de objetos)."""
+    print(f"Leyendo {len(json_files)} archivos JSON...")
+    frames: List[pd.DataFrame] = []
+    for p in json_files:
+        try:
+            with open(p, encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                df = pd.DataFrame(data).astype(str)
+            elif isinstance(data, dict):
+                items = data.get("items", data.get("results", []))
+                if not isinstance(items, list):
+                    print(f"  ✗ Formato JSON no reconocido: {p.name}", file=sys.stderr)
+                    continue
+                df = pd.DataFrame(items).astype(str)
+            else:
+                print(f"  ✗ Formato JSON no reconocido: {p.name}", file=sys.stderr)
+                continue
+            df = df.replace("None", "").replace("nan", "")
+            if len(df) == 0:
+                print(f"    ⚠ Archivo vacío: {p.name}")
+                continue
+            df["_source_file"] = p.name
+            frames.append(df)
+            print(f"    ✓ {len(df)} filas leídas de {p.name}")
+        except Exception as e:
+            print(f"  ✗ Error al leer {p.name}: {e}", file=sys.stderr)
+
+    if not frames:
+        raise ValueError("No se pudieron leer archivos JSON válidos")
+
+    print(f"Total: {len(frames)} archivos JSON procesados")
+    return pd.concat(frames, ignore_index=True)
+
+
+def read_input_files_from_list(paths: List[Path]) -> pd.DataFrame:
+    """Combina lectura de CSV y JSON según la extensión de cada ruta."""
+    csv_paths = [p for p in paths if p.suffix.lower() == ".csv"]
+    json_paths = [p for p in paths if p.suffix.lower() == ".json"]
+    parts: List[pd.DataFrame] = []
+    if csv_paths:
+        parts.append(read_input_csvs_from_list(csv_paths))
+    if json_paths:
+        parts.append(read_input_jsons_from_list(json_paths))
+    if not parts:
+        raise ValueError("No hay archivos CSV ni JSON válidos en la lista")
+    return pd.concat(parts, ignore_index=True)
 
 
 def dedup_keep_latest(df: pd.DataFrame) -> pd.DataFrame:
@@ -487,28 +570,36 @@ def main() -> int:
     state = {} if args.force else _load_consolidar_state(state_path)
 
     all_csvs = sorted([p for p in in_dir.glob("*.csv") if p.is_file()])
-    if not all_csvs:
-        print("No se encontraron CSV en el directorio de entrada.")
+    all_jsons = sorted(
+        [
+            p
+            for p in in_dir.glob("*.json")
+            if p.is_file() and p.name != CONSOLIDAR_STATE_FILE
+        ]
+    )
+    all_inputs = sorted(all_csvs + all_jsons, key=lambda p: p.name.lower())
+    if not all_inputs:
+        print("No se encontraron CSV ni JSON en el directorio de entrada.")
         return 0
 
     if args.force:
-        csvs_to_read = all_csvs
-        print(f"\n=== Consolidando CSVs (FORCE: reprocesando todos) ===")
+        inputs_to_read = all_inputs
+        print(f"\n=== Consolidando CSV/JSON (FORCE: reprocesando todos) ===")
     else:
-        csvs_to_read = _filter_new_csvs(all_csvs, state)
-        print(f"\n=== Consolidando CSVs (INCREMENTAL) ===")
-        print(f"Archivos totales en carpeta: {len(all_csvs)}")
-        print(f"Archivos ya procesados:      {len(all_csvs) - len(csvs_to_read)}")
-        print(f"Archivos nuevos/modificados:  {len(csvs_to_read)}")
+        inputs_to_read = _filter_new_input_files(all_inputs, state)
+        print(f"\n=== Consolidando CSV/JSON (INCREMENTAL) ===")
+        print(f"Archivos totales en carpeta: {len(all_inputs)}")
+        print(f"Archivos ya procesados:      {len(all_inputs) - len(inputs_to_read)}")
+        print(f"Archivos nuevos/modificados:  {len(inputs_to_read)}")
 
-    if not csvs_to_read:
+    if not inputs_to_read:
         print("\n✅ No hay archivos nuevos. Master ya está actualizado.")
         return 0
 
     print(f"Directorio de entrada: {in_dir}")
     print(f"Archivo de salida: {out_file}\n")
     
-    df = read_input_csvs_from_list(csvs_to_read)
+    df = read_input_files_from_list(inputs_to_read)
     print(f"\nFilas totales leídas: {len(df)}")
     
     print("\nNormalizando columnas...")
@@ -543,7 +634,7 @@ def main() -> int:
 
     # Actualizar estado con TODOS los archivos actuales (nuevos + previos)
     new_state: Dict[str, Dict] = {}
-    for p in all_csvs:
+    for p in all_inputs:
         new_state[p.name] = _file_fingerprint(p)
     _save_consolidar_state(state_path, new_state)
     print(f"  Estado incremental guardado ({len(new_state)} archivos registrados)")
@@ -551,7 +642,7 @@ def main() -> int:
     print(f"\n=== Resumen ===")
     print(f"Directorio de entrada: {in_dir}")
     print(f"Archivo de salida: {out_file}")
-    print(f"Archivos procesados: {len(csvs_to_read)} de {len(all_csvs)}")
+    print(f"Archivos procesados: {len(inputs_to_read)} de {len(all_inputs)}")
     print(f"Filas candidatas (después de dedup interno): {len(df)}")
     print(f"Filas agregadas al master: {added}")
     print(f"Total en master: {total}")
