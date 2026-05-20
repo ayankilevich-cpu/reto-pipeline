@@ -319,39 +319,35 @@ def compute_week_stats(
     }
 
 
-def _fallback_mencion_cantos_racismo(stats: Dict[str, Any], resumen: str, eventos: str) -> Tuple[str, str]:
-    """
-    Si hay mucha evidencia en el texto pero el LLM no mencionó el eje deporte/racismo,
-    añade un párrafo e ítem mínimo (hecho basado en corpus, no en inventar fechas).
-    """
+def _share_odio_con_eje_futbol(stats: Dict[str, Any]) -> float:
+    total_odio = int(stats.get("total_odio") or 0)
+    if total_odio <= 0:
+        return 0.0
     n = int(stats.get("n_evidencia_deporte_racismo") or 0)
-    if n < 1:
-        return resumen, eventos
-    blob = f"{resumen} {eventos}".lower()
-    marcadores = (
-        "cántico", "cantico", "racis", "selección", "seleccion", "himno",
-        "rfef", "fútbol", "futbol", "estadio", "grada", "vinicius", "lamine", "yamal",
-    )
-    if any(m in blob for m in marcadores):
-        return resumen, eventos
+    return n / total_odio
 
-    ini = stats.get("semana_inicio")
-    fin = stats.get("semana_fin")
-    par = (
-        f"\n\n**Detonante deportivo y mediático:** En el corpus de esta semana ({ini}–{fin}) "
-        f"hay **{n}** mensajes de odio cuyo **texto explícito** alude a fútbol/selección/"
-        "himno/cánticos/racismo o insultos asociados (p. ej. entorno de partidos de la "
-        "selección española). Aunque el porcentaje semanal de odio no marque spike, "
-        "este eje explica buena parte del **odio étnico-cultural** observado y coincide "
-        "con la **polémica pública por cánticos racistas u homofóbicos** en el fútbol de "
-        "esas fechas; conviene leer el resto del análisis a la luz de ese foco mediático."
-    )
-    item = (
-        "\n\n- **Polémica por cánticos discriminatorios en el fútbol (selección / "
-        "afición)** — detonante mediático alineado con el patrón de odio "
-        "étnico-cultural y con menciones explícitas en el corpus de mensajes de la semana."
-    )
-    return (resumen or "").strip() + par, (eventos or "").strip() + item
+
+def _tema_futbol_en_top(stats: Dict[str, Any], top_n: int = 3) -> bool:
+    temas = stats.get("temas") or {}
+    for nombre in list(temas.keys())[:top_n]:
+        if "fútbol" in str(nombre).lower() or "futbol" in str(nombre).lower():
+            return True
+    return False
+
+
+def _debe_incluir_bloque_futbol(stats: Dict[str, Any]) -> bool:
+    """
+    Solo destacar el eje deporte/racismo si concentra una fracción material del odio
+    de ESTA semana (evita plantillas evergreen con 1-2 menciones sueltas).
+    """
+    n_evid = int(stats.get("n_evidencia_deporte_racismo") or 0)
+    total_odio = int(stats.get("total_odio") or 0)
+    if n_evid < 8 or total_odio < 20:
+        return False
+    umbral_cnt = max(8, int(round(0.12 * total_odio)))
+    if n_evid < umbral_cnt and not _tema_futbol_en_top(stats):
+        return False
+    return _share_odio_con_eje_futbol(stats) >= 0.10 or _tema_futbol_en_top(stats)
 
 
 def generate_context_with_llm(stats: Dict[str, Any]) -> Tuple[str, str]:
@@ -385,32 +381,23 @@ def generate_context_with_llm(stats: Dict[str, Any]) -> Tuple[str, str]:
     snip = stats.get("snippets_evidencia_deporte") or []
     snippets_txt = "\n".join(f"- {s}" for s in snip) if snip else "(ninguno capturado por el filtro)"
 
-    bloque_obligatorio = ""
-    if n_evid >= 1:
-        bloque_obligatorio = f"""
-## 🔴 EVIDENCIA EN EL TEXTO DE LOS MENSAJES (obligatorio incorporar al análisis)
-El sistema detectó **{n_evid}** mensajes clasificados como ODIO en esta semana cuyo **contenido**
-(fuente: comentarios anonimizados) coincide con términos propios de **fútbol, selección española,
-himno, grada/estadio, RFEF y/o racismo / cánticos / insultos raciales** (no es una inferencia
-vaga: está en el propio texto).
-
-Fragmentos representativos (truncados):
+    bloque_evidencia_corpus = ""
+    if _debe_incluir_bloque_futbol(stats):
+        pct_fut = _share_odio_con_eje_futbol(stats) * 100
+        bloque_evidencia_corpus = f"""
+## Mensajes de odio con léxico deportivo / racismo en el texto (solo esta semana)
+**{n_evid}** mensajes de odio ({pct_fut:.0f}% del odio de la semana) mencionan en su texto
+fútbol, selección, estadio, himno, RFEF y/o insultos raciales. Fragmentos reales (truncados):
 {snippets_txt}
 
-**Reglas:**
-- En **resumen_contexto** tenés que dedicar **al menos 2 oraciones** a este eje: la repercusión
-  mediática de **cánticos racistas u homofóbicos** (u otros incidentes discriminatorios) en el
-  **entorno del fútbol y la selección** en España en esta semana, y su relación con el odio
-  **étnico-cultural o religioso** del corpus.
-- En **eventos_relacionados** incluí **como mínimo un ítem numerado** que nombre explícitamente
-  esa **polémica por cánticos discriminatorios en partidos de la selección española** (o
-  suceso equivalente de esas fechas) y lo vincule con los datos.
-- No minimices este detonante aunque **no haya spike** estadístico.
+Si los citás, describí **solo** lo que muestran estos fragmentos y los motivos/temas del prompt.
+**No** reutilices narrativas genéricas (p. ej. "cánticos racistas de la selección española") si no
+aparecen de forma explícita en motivos, temas o fragmentos de arriba.
 """
 
     prompt = f"""Sos un analista del proyecto ReTo (monitorización de discurso de odio en redes de medios, Andalucía / España).
 
-Semana calendario: **{stats['semana_inicio']}** al **{stats['semana_fin']}** (usá esta ventana para contrastar con la agenda noticiosa española).
+**Ventana obligatoria:** solo mensajes con `created_at` entre **{stats['semana_inicio']}** y **{stats['semana_fin']}** (inclusive). El resumen debe reflejar **únicamente** ese corpus y sus agregados; no semanas anteriores ni plantillas recurrentes.
 
 ## Datos agregados
 - Total mensajes monitorizados: {stats['total_mensajes']}
@@ -434,20 +421,25 @@ Intensidad (solo mensajes ODIO): leve=1 → {stats['intensidad'].get('1',0)}, of
 
 ## Muestra diversa de motivos (una línea por caso distinto; ayuda a inferir detonantes)
 {muestra_txt}
-{bloque_obligatorio}
+{bloque_evidencia_corpus}
+
+## Prohibiciones (crítico)
+- **NO** copies narrativas que se repiten cada semana sin evidencia en los datos de arriba: p. ej. cánticos racistas de la selección española, polémica RFEF genérica, "clima político en España" vago, o incidentes deportivos de meses atrás.
+- **NO** inventes sucesos mediáticos para rellenar; si no hay un detonante claro en motivos/temas/targets/snippets, describí **patrones del corpus** (quién insulta a quién, sobre qué temas).
+- Cualquier referencia externa (noticia, partido, sanción) debe ser **coherente con {stats['semana_inicio']}–{stats['semana_fin']}** y estar **motivada** por targets, temas o motivos de esta semana.
+
 ---
 
 ## Lo que tenés que producir (obligatorio)
 
-1) **resumen_contexto** (6-10 oraciones en español, tono analítico):
-   - Qué **patrones** de odio predominan (categorías, intensidad, targets).
-   - **Aunque no haya spike**, explicá con **hechos noticiosos concretos** ocurridos en España en esas fechas que **plausiblemente alimentaron** esos mensajes (deportes, política, judicial, migración, etc.).
-   - Si la categoría dominante es **étnico/cultural/religioso** y los temas apuntan a **fútbol, selección, estadio, himno o cánticos**, relacioná explícitamente con **polémica pública en torno a racismo o insultos en eventos deportivos** cuando encaje con la semana (ej.: partidos de la selección, sanciones RFEF, reacciones en redes).
-   - Nombrá al menos **un detonante mediático concreto** cuando los datos lo permitan (no inventes fechas exactas si no estás seguro: usá formulaciones como "coincide con la polémica por…").
+1) **resumen_contexto** (5-8 oraciones en español, tono analítico):
+   - Sintetizá **solo** lo observable en los datos de esta semana: categoría líder, intensidad, targets y temas con mayor conteo, motivos repetidos y día pico.
+   - Priorizá **contenido de los mensajes** (motivos y muestras) sobre especulación mediática.
+   - Mencioná fútbol/selección/racismo en estadio **solo** si figura en temas, motivos o en el bloque de fragmentos (no por defecto).
 
-2) **eventos_relacionados** (texto en español, **lista numerada de 3 a 6 ítems**):
-   - Cada ítem: **suceso público** (qué pasó) + **enlace breve con el tipo de odio observado** (ej. "refuerza mensajes étnico-culturales en comentarios sobre…").
-   - Incluí eventos **aunque el % de odio de la semana sea moderado**; el objetivo es contextualizar, no solo justificar un spike.
+2) **eventos_relacionados** (texto en español, **lista numerada de 3 a 5 ítems**):
+   - Cada ítem = **patrón o foco del odio en los comentarios de la semana** (ej. "comentarios hostiles hacia X en hilos sobre Y") + breve lectura.
+   - Podés añadir un suceso público **solo** si encaja con la ventana de fechas y con targets/temas/motivos; si no, quedate en patrones del corpus.
 
 Devolvé **solo** JSON válido con exactamente estas claves:
 - "resumen_contexto": string
@@ -461,19 +453,18 @@ Devolvé **solo** JSON válido con exactamente estas claves:
                 {
                     "role": "system",
                     "content": (
-                        "Sos analista de discurso de odio y actualidad española. "
-                        "Conectás datos cuantitativos con **agenda mediática real** de la semana indicada. "
-                        "Si el usuario marca **EVIDENCIA EN EL TEXTO** con fragmentos de mensajes, "
-                        "DEBÉS reflejar esos hechos (p. ej. cánticos racistas en fútbol/selección) en el "
-                        "resumen y en eventos_relacionados; no los omitas. "
-                        "No inventés cifras que no estén en el prompt; sí podés nombrar sucesos públicos "
-                        "coherentes con las fechas y la evidencia. "
+                        "Sos analista de discurso de odio. Redactás resúmenes **semana a semana** "
+                        "basados en el corpus y agregados del prompt, sin plantillas evergreen. "
+                        "Prohibido reutilizar cada semana la misma historia (p. ej. cánticos racistas "
+                        "de la selección española) salvo que los motivos, temas o fragmentos de esa "
+                        "semana lo justifiquen explícitamente. "
+                        "No inventés cifras ni sucesos; priorizá patrones en los mensajes. "
                         "Respondés únicamente con un objeto JSON válido (sin markdown)."
                     ),
                 },
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.35,
+            temperature=0.25,
             max_tokens=2200,
         )
         raw = resp.choices[0].message.content or ""
@@ -482,9 +473,9 @@ Devolvé **solo** JSON válido con exactamente estas claves:
             raw = re.sub(r"^```\w*\n?", "", raw)
             raw = re.sub(r"\n?```$", "", raw)
         data = json.loads(raw)
-        resumen = data.get("resumen_contexto", "") or ""
-        eventos = data.get("eventos_relacionados", "") or ""
-        return _fallback_mencion_cantos_racismo(stats, resumen, eventos)
+        resumen = (data.get("resumen_contexto", "") or "").strip()
+        eventos = (data.get("eventos_relacionados", "") or "").strip()
+        return resumen, eventos
     except Exception as e:
         print(f"  ⚠ Error LLM: {e}")
         return "", ""

@@ -16,6 +16,15 @@ Uso:
   streamlit run dashboard.py
 """
 
+# ============================================================
+# LEGACY DASHBOARD (NO PRODUCTIVO)
+# ============================================================
+# Este archivo NO es la fuente oficial de producción.
+# Producción actual:
+#   Clases/RETO/automatizacion_diaria/dashboard.py
+#
+# No aplicar aquí fixes productivos salvo migración planificada.
+
 from __future__ import annotations
 
 import base64
@@ -49,6 +58,18 @@ _RETO_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(_RETO_ROOT / "automatizacion_diaria"))
 sys.path.insert(0, str(_RETO_ROOT))
 from db_utils import get_conn
+try:
+    from contexto_resumen_limpieza import (
+        generar_eventos_desde_stats,
+        generar_resumen_desde_stats,
+        limpiar_eventos_relacionados,
+        limpiar_resumen_contexto,
+    )
+except ImportError:
+    generar_resumen_desde_stats = None  # type: ignore[misc, assignment]
+    generar_eventos_desde_stats = None
+    limpiar_resumen_contexto = lambda t: t or ""  # type: ignore[assignment]
+    limpiar_eventos_relacionados = lambda t: t or ""
 try:
     from terminos_exclusion_oficial import TERMINOS_EXCLUSION_LEMAS
 except ImportError:
@@ -1908,6 +1929,55 @@ def _bounds_semana_cal_reto(d: date) -> Tuple[date, date]:
     return start, start + timedelta(days=6)
 
 
+def _stats_desde_fila_analisis(row: pd.Series) -> Dict[str, Any]:
+    cats = _parse_json_col(row.get("categorias"))
+    stats: Dict[str, Any] = {
+        "semana_inicio": row.get("semana_inicio"),
+        "semana_fin": row.get("semana_fin"),
+        "total_mensajes": int(row.get("total_mensajes") or 0),
+        "total_odio": int(row.get("total_odio") or 0),
+        "pct_odio": float(row.get("pct_odio") or 0),
+        "es_spike": bool(row.get("es_spike")),
+        "promedio_referencia_pct": float(row.get("promedio_referencia_pct") or 0),
+        "umbral_spike_pct": float(row.get("umbral_spike_pct") or 0),
+        "targets": _parse_json_col(row.get("targets")),
+        "temas": _parse_json_col(row.get("temas")),
+        "intensidad": _parse_json_col(row.get("intensidad")),
+        "dia_pico": row.get("dia_pico"),
+        "dia_pico_odio": int(row.get("dia_pico_odio") or 0),
+        "categoria_lider": None,
+        "categoria_lider_cnt": 0,
+        "categoria_lider_pct": None,
+    }
+    if cats:
+        lead_key, lead_cnt = max(cats.items(), key=lambda x: x[1])
+        stats["categoria_lider"] = lead_key
+        stats["categoria_lider_cnt"] = int(lead_cnt)
+        if stats["total_odio"] > 0:
+            stats["categoria_lider_pct"] = round(100.0 * int(lead_cnt) / stats["total_odio"], 1)
+    return stats
+
+
+def _resumen_contextual_para_ui(row: pd.Series) -> str:
+    raw = str(row.get("resumen_contexto") or "")
+    limpio = limpiar_resumen_contexto(raw)
+    if len(limpio) >= 80:
+        return limpio
+    if generar_resumen_desde_stats is not None:
+        return generar_resumen_desde_stats(_stats_desde_fila_analisis(row))
+    return limpio or raw
+
+
+def _eventos_relacionados_para_ui(row: pd.Series) -> str:
+    raw = str(row.get("eventos_relacionados") or "")
+    limpio = limpiar_eventos_relacionados(raw)
+    if len(limpio) >= 40:
+        return limpio
+    if generar_eventos_desde_stats is not None:
+        return generar_eventos_desde_stats(_stats_desde_fila_analisis(row))
+    return limpio or raw
+
+
 def render_analisis_contextual():
     st.title("Análisis contextual semanal")
     st.markdown(
@@ -2134,11 +2204,27 @@ def render_analisis_contextual():
     # --- Context summary ---
     if row.get("resumen_contexto"):
         st.subheader("Resumen contextual")
-        st.info(row["resumen_contexto"])
+        analisis_dt = row.get("analisis_date")
+        if analisis_dt is not None and not (isinstance(analisis_dt, float) and pd.isna(analisis_dt)):
+            analisis_s = pd.Timestamp(analisis_dt).strftime("%d/%m/%Y %H:%M")
+        else:
+            analisis_s = "—"
+        st.caption(
+            f"Texto generado por el pipeline semanal y guardado en la base de datos "
+            f"(última actualización: **{analisis_s}**). "
+            "Si regeneraste el análisis y no ves cambios, usá **Recargar resumen**."
+        )
+        rc1, _ = st.columns([1, 4])
+        with rc1:
+            if st.button("Recargar resumen", key="ctx_reload_resumen"):
+                load_analisis_semanal.clear()
+                st.rerun()
+        st.info(_resumen_contextual_para_ui(row))
 
-    if row.get("eventos_relacionados"):
+    ev_txt = _eventos_relacionados_para_ui(row) if row.get("eventos_relacionados") else ""
+    if ev_txt:
         st.subheader("Eventos relacionados")
-        st.markdown(row["eventos_relacionados"])
+        st.markdown(ev_txt)
 
     st.markdown("---")
 
@@ -2812,7 +2898,7 @@ def render_gold_dataset():
             odio_counts, names="Label", values="Cantidad",
             color="Label",
             color_discrete_map={"Odio": "#E74C3C", "No Odio": "#2ECC71", "Dudoso": "#F39C12"},
-            title="Odio / No Odio / Dudoso",
+            title="Distribución de Odio / No Odio / Dudusos sobre LLM",
         )
         fig_odio.update_layout(height=350)
         st.plotly_chart(fig_odio, use_container_width=True)
@@ -5171,6 +5257,85 @@ def render_delitos():
 # ANOTACIÓN YOUTUBE
 # ============================================================
 
+CATEGORIA_NO_ODIO = "no_odio"
+CATEGORIA_DUDOSO = "dudoso"
+
+
+def _clasif_from_odio_flag(odio_flag: Optional[bool]) -> Optional[str]:
+    if odio_flag is True:
+        return "ODIO"
+    if odio_flag is False:
+        return "NO_ODIO"
+    if odio_flag is None:
+        return "DUDOSO"
+    return None
+
+
+def _categoria_odio_for_save(
+    odio_flag: Optional[bool], categoria_odio: Optional[str]
+) -> Optional[str]:
+    if odio_flag is True:
+        cat = (categoria_odio or "").strip()
+        return cat if cat else None
+    if odio_flag is False:
+        return CATEGORIA_NO_ODIO
+    if odio_flag is None:
+        return CATEGORIA_DUDOSO
+    return None
+
+
+def _normalize_cat_for_coincide(cat: Optional[str], clasif: Optional[str]) -> str:
+    c = (cat or "").strip().lower()
+    clf = (clasif or "").strip().upper()
+    if not c:
+        if clf == "NO_ODIO":
+            return CATEGORIA_NO_ODIO
+        if clf == "DUDOSO":
+            return CATEGORIA_DUDOSO
+    return c
+
+
+def _compute_coincide_con_llm(
+    odio_flag: Optional[bool],
+    categoria_odio: Optional[str],
+    intensidad: Optional[int],
+    llm_clasif: Optional[str],
+    llm_categoria_pred: Optional[str],
+    llm_intensidad_pred: Any,
+) -> Optional[bool]:
+    human_clasif = _clasif_from_odio_flag(odio_flag)
+    if human_clasif is None:
+        return None
+    llm_c = (llm_clasif or "").strip().upper()
+    if llm_c != human_clasif:
+        return False
+    hum_cat = _normalize_cat_for_coincide(categoria_odio, human_clasif)
+    llm_cat = _normalize_cat_for_coincide(llm_categoria_pred, llm_c)
+    if hum_cat != llm_cat:
+        return False
+    if odio_flag is True:
+        return str(intensidad) == str(llm_intensidad_pred or "").strip()
+    return True
+
+
+def _fetch_llm_labels_for_uuid(message_uuid: str) -> tuple:
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT clasificacion_principal, categoria_odio_pred, intensidad_pred
+            FROM processed.etiquetas_llm
+            WHERE message_uuid = %s::uuid
+            """,
+            (message_uuid,),
+        )
+        row = cur.fetchone()
+        cur.close()
+    if not row:
+        return None, None, None
+    return row[0], row[1], row[2]
+
+
 def _load_annotation_queue() -> pd.DataFrame:
     """Carga mensajes YouTube pendientes de anotación (sin cache)."""
     skipped = st.session_state.get("ann_skipped", set())
@@ -5268,7 +5433,8 @@ def _save_annotation(
         y_odio_final = "Dudoso"
         y_odio_bin = None
 
-    y_categoria = categoria_odio if odio_flag else None
+    categoria_save = _categoria_odio_for_save(odio_flag, categoria_odio)
+    y_categoria = categoria_save
     y_intensidad = intensidad if odio_flag else None
     split_val = "TRAIN" if random.random() < 0.85 else "TEST"
 
@@ -5289,7 +5455,7 @@ def _save_annotation(
                     annotator_id = EXCLUDED.annotator_id,
                     annotation_date = EXCLUDED.annotation_date
             """, (
-                message_uuid, odio_flag, categoria_odio, intensidad,
+                message_uuid, odio_flag, categoria_save, intensidad,
                 humor_flag, annotator_id, date.today(),
             ))
 
@@ -5649,7 +5815,7 @@ def _render_anotacion_youtube(annotator: str):
         st.session_state["_ann_pending_save"] = {
             "message_uuid": msg_uuid,
             "odio_flag": odio_flag,
-            "categoria_odio": categoria if es_odio else None,
+            "categoria_odio": _categoria_odio_for_save(odio_flag, categoria if es_odio else None),
             "intensidad": intensidad if es_odio else None,
             "humor_flag": humor if es_odio else False,
             "annotator_id": annotator,
@@ -6238,10 +6404,20 @@ def _save_vllm_validation(
     intensidad: Optional[int],
     humor_flag: bool,
     annotator_id: str,
-    coincide_con_llm: bool,
+    coincide_con_llm: Optional[bool] = None,
 ) -> bool:
     import random
     from datetime import date
+
+    if odio_flag is True and not (categoria_odio or "").strip():
+        st.error("odio_flag=true sin categoría; corregí la anotación antes de guardar.")
+        return False
+
+    categoria_save = _categoria_odio_for_save(odio_flag, categoria_odio)
+    llm_clasif, llm_cat, llm_int = _fetch_llm_labels_for_uuid(message_uuid)
+    coincide = _compute_coincide_con_llm(
+        odio_flag, categoria_save, intensidad, llm_clasif, llm_cat, llm_int
+    )
 
     if odio_flag is True:
         y_odio_final, y_odio_bin = "Odio", 1
@@ -6250,7 +6426,7 @@ def _save_vllm_validation(
     else:
         y_odio_final, y_odio_bin = "Dudoso", None
 
-    y_categoria = categoria_odio if odio_flag else None
+    y_categoria = categoria_save
     y_intensidad = intensidad if odio_flag else None
     split_val = "TRAIN" if random.random() < 0.85 else "TEST"
 
@@ -6271,7 +6447,7 @@ def _save_vllm_validation(
                     annotation_date = EXCLUDED.annotation_date,
                     coincide_con_llm = EXCLUDED.coincide_con_llm
                 """,
-                (message_uuid, odio_flag, categoria_odio, intensidad, humor_flag, annotator_id, date.today(), coincide_con_llm),
+                (message_uuid, odio_flag, categoria_save, intensidad, humor_flag, annotator_id, date.today(), coincide),
             )
             cur.execute(
                 """
@@ -6375,16 +6551,13 @@ def _render_validacion_llm(platform_key: str, annotator: str) -> None:
     if submitted:
         es_odio = odio_choice == "Odio"
         odio_flag = True if odio_choice == "Odio" else (False if odio_choice == "No Odio" else None)
-        odio_map = {"Odio": "ODIO", "No Odio": "NO_ODIO", "Dudoso": "DUDOSO"}
-        coincide = odio_map.get(odio_choice) == llm_clasif and (not es_odio or categoria == llm_cat_raw) and (not es_odio or str(intensidad) == str(llm_int))
         st.session_state[pending_key] = {
             "message_uuid": msg_uuid,
             "odio_flag": odio_flag,
-            "categoria_odio": categoria if es_odio else None,
+            "categoria_odio": _categoria_odio_for_save(odio_flag, categoria if es_odio else None),
             "intensidad": intensidad if es_odio else None,
             "humor_flag": humor if es_odio else False,
             "annotator_id": annotator,
-            "coincide_con_llm": coincide,
         }
         st.session_state[f"_{form_prefix}_seq"] = form_seq + 1
         st.rerun()
