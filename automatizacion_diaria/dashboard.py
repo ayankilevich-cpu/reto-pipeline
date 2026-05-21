@@ -2998,8 +2998,12 @@ def _render_ranking_simple(df: pd.DataFrame, top_n: int, key_suffix: str):
         }
     except Exception:
         _column_config = {}
+    # Tabla del ranking: df_display es la copia mostrada (no el df cargado desde BD).
+    df_display = df_vol[available].rename(columns=detail_cols)
+    if st.session_state.get("user_role") == "viewer":
+        df_display = df_display.drop(columns=["odio_gold"], errors="ignore")
     st.dataframe(
-        df_vol[available].rename(columns=detail_cols),
+        df_display,
         use_container_width=True, hide_index=True,
         column_config=_column_config if _column_config else None,
         key=f"rm_table_{key_suffix}",
