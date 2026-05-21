@@ -175,8 +175,13 @@ def _load_users() -> Dict[str, Dict[str, str]]:
 
 
 def _check_auth() -> bool:
-    """Retorna True si hay sesión activa con un rol válido."""
-    return st.session_state.get("user_role") in _RESTRICTED_SECTIONS
+    """Asigna viewer por defecto; respeta _show_login_form para admin/editor."""
+    if st.session_state.get("_show_login_form"):
+        return st.session_state.get("user_role") in ("admin", "editor")
+    if st.session_state.get("user_role") not in _RESTRICTED_SECTIONS:
+        st.session_state["user_role"] = "viewer"
+        st.session_state["user_name"] = "público"
+    return True
 
 
 def _render_login():
@@ -219,6 +224,7 @@ def _render_login():
             if user_data and user_data["password"] == password:
                 st.session_state["user_role"] = user_data["role"]
                 st.session_state["user_name"] = username
+                st.session_state["_show_login_form"] = False
                 st.rerun()
             else:
                 st.error("Usuario o contraseña incorrectos.")
@@ -1135,7 +1141,15 @@ def render_sidebar():
         for k in list(st.session_state.keys()):
             del st.session_state[k]
 
-    st.sidebar.button("Cerrar sesión", key="logout_btn", on_click=_do_logout)
+    if st.session_state.get("user_role") == "viewer":
+        if st.sidebar.button("Iniciar sesión", key="login_link_btn"):
+            # Sin _show_login_form, _check_auth() volvería a asignar viewer al instante.
+            st.session_state["_show_login_form"] = True
+            st.session_state["user_role"] = None
+            st.session_state["user_name"] = None
+            st.rerun()
+    else:
+        st.sidebar.button("Cerrar sesión", key="logout_btn", on_click=_do_logout)
     st.sidebar.markdown("---")
 
     sections = _get_sections_for_role(role)
@@ -7149,7 +7163,10 @@ def _scroll_main_to_top() -> None:
 
 
 def main():
-    if not _check_auth():
+    _check_auth()
+    if st.session_state.get("_show_login_form") and st.session_state.get(
+        "user_role"
+    ) not in ("admin", "editor"):
         _render_login()
         return
 
