@@ -1026,7 +1026,7 @@ _ALL_SECTIONS = [
 _RESTRICTED_SECTIONS: Dict[str, set] = {
     "admin": set(),
     "editor": {"Comparativa modelos", "Calidad LLM"},
-    "viewer": {"Comparativa modelos", "Calidad LLM", "Anotación y validación", "Dataset Gold"},
+    "viewer": {"Comparativa modelos", "Calidad LLM", "Anotación y validación", "Dataset Gold", "Análisis Art. 510"},
 }
 
 _ROLE_DISPLAY = {"admin": "Administrador", "editor": "Editor", "viewer": "Visualización"}
