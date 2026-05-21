@@ -2392,7 +2392,8 @@ def render_panel_general():
         "clasificaciones y validación humana.",
     )
 
-    render_pipeline_status_banner()
+    if st.session_state.get("user_role") != "viewer":
+        render_pipeline_status_banner()
 
     opts = load_filter_options()
 
