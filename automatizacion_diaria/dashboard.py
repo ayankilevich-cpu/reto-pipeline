@@ -2422,6 +2422,17 @@ def render_panel_general():
     nuevos_x_hoy = kpis["nuevos_x"]
     nuevos_yt_hoy = kpis["nuevos_yt"]
 
+    # Panel general usa tarjetas HTML (no st.metric); ocultamos gold para viewer.
+    _gold_metrics_card = ""
+    if st.session_state.get("user_role") != "viewer":
+        _gold_metrics_card = f"""
+  <div class="metric-card">
+    <div class="label">Mensajes validados</div>
+    <div class="value">{mensajes_validados:,}</div>
+    <div class="sub">🔴 {mensajes_odio:,} odio</div>
+  </div>
+"""
+
     st.markdown(f"""
 <style>
 .metric-grid {{
@@ -2486,12 +2497,7 @@ def render_panel_general():
     <div class="label">Medios monitorizados</div>
     <div class="value">{medios_monitorizados:,}</div>
   </div>
-  <div class="metric-card">
-    <div class="label">Mensajes validados</div>
-    <div class="value">{mensajes_validados:,}</div>
-    <div class="sub">🔴 {mensajes_odio:,} odio</div>
-  </div>
-  <div class="metric-card">
+{_gold_metrics_card}  <div class="metric-card">
     <div class="label">Nuevos hoy</div>
     <div class="value">{nuevos_hoy:,}</div>
   </div>
