@@ -1180,7 +1180,8 @@ def render_sidebar():
 def render_panel_general():
     st.title("Panel general")
     st.markdown("Indicadores clave del proyecto RETO.")
-    render_pipeline_status_banner()
+    if st.session_state.get("user_role") != "viewer":
+        render_pipeline_status_banner()
 
     opts = load_filter_options()
 
