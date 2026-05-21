@@ -1212,12 +1212,13 @@ def render_panel_general():
     col5.metric("Etiquetados por LLM", f"{kpis['total_etiquetados_llm']:,}")
     col6.metric("Score promedio", f"{kpis['score_promedio']:.3f}")
     col7.metric("Medios monitorizados", f"{kpis['total_medios']:,}")
-    col8.metric(
-        "Mensajes validados",
-        f"{kpis['total_gold']:,}",
-        delta=f"{kpis['total_gold_odio']:,} odio",
-        delta_color="off",
-    )
+    if st.session_state.get("user_role") != "viewer":
+        col8.metric(
+            "Mensajes validados",
+            f"{kpis['total_gold']:,}",
+            delta=f"{kpis['total_gold_odio']:,} odio",
+            delta_color="off",
+        )
 
     st.markdown("---")
 
