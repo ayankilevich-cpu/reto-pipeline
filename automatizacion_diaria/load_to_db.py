@@ -497,10 +497,13 @@ def load_processed_youtube(conn, logger: logging.Logger) -> int:
             now_str,                            # processed_at
         ))
 
+    # processed_at e ingested_at son metadatos de ingesta: solo se escriben en
+    # INSERT, nunca en UPDATE (evita pico falso de "nuevos hoy" tras reproceso).
+    _no_update_dates = {"message_uuid", "processed_at", "ingested_at"}
     n = upsert_rows(
         conn, "processed.mensajes", columns, rows,
         conflict_columns=["message_uuid"],
-        update_columns=[c for c in columns if c != "message_uuid"],
+        update_columns=[c for c in columns if c not in _no_update_dates],
     )
     logger.info("processed.mensajes (YouTube): %d filas procesadas (upsert)", len(rows))
     return len(rows)
