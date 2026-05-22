@@ -1418,18 +1418,21 @@ def load_kpis(
             else:
                 cur.execute(q_new)
         else:
+            # KPI "nuevos hoy" para perfil viewer/HF: usar ingested_at (fecha
+            # real de ingreso al sistema), no processed_at (marca de reproceso
+            # que produce picos falsos al re-upsertear histórico).
             q_new = """
                 SELECT count(*) FILTER (WHERE platform IN ('x', 'twitter')),
                        count(*) FILTER (WHERE platform = 'youtube')
                 FROM processed.mensajes
-                WHERE processed_at::date = CURRENT_DATE
+                WHERE ingested_at::date = CURRENT_DATE
             """
             if platforms:
                 q_new = """
                     SELECT count(*) FILTER (WHERE platform IN ('x', 'twitter')),
                            count(*) FILTER (WHERE platform = 'youtube')
                     FROM processed.mensajes
-                    WHERE processed_at::date = CURRENT_DATE
+                    WHERE ingested_at::date = CURRENT_DATE
                       AND platform IN %s
                 """
                 cur.execute(q_new, [tuple(platforms)])
