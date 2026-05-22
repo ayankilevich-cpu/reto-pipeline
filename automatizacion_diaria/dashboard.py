@@ -156,7 +156,7 @@ h4 { font-weight: 600; color: #2D3748; }
 
 /* --- Sidebar institucional --- */
 section[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #F7FAFC 0%, #EDF2F7 100%);
+    background-color: #F5F0E8 !important;
     border-right: 1px solid #E2E8F0;
 }
 section[data-testid="stSidebar"] .stButton>button {
