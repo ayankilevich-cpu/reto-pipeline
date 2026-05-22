@@ -9352,16 +9352,112 @@ _CARD_CSS = """
 """
 
 
-def render_proyecto():
-    st.markdown(_CARD_CSS, unsafe_allow_html=True)
-
-    _render_section_header(
-        "Proyecto ReTo",
-        "Marco europeo CERV, consorcio y alcance del análisis digital en medios andaluces.",
+def _proyecto_consorcio_df() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {"Organización": "CIFAL Málaga", "Rol": "Coordinación"},
+            {"Organización": "Fundación CIEDES", "Rol": "Investigación y datos"},
+            {"Organización": "Movimiento Contra la Intolerancia (MCI)", "Rol": "Concienciación y apoyo a víctimas"},
+            {"Organización": "Colegio Profesional de Periodistas de Andalucía (CPPA)", "Rol": "Ética en medios"},
+            {"Organización": "Comité Olímpico Español (COE)", "Rol": "Deporte e inclusión"},
+            {"Organización": "Asociación La Guajira", "Rol": "Cultura y arte"},
+        ]
     )
 
-    st.markdown("<br>", unsafe_allow_html=True)
 
+def _render_proyecto_consorcio_y_actividades() -> None:
+    consorcio_df = _proyecto_consorcio_df()
+    if _is_viewer():
+        st.markdown(
+            "<h3 style='color:#1F4E79; margin:1.25rem 0 0.75rem 0;'>Consorcio y paquetes de trabajo</h3>",
+            unsafe_allow_html=True,
+        )
+        st.dataframe(consorcio_df, use_container_width=True, hide_index=True)
+        st.caption(
+            "Otros socios: Universidad de Almería, Almería Acoge, Yo Soy El Otro."
+        )
+    else:
+        st.markdown(
+            '<div class="reto-proyecto-consorcio">'
+            "<strong>Consorcio y paquetes de trabajo</strong>"
+            f"{consorcio_df.to_html(index=False, justify='center', classes=['dataframe'])}"
+            "<p>Otros socios: Universidad de Almería, Almería Acoge, Yo Soy El Otro.</p>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("**Alcance y actividades destacadas**")
+    col_formacion, col_otras = st.columns(2)
+    with col_formacion:
+        st.markdown("**Formación y sensibilización**")
+        st.markdown(
+            "- **Fuerzas de seguridad:** capacitación para investigación y asesoramiento a víctimas "
+            "(reducción de la infra denuncia).\n"
+            "- **Periodistas y medios:** tratamiento ético, identificación de discursos de odio y lucha contra la desinformación.\n"
+            "- **Deporte:** formación de entrenadores y voluntarios en valores olímpicos, igualdad y espacios seguros.\n"
+            "- **Comunidad y jóvenes:** talleres culturales para desafiar estereotipos."
+        )
+    with col_otras:
+        st.markdown("**Otras líneas de trabajo**")
+        st.markdown(
+            "- **Tecnología e IA:** base de datos y herramientas para monitorizar el odio en redes "
+            "(incl. análisis predictivo y OSINT).\n"
+            "- **Apoyo a víctimas:** puntos de atención con asistencia legal.\n"
+            "- Eventos deportivos y culturales para cohesión social.\n"
+            "- Producción audiovisual y estudios abiertos al público."
+        )
+
+    st.caption(
+        "Los paneles siguientes de este dashboard describen el análisis digital y la metodología del componente "
+        "de monitorización; no sustituyen la información institucional completa del consorcio."
+    )
+
+
+def _render_proyecto_intro_viewer() -> None:
+    """Introducción institucional sin portada (solo perfil visualizador)."""
+    col_quien, col_obj = st.columns(2)
+    with col_quien:
+        st.markdown(
+            """
+            <div class="reto-card">
+                <h4>Red de Tolerancia (ReTo)</h4>
+                <p style="color:#4a5568; font-size:0.95rem; line-height:1.55; margin:0;">
+                    Iniciativa estratégica europea financiada por el programa
+                    <strong>CERV-2024-CHAR-LITI</strong> de la Unión Europea, orientada a combatir
+                    el discurso y los delitos de odio en España (24 meses: junio 2025 – mayo 2027).
+                </p>
+                <p style="color:#4a5568; font-size:0.95rem; line-height:1.55; margin:0.75rem 0 0 0;">
+                    Andalucía actúa como <strong>modelo regional</strong> para su posterior
+                    replicación a nivel nacional.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with col_obj:
+        st.markdown(
+            """
+            <div class="reto-card">
+                <h4>Objetivos</h4>
+                <p style="color:#2d3748; font-size:0.93rem; margin:0 0 0.5rem 0;"><strong>General</strong></p>
+                <p style="color:#4a5568; font-size:0.95rem; line-height:1.55; margin:0 0 0.85rem 0;">
+                    Crear un marco integral de colaboración entre sociedad civil, autoridades públicas
+                    y agentes comunitarios para prevenir y responder al odio.
+                </p>
+                <p style="color:#2d3748; font-size:0.93rem; margin:0 0 0.5rem 0;"><strong>Específicos</strong></p>
+                <ul style="margin:0; padding-left:1.15rem; color:#4a5568; font-size:0.95rem; line-height:1.5;">
+                    <li>Coordinación entre fuerzas del orden y organizaciones civiles.</li>
+                    <li>Recopilación de datos con herramientas avanzadas (incl. IA).</li>
+                    <li>Trabajo desde cultura, deporte y medios de comunicación.</li>
+                </ul>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def _render_proyecto_intro_con_imagen() -> None:
+    """Bloque superior con portada + texto (admin y editor)."""
     _portada_path = _reto_asset_file("ppt_assets", "Portada_manual_Reto.jpg") or _reto_asset_file(
         "ppt_assets", "Portada_manual_Reto.png"
     )
@@ -9404,50 +9500,22 @@ def render_proyecto():
             unsafe_allow_html=True,
         )
 
-    consorcio_df = pd.DataFrame(
-        [
-            {"Organización": "CIFAL Málaga", "Rol": "Coordinación"},
-            {"Organización": "Fundación CIEDES", "Rol": "Investigación y datos"},
-            {"Organización": "Movimiento Contra la Intolerancia (MCI)", "Rol": "Concienciación y apoyo a víctimas"},
-            {"Organización": "Colegio Profesional de Periodistas de Andalucía (CPPA)", "Rol": "Ética en medios"},
-            {"Organización": "Comité Olímpico Español (COE)", "Rol": "Deporte e inclusión"},
-            {"Organización": "Asociación La Guajira", "Rol": "Cultura y arte"},
-        ]
-    )
-    st.markdown(
-        '<div class="reto-proyecto-consorcio">'
-        "<strong>Consorcio y paquetes de trabajo</strong>"
-        f"{consorcio_df.to_html(index=False, justify='center', classes=['dataframe'])}"
-        "<p>Otros socios: Universidad de Almería, Almería Acoge, Yo Soy El Otro.</p>"
-        "</div>",
-        unsafe_allow_html=True,
+
+def render_proyecto():
+    st.markdown(_CARD_CSS, unsafe_allow_html=True)
+
+    _render_section_header(
+        "Proyecto ReTo",
+        "Marco europeo CERV, consorcio y alcance del análisis digital en medios andaluces.",
     )
 
-    st.markdown("**Alcance y actividades destacadas**")
-    col_formacion, col_otras = st.columns(2)
-    with col_formacion:
-        st.markdown("**Formación y sensibilización**")
-        st.markdown(
-            "- **Fuerzas de seguridad:** capacitación para investigación y asesoramiento a víctimas "
-            "(reducción de la infra denuncia).\n"
-            "- **Periodistas y medios:** tratamiento ético, identificación de discursos de odio y lucha contra la desinformación.\n"
-            "- **Deporte:** formación de entrenadores y voluntarios en valores olímpicos, igualdad y espacios seguros.\n"
-            "- **Comunidad y jóvenes:** talleres culturales para desafiar estereotipos."
-        )
-    with col_otras:
-        st.markdown("**Otras líneas de trabajo**")
-        st.markdown(
-            "- **Tecnología e IA:** base de datos y herramientas para monitorizar el odio en redes "
-            "(incl. análisis predictivo y OSINT).\n"
-            "- **Apoyo a víctimas:** puntos de atención con asistencia legal.\n"
-            "- Eventos deportivos y culturales para cohesión social.\n"
-            "- Producción audiovisual y estudios abiertos al público."
-        )
+    if _is_viewer():
+        _render_proyecto_intro_viewer()
+    else:
+        st.markdown("<br>", unsafe_allow_html=True)
+        _render_proyecto_intro_con_imagen()
 
-    st.caption(
-        "Los paneles siguientes de este dashboard describen el análisis digital y la metodología del componente "
-        "de monitorización; no sustituyen la información institucional completa del consorcio."
-    )
+    _render_proyecto_consorcio_y_actividades()
 
     # --- Hero (sin repetir el título de página; ya está en la cabecera de sección) ---
     st.markdown(
