@@ -221,18 +221,28 @@ def load_processed_mensajes(conn, logger: logging.Logger) -> int:
     df = pd.read_csv(CSV_ANON, dtype=str)
     logger.info("processed.mensajes: %d filas leídas de CSV", len(df))
 
+    # Mapa message_uuid → ingested_at desde raw.mensajes (cargado antes en el
+    # pipeline). Garantiza que el INSERT use la fecha real de ingreso al
+    # sistema, no NOW(), para que el KPI "nuevos hoy" del viewer sea correcto.
+    _cur = conn.cursor()
+    _cur.execute("SELECT message_uuid::text, ingested_at FROM raw.mensajes")
+    ingested_map = dict(_cur.fetchall())
+    _cur.close()
+
     columns = [
         "message_uuid", "platform", "content_original", "source_media",
         "created_at", "language", "url",
         "author_id_anon", "author_username_anon",
         "matched_terms", "has_hate_terms_match", "match_count",
-        "strong_phrase", "is_candidate", "candidate_reason", "processed_at",
+        "strong_phrase", "is_candidate", "candidate_reason",
+        "processed_at", "ingested_at",
     ]
 
     rows = []
     for _, r in df.iterrows():
+        uuid_str = safe_val(r.get("message_uuid"))
         rows.append((
-            safe_val(r.get("message_uuid")),
+            uuid_str,
             _normalize_platform(r.get("platform")),
             safe_val(r.get("content_original")),
             resolve_source_media(r),
@@ -248,19 +258,22 @@ def load_processed_mensajes(conn, logger: logging.Logger) -> int:
             safe_val(r.get("is_candidate"), "bool"),
             safe_val(r.get("candidate_reason")),
             safe_val(r.get("processed_at")),
+            ingested_map.get(uuid_str),
         ))
 
-    # Filtrar filas sin UUID o sin content_original (NOT NULL en BD)
     rows_before = len(rows)
     rows = [r for r in rows if r[0] is not None and r[2] is not None]
     skipped = rows_before - len(rows)
     if skipped:
         logger.warning("processed.mensajes: %d filas descartadas (sin uuid o content_original)", skipped)
 
+    # processed_at e ingested_at son metadatos de ingesta: solo se escriben en
+    # INSERT, nunca en UPDATE (evita pico falso de "nuevos hoy" tras reproceso).
+    _no_update_dates = {"message_uuid", "processed_at", "ingested_at"}
     n = upsert_rows(
         conn, "processed.mensajes", columns, rows,
         conflict_columns=["message_uuid"],
-        update_columns=[c for c in columns if c != "message_uuid"],
+        update_columns=[c for c in columns if c not in _no_update_dates],
     )
     logger.info("processed.mensajes: %d filas procesadas (upsert)", len(rows))
     return len(rows)
@@ -457,12 +470,23 @@ def load_processed_youtube(conn, logger: logging.Logger) -> int:
     df = pd.read_csv(CSV_YT_TAGGED, dtype=str)
     logger.info("processed.mensajes (YouTube): %d filas leídas de CSV", len(df))
 
+    # Mapa message_uuid → ingested_at desde raw.mensajes (cargado antes en el
+    # pipeline). Garantiza que el INSERT use la fecha real de ingreso al
+    # sistema, no NOW(), para que el KPI "nuevos hoy" del viewer sea correcto.
+    _cur = conn.cursor()
+    _cur.execute(
+        "SELECT message_uuid::text, ingested_at FROM raw.mensajes WHERE platform = 'youtube'"
+    )
+    ingested_map = dict(_cur.fetchall())
+    _cur.close()
+
     columns = [
         "message_uuid", "platform", "content_original", "source_media",
         "created_at", "language", "url",
         "author_id_anon", "author_username_anon",
         "matched_terms", "has_hate_terms_match", "match_count",
-        "strong_phrase", "is_candidate", "candidate_reason", "processed_at",
+        "strong_phrase", "is_candidate", "candidate_reason",
+        "processed_at", "ingested_at",
     ]
 
     rows = []
@@ -478,8 +502,9 @@ def load_processed_youtube(conn, logger: logging.Logger) -> int:
         match_count = safe_val(r.get("match_count_auto"), "int")
         has_hate = bool(matched and matched.strip())
 
+        uuid_str = yt_to_uuid(comment_id)
         rows.append((
-            yt_to_uuid(comment_id),            # message_uuid
+            uuid_str,                           # message_uuid
             "youtube",                          # platform
             comment_text,                       # content_original
             safe_val(r.get("medio")) or safe_val(r.get("source_name")),  # source_media
@@ -495,6 +520,7 @@ def load_processed_youtube(conn, logger: logging.Logger) -> int:
             hate_candidate,                     # is_candidate
             safe_val(r.get("qa_status")),       # candidate_reason
             now_str,                            # processed_at
+            ingested_map.get(uuid_str),         # ingested_at (desde raw.mensajes)
         ))
 
     # processed_at e ingested_at son metadatos de ingesta: solo se escriben en
