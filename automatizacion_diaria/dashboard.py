@@ -7298,8 +7298,9 @@ def _load_annotation_queue() -> pd.DataFrame:
     return df
 
 
-def _load_annotation_kpis(annotator_id: str) -> dict:
+def _load_annotation_kpis(annotator_id: str, period: str = "day") -> dict:
     """Carga KPIs de progreso de anotación YouTube."""
+    fecha_desde = _period_to_sql_date(period)
     with get_conn() as conn:
         cur = conn.cursor()
 
@@ -7323,9 +7324,9 @@ def _load_annotation_kpis(annotator_id: str) -> dict:
             SELECT COUNT(*) FROM processed.validaciones_manuales vm
             JOIN processed.mensajes pm USING (message_uuid)
             WHERE pm.platform = 'youtube'
-              AND vm.annotation_date = CURRENT_DATE
-        """)
-        anotados_hoy = cur.fetchone()[0]
+              AND vm.annotation_date >= %s
+        """, (fecha_desde,))
+        anotados_periodo = cur.fetchone()[0]
 
         cur.execute("""
             SELECT COUNT(*) FROM processed.validaciones_manuales vm
@@ -7343,7 +7344,7 @@ def _load_annotation_kpis(annotator_id: str) -> dict:
         "total_relevantes": total_relevantes,
         "pendientes": pendientes,
         "total_anotados": total_anotados,
-        "anotados_hoy": anotados_hoy,
+        "anotados_periodo": anotados_periodo,
         "por_anotador": por_anotador,
         "pct_avance": pct_avance,
     }
@@ -7490,8 +7491,9 @@ def _load_v510_queue() -> pd.DataFrame:
     return df
 
 
-def _load_v510_kpis(annotator_id: str) -> dict:
+def _load_v510_kpis(annotator_id: str, period: str = "day") -> dict:
     """KPIs de progreso de validación Art. 510."""
+    fecha_desde = _period_to_sql_date(period)
     try:
         with get_conn() as conn:
             cur = conn.cursor()
@@ -7512,9 +7514,9 @@ def _load_v510_kpis(annotator_id: str) -> dict:
 
             cur.execute("""
                 SELECT COUNT(*) FROM processed.validacion_art510_humana
-                WHERE annotation_date = CURRENT_DATE
-            """)
-            validados_hoy = cur.fetchone()[0]
+                WHERE annotation_date >= %s
+            """, (fecha_desde,))
+            validados_periodo = cur.fetchone()[0]
 
             cur.execute("""
                 SELECT COUNT(*) FROM processed.validacion_art510_humana
@@ -7527,13 +7529,13 @@ def _load_v510_kpis(annotator_id: str) -> dict:
         return {
             "pendientes": pendientes,
             "total_validados": total_validados,
-            "validados_hoy": validados_hoy,
+            "validados_periodo": validados_periodo,
             "por_anotador": por_anotador,
         }
     except Exception:
         return {
             "pendientes": 0, "total_validados": 0,
-            "validados_hoy": 0, "por_anotador": 0,
+            "validados_periodo": 0, "por_anotador": 0,
         }
 
 
@@ -7608,12 +7610,13 @@ def _render_anotacion_youtube(annotator: str):
             st.error("Error al guardar la anotación.")
 
     # --- KPIs de progreso ---
-    kpis = _load_annotation_kpis(annotator)
+    _kpi_period = st.session_state.get("supervision_period", "day")
+    kpis = _load_annotation_kpis(annotator, _kpi_period)
     k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("Total relevantes (YT)", f"{kpis['total_relevantes']:,}")
     k2.metric("Anotados", f"{kpis['total_anotados']:,}")
     k3.metric("Pendientes", f"{kpis['pendientes']:,}")
-    k4.metric("Anotados hoy", f"{kpis['anotados_hoy']:,}")
+    k4.metric("Anotados en el periodo", f"{kpis['anotados_periodo']:,}")
     k5.metric(f"Por {annotator}", f"{kpis['por_anotador']:,}")
     st.progress(kpis["pct_avance"] / 100, text=f"Avance: {kpis['pct_avance']:.1f}%")
 
@@ -7849,11 +7852,12 @@ def _render_validacion_art510(annotator: str):
             st.error("Error al guardar la validación Art. 510.")
 
     # --- KPIs ---
-    kpis = _load_v510_kpis(annotator)
+    _kpi_period = st.session_state.get("supervision_period", "day")
+    kpis = _load_v510_kpis(annotator, _kpi_period)
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Pendientes Art. 510", f"{kpis['pendientes']:,}")
     k2.metric("Total validados", f"{kpis['total_validados']:,}")
-    k3.metric("Validados hoy", f"{kpis['validados_hoy']:,}")
+    k3.metric("Validados en el periodo", f"{kpis['validados_periodo']:,}")
     k4.metric(f"Por {annotator}", f"{kpis['por_anotador']:,}")
 
     st.divider()
@@ -8105,8 +8109,13 @@ def _load_vllm_yt_queue(clasif_filter: Optional[str] = None) -> pd.DataFrame:
     return df
 
 
-def _load_vllm_yt_kpis(annotator_id: str, clasif_filter: Optional[str] = None) -> dict:
+def _load_vllm_yt_kpis(
+    annotator_id: str,
+    clasif_filter: Optional[str] = None,
+    period: str = "day",
+) -> dict:
     """KPIs de validación de etiquetado LLM en YouTube."""
+    fecha_desde = _period_to_sql_date(period)
     try:
         with get_conn() as conn:
             cur = conn.cursor()
@@ -8148,9 +8157,9 @@ def _load_vllm_yt_kpis(annotator_id: str, clasif_filter: Optional[str] = None) -
                 JOIN processed.mensajes pm USING (message_uuid)
                 JOIN processed.etiquetas_llm e USING (message_uuid)
                 WHERE pm.platform = 'youtube'
-                  AND vm.annotation_date = CURRENT_DATE
-            """)
-            validados_hoy = cur.fetchone()[0]
+                  AND vm.annotation_date >= %s
+            """, (fecha_desde,))
+            validados_periodo = cur.fetchone()[0]
 
             cur.execute("""
                 SELECT COUNT(*) FROM processed.validaciones_manuales vm
@@ -8168,14 +8177,14 @@ def _load_vllm_yt_kpis(annotator_id: str, clasif_filter: Optional[str] = None) -
             "total_etiquetados_llm": total_etiquetados_llm,
             "pendientes": pendientes,
             "total_validados": total_validados,
-            "validados_hoy": validados_hoy,
+            "validados_periodo": validados_periodo,
             "por_anotador": por_anotador,
             "pct_avance": pct,
         }
     except Exception:
         return {
             "total_etiquetados_llm": 0, "pendientes": 0,
-            "total_validados": 0, "validados_hoy": 0,
+            "total_validados": 0, "validados_periodo": 0,
             "por_anotador": 0, "pct_avance": 0,
         }
 
@@ -8217,8 +8226,13 @@ def _load_vllm_x_queue(clasif_filter: Optional[str] = None) -> pd.DataFrame:
     return df
 
 
-def _load_vllm_x_kpis(annotator_id: str, clasif_filter: Optional[str] = None) -> dict:
+def _load_vllm_x_kpis(
+    annotator_id: str,
+    clasif_filter: Optional[str] = None,
+    period: str = "day",
+) -> dict:
     """KPIs de validación de etiquetado LLM en X."""
+    fecha_desde = _period_to_sql_date(period)
     try:
         with get_conn() as conn:
             cur = conn.cursor()
@@ -8260,9 +8274,9 @@ def _load_vllm_x_kpis(annotator_id: str, clasif_filter: Optional[str] = None) ->
                 JOIN processed.mensajes pm USING (message_uuid)
                 JOIN processed.etiquetas_llm e USING (message_uuid)
                 WHERE pm.platform IN ('x', 'twitter')
-                  AND vm.annotation_date = CURRENT_DATE
-            """)
-            validados_hoy = cur.fetchone()[0]
+                  AND vm.annotation_date >= %s
+            """, (fecha_desde,))
+            validados_periodo = cur.fetchone()[0]
 
             cur.execute("""
                 SELECT COUNT(*) FROM processed.validaciones_manuales vm
@@ -8280,14 +8294,14 @@ def _load_vllm_x_kpis(annotator_id: str, clasif_filter: Optional[str] = None) ->
             "total_etiquetados_llm": total_etiquetados_llm,
             "pendientes": pendientes,
             "total_validados": total_validados,
-            "validados_hoy": validados_hoy,
+            "validados_periodo": validados_periodo,
             "por_anotador": por_anotador,
             "pct_avance": pct,
         }
     except Exception:
         return {
             "total_etiquetados_llm": 0, "pendientes": 0,
-            "total_validados": 0, "validados_hoy": 0,
+            "total_validados": 0, "validados_periodo": 0,
             "por_anotador": 0, "pct_avance": 0,
         }
 
@@ -8769,13 +8783,14 @@ def _render_validacion_llm_youtube(annotator: str):
     clasif_filter = clasif_sel if clasif_sel != "Todos" else None
 
     # --- KPIs ---
-    kpis = _load_vllm_yt_kpis(annotator, clasif_filter)
+    _kpi_period = st.session_state.get("supervision_period", "day")
+    kpis = _load_vllm_yt_kpis(annotator, clasif_filter, _kpi_period)
     k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("Etiquetados LLM (YT)", f"{kpis['total_etiquetados_llm']:,}")
     k2.metric("Validados", f"{kpis['total_validados']:,}")
     k3.metric("Pendientes" + (f" ({clasif_sel})" if clasif_filter else ""),
               f"{kpis['pendientes']:,}")
-    k4.metric("Validados hoy", f"{kpis['validados_hoy']:,}")
+    k4.metric("Validados en el periodo", f"{kpis['validados_periodo']:,}")
     k5.metric(f"Por {annotator}", f"{kpis['por_anotador']:,}")
     st.progress(kpis["pct_avance"] / 100, text=f"Avance validación: {kpis['pct_avance']:.1f}%")
 
@@ -9041,13 +9056,14 @@ def _render_validacion_llm_x(annotator: str):
     )
     clasif_filter = clasif_sel if clasif_sel != "Todos" else None
 
-    kpis = _load_vllm_x_kpis(annotator, clasif_filter)
+    _kpi_period = st.session_state.get("supervision_period", "day")
+    kpis = _load_vllm_x_kpis(annotator, clasif_filter, _kpi_period)
     k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("Etiquetados LLM (X)", f"{kpis['total_etiquetados_llm']:,}")
     k2.metric("Validados", f"{kpis['total_validados']:,}")
     k3.metric("Pendientes" + (f" ({clasif_sel})" if clasif_filter else ""),
               f"{kpis['pendientes']:,}")
-    k4.metric("Validados hoy", f"{kpis['validados_hoy']:,}")
+    k4.metric("Validados en el periodo", f"{kpis['validados_periodo']:,}")
     k5.metric(f"Por {annotator}", f"{kpis['por_anotador']:,}")
     st.progress(kpis["pct_avance"] / 100, text=f"Avance validación: {kpis['pct_avance']:.1f}%")
 
