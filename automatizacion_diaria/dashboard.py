@@ -96,7 +96,7 @@ def _reto_logos_directory() -> Optional[Path]:
 
 
 sys.path.insert(0, str(_AUTO_DIR))
-from db_utils import get_conn
+from db_utils import get_conn, get_connection_params, postgres_configured
 try:
     from contexto_resumen_limpieza import (
         generar_eventos_desde_stats,
@@ -1114,6 +1114,32 @@ def _get_sections_for_role(role: str) -> List[str]:
     return [s for s in _ALL_SECTIONS if s not in restricted]
 
 
+def _role_can_access_raw() -> bool:
+    """Solo admin/editor consultan schema raw; viewer y HF público usan processed."""
+    return st.session_state.get("user_role") in ("admin", "editor")
+
+
+def _is_viewer() -> bool:
+    return st.session_state.get("user_role") == "viewer"
+
+
+def _ui_label(text: str) -> str:
+    """Texto visible al usuario: el perfil viewer ve IA en lugar de LLM."""
+    if not _is_viewer():
+        return text
+    if "Categorías de odio (LLM)" in text:
+        text = text.replace("Categorías de odio (LLM)", "Categorías de odio por IA")
+    return text.replace("LLM", "IA")
+
+
+def _nav_section_label(section: str) -> str:
+    """Etiqueta del menú lateral según rol."""
+    if not _is_viewer():
+        return section
+    _labels = {"Categorías de odio (LLM)": "Categorías de odio por IA"}
+    return _labels.get(section, section.replace("(LLM)", "por IA").replace("LLM", "IA"))
+
+
 def platform_label(val: str) -> str:
     """Convierte el valor interno de plataforma a su nombre visible."""
     return PLATFORM_DISPLAY.get(val, val)
@@ -1221,12 +1247,15 @@ def build_where(
 # DATA LOADING — filter-aware
 # ============================================================
 @st.cache_data(ttl=300)
-def load_filter_options() -> dict:
+def load_filter_options(access_raw: bool) -> dict:
     """Load distinct values for all filter dropdowns."""
+    platform_sql = (
+        "SELECT DISTINCT platform FROM raw.mensajes WHERE platform IS NOT NULL ORDER BY platform"
+        if access_raw
+        else "SELECT DISTINCT platform FROM processed.mensajes WHERE platform IS NOT NULL ORDER BY platform"
+    )
     with get_conn() as conn:
-        platforms_raw = pd.read_sql(
-            "SELECT DISTINCT platform FROM raw.mensajes WHERE platform IS NOT NULL ORDER BY platform", conn
-        )["platform"].tolist()
+        platforms_raw = pd.read_sql(platform_sql, conn)["platform"].tolist()
         platforms = sorted({PLATFORM_DISPLAY.get(p, p) for p in platforms_raw})
         platform_internal = sorted({
             "x" if p in ("twitter", "x") else p for p in platforms_raw
@@ -1268,6 +1297,7 @@ def load_filter_options() -> dict:
 
 @st.cache_data(ttl=300)
 def load_kpis(
+    access_raw: bool,
     platforms: Optional[Tuple] = None,
     medios: Optional[Tuple] = None,
 ) -> dict:
@@ -1277,16 +1307,6 @@ def load_kpis(
     with get_conn() as conn:
         cur = conn.cursor()
 
-        # raw.mensajes
-        conds_r, params_r = [], []
-        if platforms:
-            conds_r.append("platform IN %s"); params_r.append(tuple(platforms))
-        wr = f"WHERE {' AND '.join(conds_r)}" if conds_r else ""
-
-        cur.execute(f"SELECT count(*) FROM raw.mensajes {wr}", params_r)
-        total_raw = cur.fetchone()[0]
-
-        # processed.mensajes
         conds_p, params_p = [], []
         if platforms:
             conds_p.append("platform IN %s"); params_p.append(tuple(platforms))
@@ -1294,6 +1314,18 @@ def load_kpis(
             conds_p.append("source_media IN %s"); params_p.append(tuple(medios))
         wp = f"WHERE {' AND '.join(conds_p)}" if conds_p else ""
         wpc = f"WHERE is_candidate = TRUE" + (f" AND {' AND '.join(conds_p)}" if conds_p else "")
+
+        if access_raw:
+            conds_r, params_r = [], []
+            if platforms:
+                conds_r.append("platform IN %s")
+                params_r.append(tuple(platforms))
+            wr = f"WHERE {' AND '.join(conds_r)}" if conds_r else ""
+            cur.execute(f"SELECT count(*) FROM raw.mensajes {wr}", params_r)
+            total_raw = cur.fetchone()[0]
+        else:
+            cur.execute(f"SELECT count(*) FROM processed.mensajes {wp}", params_p)
+            total_raw = cur.fetchone()[0]
 
         cur.execute(f"SELECT count(*) FROM processed.mensajes {wpc}", params_p)
         total_candidatos = cur.fetchone()[0]
@@ -1366,24 +1398,43 @@ def load_kpis(
         total_gold = row_g[0] or 0
         total_gold_odio = row_g[1] or 0
 
-        # Registros nuevos hoy (por ingested_at en raw.mensajes)
-        q_new = """
-            SELECT count(*) FILTER (WHERE platform = 'x'),
-                   count(*) FILTER (WHERE platform = 'youtube')
-            FROM raw.mensajes
-            WHERE ingested_at::date = CURRENT_DATE
-        """
-        if platforms:
+        # Registros nuevos hoy
+        if access_raw:
             q_new = """
-                SELECT count(*) FILTER (WHERE platform = 'x'),
+                SELECT count(*) FILTER (WHERE platform IN ('x', 'twitter')),
                        count(*) FILTER (WHERE platform = 'youtube')
                 FROM raw.mensajes
                 WHERE ingested_at::date = CURRENT_DATE
-                  AND platform IN %s
             """
-            cur.execute(q_new, [tuple(platforms)])
+            if platforms:
+                q_new = """
+                    SELECT count(*) FILTER (WHERE platform IN ('x', 'twitter')),
+                           count(*) FILTER (WHERE platform = 'youtube')
+                    FROM raw.mensajes
+                    WHERE ingested_at::date = CURRENT_DATE
+                      AND platform IN %s
+                """
+                cur.execute(q_new, [tuple(platforms)])
+            else:
+                cur.execute(q_new)
         else:
-            cur.execute(q_new)
+            q_new = """
+                SELECT count(*) FILTER (WHERE platform IN ('x', 'twitter')),
+                       count(*) FILTER (WHERE platform = 'youtube')
+                FROM processed.mensajes
+                WHERE processed_at::date = CURRENT_DATE
+            """
+            if platforms:
+                q_new = """
+                    SELECT count(*) FILTER (WHERE platform IN ('x', 'twitter')),
+                           count(*) FILTER (WHERE platform = 'youtube')
+                    FROM processed.mensajes
+                    WHERE processed_at::date = CURRENT_DATE
+                      AND platform IN %s
+                """
+                cur.execute(q_new, [tuple(platforms)])
+            else:
+                cur.execute(q_new)
         row_new = cur.fetchone()
         nuevos_x = row_new[0] or 0
         nuevos_yt = row_new[1] or 0
@@ -2319,8 +2370,17 @@ def render_sidebar():
 
     sections = _get_sections_for_role(role)
 
+    # Viewer: radio con etiquetas IA (option_menu no admite format_func)
+    if role == "viewer":
+        section = st.sidebar.radio(
+            "Sección",
+            sections,
+            index=0,
+            format_func=_nav_section_label,
+            key="nav_menu_viewer",
+        )
     # Navegación profesional con streamlit-option-menu (fallback a radio si no está disponible)
-    if _HAS_OPTION_MENU and _option_menu is not None:
+    elif _HAS_OPTION_MENU and _option_menu is not None:
         with st.sidebar:
             try:
                 icons = [SECTION_ICONS.get(s, "circle") for s in sections]
@@ -2409,7 +2469,8 @@ def render_panel_general():
     if st.session_state.get("user_role") != "viewer":
         render_pipeline_status_banner()
 
-    opts = load_filter_options()
+    _access_raw = _role_can_access_raw()
+    opts = load_filter_options(_access_raw)
 
     fc1, fc2 = st.columns(2)
     sel_platforms = fc1.multiselect(
@@ -2421,6 +2482,7 @@ def render_panel_general():
     )
 
     kpis = load_kpis(
+        _access_raw,
         platforms=tuple(sel_platforms) if sel_platforms else None,
         medios=tuple(sel_medios) if sel_medios else None,
     )
@@ -2492,7 +2554,7 @@ def render_panel_general():
 
 <div class="metric-grid">
   <div class="metric-card">
-    <div class="label">Mensajes totales (raw)</div>
+    <div class="label">{"Mensajes totales (raw)" if _access_raw else "Mensajes procesados"}</div>
     <div class="value">{mensajes_totales:,}</div>
   </div>
   <div class="metric-card">
@@ -2500,7 +2562,7 @@ def render_panel_general():
     <div class="value">{candidatos_odio:,}</div>
   </div>
   <div class="metric-card">
-    <div class="label">Etiquetados por LLM</div>
+    <div class="label">{"Etiquetados por IA" if not _access_raw else "Etiquetados por LLM"}</div>
     <div class="value">{etiquetados_llm:,}</div>
   </div>
   <div class="metric-card">
@@ -2535,7 +2597,9 @@ def render_panel_general():
     )
 
     if df_comb.empty:
-        st.info("No hay datos clasificados (Gold o LLM) para los filtros seleccionados.")
+        st.info(
+            _ui_label("No hay datos clasificados (Gold o LLM) para los filtros seleccionados.")
+        )
     else:
         # Cuadro resumen de fuentes
         total_msgs = len(df_comb)
@@ -2746,16 +2810,20 @@ def _load_panel_combined(
 
 
 def render_categorias():
-    _render_section_header(
-        "Distribución por categoría de odio",
-        "Clasificación del LLM en las 6 categorías del proyecto ReTo. "
-        "<strong>Primero</strong> la muestra de mensajes; <strong>debajo</strong>, métricas y gráficos.",
-    )
-
-    # La muestra va antes de las métricas para que no quede “bajo el pliegue” en pantallas chicas.
-    _render_muestra_ultima_corrida_llm_section(key_suffix="")
-
-    st.markdown("---")
+    if _is_viewer():
+        _render_section_header(
+            "Distribución por categoría de odio",
+            "Clasificación por IA en las 6 categorías del proyecto ReTo. "
+            "Métricas y gráficos de distribución por categoría e intensidad.",
+        )
+    else:
+        _render_section_header(
+            "Distribución por categoría de odio",
+            "Clasificación del LLM en las 6 categorías del proyecto ReTo. "
+            "<strong>Primero</strong> la muestra de mensajes; <strong>debajo</strong>, métricas y gráficos.",
+        )
+        _render_muestra_ultima_corrida_llm_section(key_suffix="")
+        st.markdown("---")
 
     llm_stats = load_llm_stats()
 
@@ -2842,7 +2910,7 @@ def render_categorias():
 
     st.markdown("---")
 
-    opts = load_filter_options()
+    opts = load_filter_options(_role_can_access_raw())
 
     fc1, fc2, fc3 = st.columns(3)
     sel_platforms = fc1.multiselect(
@@ -3375,14 +3443,18 @@ def _eventos_relacionados_para_ui(row: pd.Series) -> str:
 def render_analisis_contextual():
     _render_section_header(
         "Análisis contextual semanal",
-        "Evolución semanal del discurso de odio con <strong>alertas</strong>, "
-        "<strong>targets</strong> y <strong>temas dominantes</strong>; análisis contextual con IA "
-        "(solo mensajes de <strong>X</strong> clasificados por LLM).",
+        _ui_label(
+            "Evolución semanal del discurso de odio con <strong>alertas</strong>, "
+            "<strong>targets</strong> y <strong>temas dominantes</strong>; análisis contextual con IA "
+            "(solo mensajes de <strong>X</strong> clasificados por LLM)."
+        ),
     )
     st.info(
-        "📌 Esta sección analiza exclusivamente mensajes de **X (Twitter)** "
-        "clasificados por el modelo **LLM**. Los datos de YouTube con "
-        "clasificación LLM se visualizan en la sección **Categorías de odio (LLM)**."
+        _ui_label(
+            "📌 Esta sección analiza exclusivamente mensajes de **X (Twitter)** "
+            "clasificados por el modelo **LLM**. Los datos de YouTube con "
+            "clasificación LLM se visualizan en la sección **Categorías de odio (LLM)**."
+        )
     )
 
     df = load_analisis_semanal()
@@ -3520,9 +3592,9 @@ def render_analisis_contextual():
             f"**No hay fila en la base para la semana en curso** "
             f"({cal_ini.strftime('%d/%m/%Y')}–{cal_fin.strftime('%d/%m/%Y')}). "
             f"La última semana en `analisis_semanal` termina el **{ultimo_fin_s}**; **ningún registro incluye hoy**, "
-            "así que **no puede pintarse la barra amarilla** ni el cierre con LLM de esta semana. "
-            "Ejecutá **`analisis_contexto_semanal.py`** (automatización diaria) para generar la semana actual y, "
-            "si aplica, cerrar la anterior con alerta y resumen."
+            f"así que **no puede pintarse la barra amarilla** ni el cierre con {_ui_label('LLM')} de esta semana. "
+            f"Ejecutá **`analisis_contexto_semanal.py`** (automatización diaria) para generar la semana actual y, "
+            f"si aplica, cerrar la anterior con alerta y resumen."
         )
     elif cal_ini >= fecha_ini_med and cubre_hoy_bd and not cubre_hoy_grafico:
         st.info(
@@ -3745,11 +3817,12 @@ def render_analisis_contextual():
             st.plotly_chart(fig_cat, use_container_width=True, key="ctx_cats")
         else:
             st.info("Sin datos de categorías.")
-        st.caption(
-            "Este bloque resume la **semana** elegida. Para ver **texto de mensajes** "
-            "anonimizados clasificados por el LLM (muestra aleatoria), usá el menú lateral "
-            "**Categorías de odio (LLM)**."
-        )
+        if not _is_viewer():
+            st.caption(
+                "Este bloque resume la **semana** elegida. Para ver **texto de mensajes** "
+                "anonimizados clasificados por el LLM (muestra aleatoria), usá el menú lateral "
+                "**Categorías de odio (LLM)**."
+            )
 
     with col_tgt:
         st.subheader("Colectivos atacados")
@@ -3863,7 +3936,7 @@ def render_comparativa():
         "Concordancia entre el modelo baseline (TF-IDF + LogReg) y el etiquetado LLM.",
     )
 
-    opts = load_filter_options()
+    opts = load_filter_options(_role_can_access_raw())
 
     fc1, fc2, fc3, fc4 = st.columns(4)
     sel_platforms = fc1.multiselect(
@@ -3980,7 +4053,7 @@ def render_calidad_llm():
         "Comparación entre la clasificación del LLM y la validación humana.",
     )
 
-    opts = load_filter_options()
+    opts = load_filter_options(_role_can_access_raw())
     annotators = load_annotators()
 
     # Filtros
@@ -4071,7 +4144,7 @@ def render_terminos():
         "Términos detectados en mensajes candidatos a odio; por defecto se filtran lemas neutros o genéricos.",
     )
 
-    opts = load_filter_options()
+    opts = load_filter_options(_role_can_access_raw())
 
     fc1, fc2, fc3, fc4, fc5 = st.columns([1, 1, 1, 1, 1])
     sel_platforms = fc1.multiselect(
@@ -6379,7 +6452,7 @@ def render_analisis_art510():
 
     # ── Filtros (siempre visibles) ──
     st.markdown("### Filtros")
-    opts = load_filter_options()
+    opts = load_filter_options(_role_can_access_raw())
     platforms_display = {p: platform_label(p) for p in opts["platforms"]}
 
     summary = load_art510_summary()
@@ -9289,7 +9362,9 @@ def render_proyecto():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    _portada_path = _reto_asset_file("ppt_assets", "Portada_manual_Reto.png")
+    _portada_path = _reto_asset_file("ppt_assets", "Portada_manual_Reto.jpg") or _reto_asset_file(
+        "ppt_assets", "Portada_manual_Reto.png"
+    )
     _portada_b64 = ""
     if _portada_path is not None:
         try:
@@ -9652,7 +9727,7 @@ def render_buscador_terminos() -> None:
         ).strip()
     with col_toggle:
         solo_llm = st.checkbox(
-            "Analizar solo mensajes clasificados por LLM",
+            _ui_label("Analizar solo mensajes clasificados por LLM"),
             value=False,
             key="buscador_terminos_only_llm",
         )
@@ -9714,7 +9789,7 @@ def render_buscador_terminos() -> None:
         k1, k2, k3, k4 = st.columns(4)
     k1.metric("Menciones encontradas", f"{total:,}")
     k2.metric("Medios distintos", f"{medios_distintos:,}")
-    k3.metric("% clasificado por LLM", f"{pct_clasif:.1f}%")
+    k3.metric(_ui_label("% clasificado por LLM"), f"{pct_clasif:.1f}%")
     periodo_txt = (
         f"{fmin.strftime('%d/%m/%y')} → {fmax.strftime('%d/%m/%y')}"
         if pd.notna(fmin) and pd.notna(fmax)
@@ -9844,9 +9919,9 @@ def render_buscador_terminos() -> None:
     fig_medios.update_layout(height=520, margin=dict(l=160, t=20))
     st.plotly_chart(fig_medios, use_container_width=True)
 
-    # 7) Distribución de categorías por medio (solo si toggle LLM activo)
+    # 7) Distribución de categorías por medio (solo si filtro IA/LLM activo)
     if solo_llm:
-        st.markdown("### Categorías de odio por medio")
+        st.markdown(_ui_label("### Categorías de odio por medio"))
         df_odio_cat = df[df["clasificacion_principal"] == "ODIO"].copy()
         if df_odio_cat.empty:
             st.info("No hay mensajes ODIO para este término.")
@@ -10117,6 +10192,99 @@ def _scroll_main_to_top() -> None:
     )
 
 
+def _ensure_db_connection() -> bool:
+    """Comprueba PostgreSQL una vez por sesión; evita cuelgues sin connect_timeout."""
+    if st.session_state.get("_db_ok") is True:
+        return True
+    if st.session_state.get("_db_ok") is False:
+        return False
+    if not postgres_configured():
+        st.session_state["_db_ok"] = False
+        st.error(
+            "No se detectaron credenciales PostgreSQL en este Space."
+        )
+        st.markdown(
+            """
+En **Hugging Face Docker** los secrets son **variables de entorno**, no un archivo TOML con `[postgres]`.
+
+**Opción recomendada (un solo secret):**
+
+1. Settings → Secrets → secret **`DATABASE_URL`**
+2. Valor (una línea, desde Neon):
+
+`postgresql://usuario:contraseña@ep-xxxx.neon.tech/reto_db?sslmode=require`
+
+**O** reemplazá el secret `postgres` por la misma URL en una sola línea (sin cabecera `[postgres]`).
+
+**Opción B:** varios secrets: `POSTGRES_HOST`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DBNAME`, `POSTGRES_SSLMODE=require`.
+            """
+        )
+        return False
+    try:
+        params = get_connection_params()
+        dbname = params.get("dbname", "?")
+        db_user = params.get("user", "?")
+        access_raw = _role_can_access_raw()
+        probe_table = "raw.mensajes" if access_raw else "processed.mensajes"
+        schema_ok = False
+        perm_denied = False
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+                try:
+                    cur.execute(f"SELECT COUNT(*) FROM {probe_table}")
+                    cur.fetchone()
+                    schema_ok = True
+                except Exception as probe_exc:
+                    err_name = type(probe_exc).__name__
+                    if err_name == "InsufficientPrivilege":
+                        perm_denied = True
+                    elif err_name == "UndefinedTable":
+                        schema_ok = False
+                    else:
+                        raise
+        if perm_denied:
+            st.session_state["_db_ok"] = False
+            st.error(
+                f"El usuario `{db_user}` no tiene permiso de lectura sobre `{probe_table}`."
+            )
+            st.markdown(
+                f"""
+El rol de **visualización** (`analista_01` en Hugging Face) **no debe acceder a `raw`**.
+Solo necesita lectura en **`processed`** y **`delitos`**.
+
+En Neon → SQL Editor (como `neondb_owner`), ejecutá:
+
+```sql
+GRANT USAGE ON SCHEMA processed TO analista_01;
+GRANT SELECT ON ALL TABLES IN SCHEMA processed TO analista_01;
+GRANT USAGE ON SCHEMA delitos TO analista_01;
+GRANT SELECT ON ALL TABLES IN SCHEMA delitos TO analista_01;
+```
+
+Script completo: `automatizacion_diaria/migrations/grant_analista_01_viewer.sql`
+                """
+            )
+            return False
+        if not schema_ok:
+            st.session_state["_db_ok"] = False
+            st.error(f"La base `{dbname}` no tiene la tabla `{probe_table}`.")
+            st.caption(
+                "Comprobá que `DATABASE_URL` apunte al proyecto Neon correcto (host `-pooler`, base `reto_db`)."
+            )
+            return False
+        st.session_state["_db_ok"] = True
+        return True
+    except Exception as exc:
+        st.session_state["_db_ok"] = False
+        st.error(f"No se pudo conectar a PostgreSQL ({type(exc).__name__}): {exc}")
+        st.caption(
+            "Comprobá que Neon permita conexiones externas y que los secrets del Space "
+            "coincidan con los de Streamlit Cloud (misma base `reto_db`)."
+        )
+        return False
+
+
 def main():
     _inject_global_css()
     _check_auth()
@@ -10130,6 +10298,10 @@ def main():
     prev_section = st.session_state.get("_nav_section")
     section_changed = prev_section != section
     st.session_state["_nav_section"] = section
+
+    # Proyecto ReTo no usa BD; el resto sí (evita bloqueo 30 min sin secrets)
+    if section != "Proyecto ReTo" and not _ensure_db_connection():
+        return
 
     renderer = _SECTION_RENDERERS.get(section)
     if renderer:
