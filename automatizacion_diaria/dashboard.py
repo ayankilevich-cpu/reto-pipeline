@@ -9264,6 +9264,29 @@ def _render_validacion_llm_x(annotator: str):
         st.rerun()
 
 
+def _render_supervision_panel(period: str) -> None:
+    """Panel de supervisión: conteos por subsección y tabla anotador × subsección."""
+    data = _load_admin_annotation_supervision(period)
+    summary = data.get("summary", {})
+    by_annotator = data.get("by_annotator", pd.DataFrame())
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("YT Odio", f"{summary.get('YT Odio', 0):,}")
+    c2.metric("Art. 510", f"{summary.get('Art.510', 0):,}")
+    c3.metric("LLM YouTube", f"{summary.get('LLM YT', 0):,}")
+    c4.metric("LLM X", f"{summary.get('LLM X', 0):,}")
+
+    st.markdown("**Detalle por anotador**")
+    if by_annotator is not None and not by_annotator.empty:
+        st.dataframe(by_annotator, use_container_width=True, hide_index=True)
+    else:
+        st.info("No hay anotaciones registradas en el periodo seleccionado.")
+    st.caption(
+        "Los conteos reflejan mensajes etiquetados o re-etiquetados en el periodo "
+        "(no necesariamente primera anotación)."
+    )
+
+
 def render_anotacion():
     """Sección de anotación humana: YouTube, Art. 510 y validación LLM (YT + X)."""
     _render_section_header(
