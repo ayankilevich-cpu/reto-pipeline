@@ -7161,6 +7161,19 @@ def _fetch_llm_labels_for_uuid(message_uuid: str) -> tuple:
     return row[0], row[1], row[2]
 
 
+def _period_to_sql_date(period: str) -> str:
+    """
+    period in ('day', 'week', 'month')
+    Devuelve la fecha mínima como string ISO para usar en queries.
+    """
+    today = date.today()
+    if period == "week":
+        return (today - timedelta(days=7)).isoformat()
+    if period == "month":
+        return (today - timedelta(days=30)).isoformat()
+    return today.isoformat()
+
+
 def _load_annotation_queue() -> pd.DataFrame:
     """Carga mensajes YouTube pendientes de anotación (sin cache)."""
     skipped = st.session_state.get("ann_skipped", set())
