@@ -7174,6 +7174,103 @@ def _period_to_sql_date(period: str) -> str:
     return today.isoformat()
 
 
+def _load_admin_annotation_supervision(period: str) -> dict:
+    """Carga conteos de anotación por subsección y anotador para el panel admin/editor."""
+    fecha_desde = _period_to_sql_date(period)
+    empty_df = pd.DataFrame(
+        columns=["Anotador", "YT Odio", "Art.510", "LLM YT", "LLM X", "Total"]
+    )
+
+    queries = {
+        "YT Odio": """
+            SELECT vm.annotator_id, COUNT(*) AS n
+            FROM processed.validaciones_manuales vm
+            JOIN processed.mensajes pm USING (message_uuid)
+            JOIN processed.gold_dataset g USING (message_uuid)
+            WHERE pm.platform = 'youtube'
+              AND g.label_source = 'human_explicit'
+              AND vm.annotation_date >= %s
+            GROUP BY vm.annotator_id
+        """,
+        "LLM YT": """
+            SELECT vm.annotator_id, COUNT(*) AS n
+            FROM processed.validaciones_manuales vm
+            JOIN processed.mensajes pm USING (message_uuid)
+            JOIN processed.gold_dataset g USING (message_uuid)
+            WHERE pm.platform = 'youtube'
+              AND g.label_source = 'llm_validated'
+              AND vm.annotation_date >= %s
+            GROUP BY vm.annotator_id
+        """,
+        "LLM X": """
+            SELECT vm.annotator_id, COUNT(*) AS n
+            FROM processed.validaciones_manuales vm
+            JOIN processed.mensajes pm USING (message_uuid)
+            JOIN processed.gold_dataset g USING (message_uuid)
+            WHERE pm.platform IN ('x', 'twitter')
+              AND g.label_source = 'llm_validated'
+              AND vm.annotation_date >= %s
+            GROUP BY vm.annotator_id
+        """,
+        "Art.510": """
+            SELECT annotator_id, COUNT(*) AS n
+            FROM processed.validacion_art510_humana
+            WHERE annotation_date >= %s
+            GROUP BY annotator_id
+        """,
+    }
+
+    summary: Dict[str, int] = {}
+    frames: Dict[str, pd.DataFrame] = {}
+
+    try:
+        with get_conn() as conn:
+            for subsection, sql in queries.items():
+                df = pd.read_sql(sql, conn, params=(fecha_desde,))
+                if df.empty:
+                    summary[subsection] = 0
+                    continue
+                ann_col = "annotator_id" if "annotator_id" in df.columns else df.columns[0]
+                df = df.rename(columns={ann_col: "Anotador", "n": subsection})
+                summary[subsection] = int(df[subsection].sum())
+                frames[subsection] = df[["Anotador", subsection]]
+
+        by_annotator = empty_df.copy()
+        for subsection, df_sub in frames.items():
+            if df_sub.empty:
+                continue
+            if by_annotator.empty:
+                by_annotator = df_sub.copy()
+            else:
+                by_annotator = by_annotator.merge(
+                    df_sub, on="Anotador", how="outer"
+                )
+
+        if not by_annotator.empty:
+            for col in ("YT Odio", "Art.510", "LLM YT", "LLM X"):
+                if col not in by_annotator.columns:
+                    by_annotator[col] = 0
+            by_annotator = by_annotator.fillna(0)
+            for col in ("YT Odio", "Art.510", "LLM YT", "LLM X"):
+                by_annotator[col] = by_annotator[col].astype(int)
+            by_annotator["Total"] = (
+                by_annotator["YT Odio"]
+                + by_annotator["Art.510"]
+                + by_annotator["LLM YT"]
+                + by_annotator["LLM X"]
+            )
+            by_annotator = by_annotator.sort_values("Total", ascending=False)
+        else:
+            by_annotator = empty_df
+
+        return {"summary": summary, "by_annotator": by_annotator}
+    except Exception:
+        return {
+            "summary": {k: 0 for k in queries},
+            "by_annotator": empty_df,
+        }
+
+
 def _load_annotation_queue() -> pd.DataFrame:
     """Carga mensajes YouTube pendientes de anotación (sin cache)."""
     skipped = st.session_state.get("ann_skipped", set())
