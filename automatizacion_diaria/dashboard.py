@@ -9294,6 +9294,23 @@ def render_anotacion():
         "Anotación en YouTube, validación Art. 510 (X + YouTube) y control de calidad del etiquetado LLM.",
     )
 
+    user_role = st.session_state.get("user_role")
+    if user_role in ("admin", "editor"):
+        st.subheader("Supervisión de anotaciones")
+        period = st.radio(
+            "Periodo",
+            options=["day", "week", "month"],
+            format_func=lambda x: {
+                "day": "Último día",
+                "week": "Última semana",
+                "month": "Último mes",
+            }[x],
+            horizontal=True,
+            key="supervision_period",
+        )
+        _render_supervision_panel(period)
+        st.divider()
+
     # --- Identificación del anotador (compartido entre tabs) ---
     annotator = st.text_input(
         "Nombre / ID de anotador",
