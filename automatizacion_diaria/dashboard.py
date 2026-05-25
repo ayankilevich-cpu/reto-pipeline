@@ -1027,7 +1027,7 @@ _ALL_SECTIONS = [
 _RESTRICTED_SECTIONS: Dict[str, set] = {
     "admin": set(),
     "editor": {"Comparativa modelos", "Calidad LLM"},
-    "viewer": {"Comparativa modelos", "Calidad LLM", "Anotación y validación", "Dataset Gold", "Análisis Art. 510"},
+    "viewer": {"Comparativa modelos", "Calidad LLM", "Anotación y validación", "Análisis Art. 510"},
 }
 
 _ROLE_DISPLAY = {"admin": "Administrador", "editor": "Editor", "viewer": "Visualización"}
@@ -1137,7 +1137,10 @@ def _nav_section_label(section: str) -> str:
     """Etiqueta del menú lateral según rol."""
     if not _is_viewer():
         return section
-    _labels = {"Categorías de odio (LLM)": "Categorías de odio por IA"}
+    _labels = {
+        "Categorías de odio (LLM)": "Categorías de odio por IA",
+        "Dataset Gold": "Dataset validado",
+    }
     return _labels.get(section, section.replace("(LLM)", "por IA").replace("LLM", "IA"))
 
 
@@ -4315,6 +4318,304 @@ def load_gold_full() -> pd.DataFrame:
     df["split"] = df["split"].fillna("sin_asignar")
     df["annotator_id"] = df["annotator_id"].fillna("sin_asignar")
     return df
+
+
+_INTENSIDAD_LABELS_GUEST = {
+    1: "1 — Leve",
+    2: "2 — Ofensivo",
+    3: "3 — Hostil / Incitación",
+}
+
+
+def render_dataset_validado_guest() -> None:
+    """Versión simplificada del dataset gold para el perfil visualizador/invitado."""
+    _render_section_header(
+        "Dataset validado",
+        "Mensajes revisados manualmente por el proyecto ReTo.",
+    )
+
+    st.markdown(
+        "Esta sección muestra el conjunto de mensajes revisados manualmente "
+        "por el proyecto ReTo. La validación humana permite contrastar y mejorar "
+        "el análisis automatizado de la plataforma, aportando criterios homogéneos, "
+        "trazabilidad y mayor rigor metodológico."
+    )
+
+    df = load_gold_full()
+    if df.empty:
+        st.info("Todavía no hay mensajes validados disponibles para mostrar.")
+        return
+
+    total = int(len(df))
+    n_odio = int((df["y_odio_bin"] == 1).sum())
+    n_no_odio = int((df["y_odio_final"] == "No Odio").sum())
+    n_dudoso = int((df["y_odio_final"] == "Dudoso").sum())
+
+    def _pct(value: int) -> str:
+        return f"{value / total * 100:.1f}%" if total else "0%"
+
+    plataformas_presentes = sorted(
+        [p for p in df["platform_label"].dropna().unique() if str(p).strip()]
+    )
+    plataformas_str = " · ".join(plataformas_presentes) if plataformas_presentes else "—"
+    n_categorias = len(CATEGORIAS_LABELS)
+
+    st.markdown(f"""
+<style>
+.guest-metric-grid {{
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin: 8px 0 24px 0;
+}}
+.guest-metric-card {{
+    background-color: #1B3A6B;
+    border-radius: 12px;
+    padding: 18px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    color: white;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 124px;
+}}
+.guest-metric-card .label {{
+    font-size: 13px;
+    font-weight: 400;
+    opacity: 0.85;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}}
+.guest-metric-card .value {{
+    font-size: 26px;
+    font-weight: 700;
+    line-height: 1.1;
+}}
+.guest-metric-card .sub {{
+    font-size: 12px;
+    opacity: 0.75;
+    margin-top: 6px;
+}}
+</style>
+
+<div class="guest-metric-grid">
+  <div class="guest-metric-card">
+    <div class="label">Mensajes validados manualmente</div>
+    <div class="value">{total:,}</div>
+  </div>
+  <div class="guest-metric-card">
+    <div class="label">Mensajes clasificados como odio</div>
+    <div class="value">{n_odio:,}</div>
+    <div class="sub">{_pct(n_odio)} del total</div>
+  </div>
+  <div class="guest-metric-card">
+    <div class="label">Mensajes no odio</div>
+    <div class="value">{n_no_odio:,}</div>
+    <div class="sub">{_pct(n_no_odio)} del total</div>
+  </div>
+  <div class="guest-metric-card">
+    <div class="label">Mensajes dudosos</div>
+    <div class="value">{n_dudoso:,}</div>
+    <div class="sub">{_pct(n_dudoso)} del total</div>
+  </div>
+  <div class="guest-metric-card">
+    <div class="label">Plataformas analizadas</div>
+    <div class="value">{plataformas_str}</div>
+  </div>
+  <div class="guest-metric-card">
+    <div class="label">Categorías monitorizadas</div>
+    <div class="value">{n_categorias}</div>
+    <div class="sub">categorías de odio</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # A) Distribución del etiquetado humano
+    st.markdown("### Distribución del etiquetado humano")
+    odio_counts = (
+        df["y_odio_final"].dropna().value_counts().rename_axis("Etiqueta")
+        .reset_index(name="Mensajes")
+    )
+    fig_dist = px.pie(
+        odio_counts,
+        names="Etiqueta",
+        values="Mensajes",
+        color="Etiqueta",
+        color_discrete_map=SEMANTIC_COLORS,
+        hole=0.4,
+    )
+    fig_dist.update_traces(textinfo="label+percent")
+    fig_dist.update_layout(height=380, showlegend=True)
+    st.plotly_chart(fig_dist, use_container_width=True)
+
+    st.markdown("---")
+
+    # B) Categorías detectadas en los mensajes de odio
+    st.markdown("### Categorías detectadas en los mensajes de odio")
+    df_odio = df[df["y_odio_bin"] == 1].copy()
+    if df_odio.empty or df_odio["y_categoria_final"].dropna().empty:
+        st.info("Aún no hay categorías de odio registradas en los mensajes validados.")
+    else:
+        cat_counts = (
+            df_odio["y_categoria_final"].dropna().value_counts()
+            .rename_axis("categoria").reset_index(name="Mensajes")
+        )
+        cat_counts["Categoría"] = cat_counts["categoria"].map(
+            lambda x: CATEGORIAS_LABELS.get(x, x)
+        )
+        cat_counts = cat_counts.sort_values("Mensajes", ascending=True)
+        fig_cat = px.bar(
+            cat_counts,
+            x="Mensajes",
+            y="Categoría",
+            orientation="h",
+            color="Categoría",
+            color_discrete_map=CAT_COLOR_MAP,
+            text_auto=True,
+        )
+        fig_cat.update_layout(
+            height=420, showlegend=False, yaxis=dict(autorange="reversed"),
+            xaxis_title="Mensajes", yaxis_title="",
+        )
+        st.plotly_chart(fig_cat, use_container_width=True)
+
+    st.markdown("---")
+
+    # C) Nivel de intensidad de los mensajes de odio
+    st.markdown("### Nivel de intensidad de los mensajes de odio")
+    if df_odio.empty or df_odio["y_intensidad_final"].dropna().empty:
+        st.info("Aún no hay datos de intensidad para los mensajes de odio validados.")
+    else:
+        int_series = pd.to_numeric(
+            df_odio["y_intensidad_final"], errors="coerce"
+        ).dropna().astype(int)
+        int_counts = (
+            int_series.value_counts().sort_index()
+            .rename_axis("nivel").reset_index(name="Mensajes")
+        )
+        int_counts["Intensidad"] = int_counts["nivel"].map(
+            _INTENSIDAD_LABELS_GUEST
+        ).fillna(int_counts["nivel"].astype(str))
+        fig_int = px.bar(
+            int_counts,
+            x="Intensidad",
+            y="Mensajes",
+            color="Intensidad",
+            color_discrete_map={
+                _INTENSIDAD_LABELS_GUEST[1]: "#F39C12",
+                _INTENSIDAD_LABELS_GUEST[2]: "#E67E22",
+                _INTENSIDAD_LABELS_GUEST[3]: "#E74C3C",
+            },
+            text_auto=True,
+        )
+        fig_int.update_layout(height=360, showlegend=False, xaxis_title="", yaxis_title="Mensajes")
+        st.plotly_chart(fig_int, use_container_width=True)
+
+        # D) Intensidad por categoría de odio
+        st.markdown("### Intensidad por categoría de odio")
+        df_cat_int = df_odio.dropna(subset=["y_categoria_final", "y_intensidad_final"]).copy()
+        if df_cat_int.empty:
+            st.info("No hay suficiente información para cruzar categoría e intensidad.")
+        else:
+            df_cat_int["y_intensidad_final"] = pd.to_numeric(
+                df_cat_int["y_intensidad_final"], errors="coerce"
+            )
+            df_cat_int = df_cat_int.dropna(subset=["y_intensidad_final"])
+            df_cat_int["Categoría"] = df_cat_int["y_categoria_final"].map(
+                lambda x: CATEGORIAS_LABELS.get(x, x)
+            )
+            df_cat_int["Intensidad"] = (
+                df_cat_int["y_intensidad_final"].astype(int)
+                .map(_INTENSIDAD_LABELS_GUEST)
+            )
+            agg = (
+                df_cat_int.groupby(["Categoría", "Intensidad"])
+                .size()
+                .reset_index(name="Mensajes")
+            )
+            fig_int_cat = px.bar(
+                agg,
+                x="Categoría",
+                y="Mensajes",
+                color="Intensidad",
+                barmode="stack",
+                color_discrete_map={
+                    _INTENSIDAD_LABELS_GUEST[1]: "#F39C12",
+                    _INTENSIDAD_LABELS_GUEST[2]: "#E67E22",
+                    _INTENSIDAD_LABELS_GUEST[3]: "#E74C3C",
+                },
+            )
+            fig_int_cat.update_layout(
+                height=420, xaxis_tickangle=-25, xaxis_title="", yaxis_title="Mensajes",
+            )
+            st.plotly_chart(fig_int_cat, use_container_width=True)
+            st.caption(
+                "No todos los mensajes tienen la misma gravedad: la intensidad permite "
+                "diferenciar tonos leves de incitaciones hostiles."
+            )
+
+    st.markdown("---")
+
+    # E) Mensajes validados por plataforma
+    st.markdown("### Mensajes validados por plataforma")
+    plat_counts = (
+        df["platform_label"].dropna().value_counts()
+        .rename_axis("Plataforma").reset_index(name="Mensajes")
+    )
+    if plat_counts.empty:
+        st.info("Sin datos de plataforma en los mensajes validados.")
+    else:
+        fig_plat = px.bar(
+            plat_counts,
+            x="Plataforma",
+            y="Mensajes",
+            color="Plataforma",
+            color_discrete_map=PLATFORM_COLORS,
+            text_auto=True,
+        )
+        fig_plat.update_layout(height=340, showlegend=False, xaxis_title="", yaxis_title="Mensajes")
+        st.plotly_chart(fig_plat, use_container_width=True)
+
+    # F) Porcentaje de mensajes de odio por plataforma
+    st.markdown("### Porcentaje de mensajes de odio por plataforma")
+    if plat_counts.empty:
+        st.info("Sin datos de plataforma para calcular el porcentaje de odio.")
+    else:
+        plat_pct = (
+            df.dropna(subset=["platform_label"])
+            .groupby("platform_label")["y_odio_bin"].mean()
+            .mul(100).round(1)
+            .reset_index()
+            .rename(columns={"platform_label": "Plataforma", "y_odio_bin": "% Odio"})
+        )
+        fig_pct = px.bar(
+            plat_pct,
+            x="Plataforma",
+            y="% Odio",
+            color="Plataforma",
+            color_discrete_map=PLATFORM_COLORS,
+            text="% Odio",
+        )
+        fig_pct.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
+        fig_pct.update_layout(
+            height=340, showlegend=False, xaxis_title="",
+            yaxis_title="% mensajes de odio",
+            yaxis_range=[0, max(100, float(plat_pct["% Odio"].max()) * 1.1) if not plat_pct.empty else 100],
+        )
+        st.plotly_chart(fig_pct, use_container_width=True)
+
+
+def render_gold_dataset_router() -> None:
+    """Despacha a la vista simplificada para el perfil visualizador, o a la completa para el resto."""
+    if _is_viewer():
+        render_dataset_validado_guest()
+    else:
+        render_gold_dataset()
 
 
 def render_gold_dataset():
@@ -10378,7 +10679,7 @@ _SECTION_RENDERERS: Dict[str, Callable[[], None]] = {
     "Calidad LLM": render_calidad_llm,
     "Términos frecuentes": render_terminos,
     "Buscador y Análisis": render_buscador_terminos,
-    "Dataset Gold": render_gold_dataset,
+    "Dataset Gold": render_gold_dataset_router,
     "Análisis Art. 510": render_analisis_art510,
     "Anotación y validación": render_anotacion,
     "Delitos de odio (oficial)": render_delitos,
