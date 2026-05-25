@@ -2494,24 +2494,12 @@ def render_panel_general():
     mensajes_totales = kpis["total_raw"]
     candidatos_odio = kpis["total_candidatos"]
     etiquetados_llm = kpis["total_etiquetados_llm"]
-    score_promedio = kpis["score_promedio"]
     medios_monitorizados = kpis["total_medios"]
     mensajes_validados = kpis["total_gold"]
     mensajes_odio = kpis["total_gold_odio"]
     nuevos_hoy = kpis["nuevos_x"] + kpis["nuevos_yt"]
     nuevos_x_hoy = kpis["nuevos_x"]
     nuevos_yt_hoy = kpis["nuevos_yt"]
-
-    # Panel general usa tarjetas HTML (no st.metric); ocultamos gold para viewer.
-    _gold_metrics_card = ""
-    if st.session_state.get("user_role") != "viewer":
-        _gold_metrics_card = f"""
-  <div class="metric-card">
-    <div class="label">Mensajes validados</div>
-    <div class="value">{mensajes_validados:,}</div>
-    <div class="sub">🔴 {mensajes_odio:,} odio</div>
-  </div>
-"""
 
     st.markdown(f"""
 <style>
@@ -2570,14 +2558,15 @@ def render_panel_general():
     <div class="value">{etiquetados_llm:,}</div>
   </div>
   <div class="metric-card">
-    <div class="label">Score promedio</div>
-    <div class="value">{score_promedio:.3f}</div>
+    <div class="label">Mensajes validados</div>
+    <div class="value">{mensajes_validados:,}</div>
+    <div class="sub">🔴 {mensajes_odio:,} odio</div>
   </div>
   <div class="metric-card">
     <div class="label">Medios monitorizados</div>
     <div class="value">{medios_monitorizados:,}</div>
   </div>
-{_gold_metrics_card}  <div class="metric-card">
+  <div class="metric-card">
     <div class="label">Nuevos hoy</div>
     <div class="value">{nuevos_hoy:,}</div>
   </div>
