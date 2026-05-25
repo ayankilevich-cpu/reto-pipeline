@@ -156,8 +156,12 @@ h4 { font-weight: 600; color: #2D3748; }
 
 /* --- Sidebar institucional --- */
 section[data-testid="stSidebar"] {
-    background-color: #FDFAF5 !important;
+    background-color: #FEFBF6 !important;
     border-right: 1px solid #E2E8F0;
+}
+section[data-testid="stSidebar"] > div,
+section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
+    background-color: #FEFBF6 !important;
 }
 section[data-testid="stSidebar"] .stButton>button {
     border-radius: 8px;
@@ -366,11 +370,8 @@ div[data-baseweb="notification"] {
 
 
 def _inject_global_css() -> None:
-    """Inyecta el CSS global una sola vez por sesión."""
-    if st.session_state.get("_reto_css_injected"):
-        return
+    """Inyecta el CSS global en cada rerun para mantener estilos persistentes."""
     st.markdown(_GLOBAL_CSS, unsafe_allow_html=True)
-    st.session_state["_reto_css_injected"] = True
 
 
 # ============================================================
