@@ -584,7 +584,8 @@ def load_resumen_diario(conn, logger: logging.Logger) -> int:
 def load_evaluacion_art510(conn, logger: logging.Logger) -> int:
     """Carga processed.evaluacion_art510 desde el CSV generado por evaluar_art510.py."""
     if not CSV_ART510.exists():
-        logger.warning("No existe %s — saltando evaluacion_art510", CSV_ART510)
+        # evaluar_art510.py aún no implementado — silenciar hasta que exista el script
+        logger.debug("Art510: CSV no encontrado (%s) — etapa pendiente de implementación", CSV_ART510)
         return 0
 
     # Crear tabla si no existe

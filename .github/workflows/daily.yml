@@ -1,7 +1,7 @@
 # ReTo Pipeline — Ejecución diaria automatizada
 # ================================================
-# Scheduler: 08:00 UTC ≈ 10:00 España (CEST verano). En invierno (CET) = 09:00.
-# Para ajustar a 10:00 en CET también, cambiar a: cron: '0 9 * * *'
+# Scheduler: 09:00 UTC = 10:00 España (CET invierno) / 11:00 (CEST verano).
+# GitHub Actions corre en servidores cloud — el Mac NO necesita estar encendido.
 #
 # Ejecución manual: GitHub > Actions > ReTo Pipeline Diario > Run workflow
 #
@@ -22,7 +22,7 @@ name: ReTo Pipeline Diario
 
 on:
   schedule:
-    - cron: '0 8 * * *'
+    - cron: '0 9 * * *'
   workflow_dispatch:
 
 jobs:
