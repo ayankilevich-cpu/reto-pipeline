@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
 """
-Script maestro del pipeline diario YouTube — RETO.
+Script de extracción y etiquetado YouTube — RETO.
 
-Ejecuta en orden los scripts de extracción, etiquetado, carga a BD
-y filtrado de relevancia de YouTube. Ante fallo de uno, registra el error
-y continúa con el siguiente.
+Ejecuta en orden los scripts de extracción y etiquetado de YouTube.
+NO incluye load_to_db.py: la carga a PostgreSQL la hace run_pipeline_completo.py
+una única vez, tras completar también el pipeline X.
 
-Uso:
+La relevancia LLM (OpenAI) no corre aquí: ejecutala manualmente con
+Medios/ML/etiquetado_llm/filtrar_relevancia_youtube.py (cola desde PostgreSQL).
+
+Ante fallo de uno, registra el error y continúa con el siguiente.
+
+Uso directo (manual / fallback):
   python run_pipeline_youtube.py
 
   Para usar otro intérprete (p. ej. venv/conda):
   PYTHON_BIN=/ruta/al/venv/bin/python3 python run_pipeline_youtube.py
 
-Cron (09:30 AM diario):
-  30 9 * * * cd "/Users/alejandroyankilevich/Documents/MASTER DATA SCIENCE" && PYTHON_BIN="/Users/alejandroyankilevich/Documents/MASTER DATA SCIENCE/reto_ml/bin/python" /opt/homebrew/bin/python3 "Clases/RETO/automatizacion_diaria/run_pipeline_youtube.py" >> "Clases/RETO/automatizacion_diaria/logs/cron_stdout.log" 2>&1
+NOTA: En operación normal, usar run_pipeline_completo.py (orquestador unificado).
 """
 
 from __future__ import annotations
@@ -31,8 +35,7 @@ REPO_ROOT = SCRIPT_DIR.parent.parent.parent
 SCRIPTS = [
     "Clases/RETO/Medios/youtube_extract_hate.py",
     "Clases/RETO/Medios/tag_youtube_hate_auto.py",
-    "Clases/RETO/automatizacion_diaria/load_to_db.py",
-    "Clases/RETO/Medios/ML/etiquetado_llm/filtrar_relevancia_youtube.py",
+    # load_to_db.py removido: la carga se hace una única vez desde run_pipeline_completo.py
 ]
 
 
