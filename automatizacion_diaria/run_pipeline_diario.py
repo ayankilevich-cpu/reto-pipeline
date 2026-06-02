@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """
-Script maestro del pipeline diario RETO.
+DEPRECADO desde junio 2026 — usar run_pipeline_completo.py como orquestador unificado.
+Este script puede usarse manualmente para correr solo el pipeline X (sin YouTube).
+NOTA: incluye load_to_db.py como paso 8 — no combinar con run_pipeline_youtube.py
+para evitar doble carga a la BD.
+
+Script maestro del pipeline diario RETO (solo X).
 
 Ejecuta en orden los 7 scripts configurados. Ante fallo de uno, registra el error
 y continúa con el siguiente (opción B). Todo se registra en logs locales.

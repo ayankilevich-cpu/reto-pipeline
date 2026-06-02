@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 """
+OBSOLETO desde junio 2026 — reemplazado por run_pipeline_completo.py.
+Causaba SIGKILL (returncode=-9) en macOS desde el 17/04/2026.
+Conservado solo como referencia histórica. No usar.
+
 run_pipeline_wrapper.py — Orquestador operativo del pipeline diario RETO.
 
 Responsabilidades (sin tocar el ETL interno):
