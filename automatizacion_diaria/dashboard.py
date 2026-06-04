@@ -1402,41 +1402,41 @@ def load_kpis(
         total_gold = row_g[0] or 0
         total_gold_odio = row_g[1] or 0
 
-        # Registros nuevos hoy
+        # Registros nuevos ayer (CURRENT_DATE - 1)
         if access_raw:
             q_new = """
                 SELECT count(*) FILTER (WHERE platform IN ('x', 'twitter')),
                        count(*) FILTER (WHERE platform = 'youtube')
                 FROM raw.mensajes
-                WHERE ingested_at::date = CURRENT_DATE
+                WHERE ingested_at::date = CURRENT_DATE - 1
             """
             if platforms:
                 q_new = """
                     SELECT count(*) FILTER (WHERE platform IN ('x', 'twitter')),
                            count(*) FILTER (WHERE platform = 'youtube')
                     FROM raw.mensajes
-                    WHERE ingested_at::date = CURRENT_DATE
+                    WHERE ingested_at::date = CURRENT_DATE - 1
                       AND platform IN %s
                 """
                 cur.execute(q_new, [tuple(platforms)])
             else:
                 cur.execute(q_new)
         else:
-            # KPI "nuevos hoy" para perfil viewer/HF: usar ingested_at (fecha
+            # KPI "nuevos ayer" para perfil viewer/HF: usar ingested_at (fecha
             # real de ingreso al sistema), no processed_at (marca de reproceso
             # que produce picos falsos al re-upsertear histórico).
             q_new = """
                 SELECT count(*) FILTER (WHERE platform IN ('x', 'twitter')),
                        count(*) FILTER (WHERE platform = 'youtube')
                 FROM processed.mensajes
-                WHERE ingested_at::date = CURRENT_DATE
+                WHERE ingested_at::date = CURRENT_DATE - 1
             """
             if platforms:
                 q_new = """
                     SELECT count(*) FILTER (WHERE platform IN ('x', 'twitter')),
                            count(*) FILTER (WHERE platform = 'youtube')
                     FROM processed.mensajes
-                    WHERE ingested_at::date = CURRENT_DATE
+                    WHERE ingested_at::date = CURRENT_DATE - 1
                       AND platform IN %s
                 """
                 cur.execute(q_new, [tuple(platforms)])
@@ -2500,9 +2500,8 @@ def render_panel_general():
     medios_monitorizados = kpis["total_medios"]
     mensajes_validados = kpis["total_gold"]
     mensajes_odio = kpis["total_gold_odio"]
-    nuevos_hoy = kpis["nuevos_x"] + kpis["nuevos_yt"]
-    nuevos_x_hoy = kpis["nuevos_x"]
-    nuevos_yt_hoy = kpis["nuevos_yt"]
+    nuevos_x_ayer = kpis["nuevos_x"]
+    nuevos_yt_ayer = kpis["nuevos_yt"]
 
     st.markdown(f"""
 <style>
@@ -2570,16 +2569,12 @@ def render_panel_general():
     <div class="value">{medios_monitorizados:,}</div>
   </div>
   <div class="metric-card">
-    <div class="label">Nuevos hoy</div>
-    <div class="value">{nuevos_hoy:,}</div>
+    <div class="label">Nuevos X ayer</div>
+    <div class="value">{nuevos_x_ayer:,}</div>
   </div>
   <div class="metric-card">
-    <div class="label">Nuevos X hoy</div>
-    <div class="value">{nuevos_x_hoy:,}</div>
-  </div>
-  <div class="metric-card">
-    <div class="label">Nuevos YouTube hoy</div>
-    <div class="value">{nuevos_yt_hoy:,}</div>
+    <div class="label">Nuevos YouTube ayer</div>
+    <div class="value">{nuevos_yt_ayer:,}</div>
   </div>
 </div>
 """, unsafe_allow_html=True)
