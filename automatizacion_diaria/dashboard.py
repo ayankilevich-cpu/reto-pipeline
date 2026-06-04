@@ -1402,49 +1402,28 @@ def load_kpis(
         total_gold = row_g[0] or 0
         total_gold_odio = row_g[1] or 0
 
-        # Registros nuevos ayer (CURRENT_DATE - 1)
-        if access_raw:
-            q_new = """
-                SELECT count(*) FILTER (WHERE platform IN ('x', 'twitter')),
-                       count(*) FILTER (WHERE platform = 'youtube')
-                FROM raw.mensajes
-                WHERE ingested_at::date = CURRENT_DATE - 1
-            """
-            if platforms:
-                q_new = """
-                    SELECT count(*) FILTER (WHERE platform IN ('x', 'twitter')),
-                           count(*) FILTER (WHERE platform = 'youtube')
-                    FROM raw.mensajes
-                    WHERE ingested_at::date = CURRENT_DATE - 1
-                      AND platform IN %s
-                """
-                cur.execute(q_new, [tuple(platforms)])
-            else:
-                cur.execute(q_new)
+        # Registros nuevos hoy
+        tbl = "raw.mensajes" if access_raw else "processed.mensajes"
+        q_hoy = f"SELECT count(*) FILTER (WHERE platform IN ('x', 'twitter')), count(*) FILTER (WHERE platform = 'youtube') FROM {tbl} WHERE ingested_at::date = CURRENT_DATE"
+        q_hoy_f = f"SELECT count(*) FILTER (WHERE platform IN ('x', 'twitter')), count(*) FILTER (WHERE platform = 'youtube') FROM {tbl} WHERE ingested_at::date = CURRENT_DATE AND platform IN %s"
+        if platforms:
+            cur.execute(q_hoy_f, [tuple(platforms)])
         else:
-            # KPI "nuevos ayer" para perfil viewer/HF: usar ingested_at (fecha
-            # real de ingreso al sistema), no processed_at (marca de reproceso
-            # que produce picos falsos al re-upsertear histórico).
-            q_new = """
-                SELECT count(*) FILTER (WHERE platform IN ('x', 'twitter')),
-                       count(*) FILTER (WHERE platform = 'youtube')
-                FROM processed.mensajes
-                WHERE ingested_at::date = CURRENT_DATE - 1
-            """
-            if platforms:
-                q_new = """
-                    SELECT count(*) FILTER (WHERE platform IN ('x', 'twitter')),
-                           count(*) FILTER (WHERE platform = 'youtube')
-                    FROM processed.mensajes
-                    WHERE ingested_at::date = CURRENT_DATE - 1
-                      AND platform IN %s
-                """
-                cur.execute(q_new, [tuple(platforms)])
-            else:
-                cur.execute(q_new)
-        row_new = cur.fetchone()
-        nuevos_x = row_new[0] or 0
-        nuevos_yt = row_new[1] or 0
+            cur.execute(q_hoy)
+        row_hoy = cur.fetchone()
+        nuevos_x_hoy = row_hoy[0] or 0
+        nuevos_yt_hoy = row_hoy[1] or 0
+
+        # Registros nuevos ayer (CURRENT_DATE - 1)
+        q_ayer = f"SELECT count(*) FILTER (WHERE platform IN ('x', 'twitter')), count(*) FILTER (WHERE platform = 'youtube') FROM {tbl} WHERE ingested_at::date = CURRENT_DATE - 1"
+        q_ayer_f = f"SELECT count(*) FILTER (WHERE platform IN ('x', 'twitter')), count(*) FILTER (WHERE platform = 'youtube') FROM {tbl} WHERE ingested_at::date = CURRENT_DATE - 1 AND platform IN %s"
+        if platforms:
+            cur.execute(q_ayer_f, [tuple(platforms)])
+        else:
+            cur.execute(q_ayer)
+        row_ayer = cur.fetchone()
+        nuevos_x_ayer = row_ayer[0] or 0
+        nuevos_yt_ayer = row_ayer[1] or 0
 
         cur.close()
 
@@ -1458,8 +1437,10 @@ def load_kpis(
         "total_medios": total_medios,
         "total_gold": total_gold,
         "total_gold_odio": total_gold_odio,
-        "nuevos_x": nuevos_x,
-        "nuevos_yt": nuevos_yt,
+        "nuevos_x_hoy": nuevos_x_hoy,
+        "nuevos_yt_hoy": nuevos_yt_hoy,
+        "nuevos_x_ayer": nuevos_x_ayer,
+        "nuevos_yt_ayer": nuevos_yt_ayer,
     }
 
 
@@ -2500,8 +2481,10 @@ def render_panel_general():
     medios_monitorizados = kpis["total_medios"]
     mensajes_validados = kpis["total_gold"]
     mensajes_odio = kpis["total_gold_odio"]
-    nuevos_x_ayer = kpis["nuevos_x"]
-    nuevos_yt_ayer = kpis["nuevos_yt"]
+    nuevos_x_hoy = kpis["nuevos_x_hoy"]
+    nuevos_yt_hoy = kpis["nuevos_yt_hoy"]
+    nuevos_x_ayer = kpis["nuevos_x_ayer"]
+    nuevos_yt_ayer = kpis["nuevos_yt_ayer"]
 
     st.markdown(f"""
 <style>
@@ -2567,6 +2550,14 @@ def render_panel_general():
   <div class="metric-card">
     <div class="label">Medios monitorizados</div>
     <div class="value">{medios_monitorizados:,}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Nuevos X hoy</div>
+    <div class="value">{nuevos_x_hoy:,}</div>
+  </div>
+  <div class="metric-card">
+    <div class="label">Nuevos YouTube hoy</div>
+    <div class="value">{nuevos_yt_hoy:,}</div>
   </div>
   <div class="metric-card">
     <div class="label">Nuevos X ayer</div>
