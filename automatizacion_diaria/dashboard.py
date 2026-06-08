@@ -302,14 +302,16 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
     display: flex;
     flex-direction: column;
     gap: 0.15rem;
-    margin: 0.2rem 0 1.4rem 0;
-    padding: 0.2rem 0 0.2rem 1rem;
+    margin: 0.2rem 0 1.8rem 0;
+    padding: 0.75rem 1.25rem 0.75rem 1.25rem;
     border-left: 4px solid #1F4E79;
+    background: #F8FAFC;
+    border-radius: 0 8px 8px 0;
 }
 .reto-section-header h1 {
-    margin: 0 !important;
+    margin: 0 0 0.15rem 0 !important;
     font-size: 1.9rem !important;
-    line-height: 1.2;
+    line-height: 1.25;
 }
 .reto-section-header .subtitle {
     color: #4A5568;
@@ -417,6 +419,78 @@ div[data-baseweb="notification"] {
     outline: 2px solid #3182CE !important;
     outline-offset: 2px;
     border-radius: 4px;
+}
+
+/* --- Inputs en focus con color primario #1F4E79 --- */
+.stTextInput input:focus,
+.stTextArea textarea:focus {
+    border-color: #1F4E79 !important;
+    box-shadow: 0 0 0 2px rgba(31,78,121,0.18) !important;
+    outline: none !important;
+}
+[data-baseweb="select"]:focus-within > div:first-child,
+[data-baseweb="input"]:focus-within {
+    border-color: #1F4E79 !important;
+    box-shadow: 0 0 0 2px rgba(31,78,121,0.18) !important;
+}
+
+/* --- Slider con color primario --- */
+[data-testid="stSlider"] [role="slider"] {
+    background-color: #1F4E79 !important;
+    border-color: #1F4E79 !important;
+}
+[data-testid="stSlider"] [data-testid="stSliderTrackFill"],
+[data-testid="stSlider"] [class*="TrackFill"] {
+    background: linear-gradient(90deg, #1F4E79, #4F81BD) !important;
+}
+
+/* --- Checkbox seleccionado con color primario --- */
+[data-testid="stCheckbox"] label span[aria-checked="true"],
+[data-testid="stCheckbox"] input:checked ~ div {
+    background-color: #1F4E79 !important;
+    border-color: #1F4E79 !important;
+}
+
+/* --- Panel de descargas --- */
+.reto-download-panel {
+    background: #F8FAFC;
+    border: 1px solid #E2E8F0;
+    border-radius: 10px;
+    padding: 1rem 1.25rem;
+    margin-top: 0.5rem;
+}
+.reto-download-panel-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #718096;
+    margin-bottom: 0.6rem;
+}
+.reto-download-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid #F0F4F8;
+    font-size: 0.875rem;
+}
+.reto-download-item:last-child { border-bottom: none; }
+
+/* --- KPI cards secundarias (actividad reciente) --- */
+.metric-card-secondary {
+    background: rgba(27,58,107,0.65) !important;
+}
+.metric-card-secondary .value {
+    font-size: 1.5rem !important;
+}
+.metric-subgrid-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #718096;
+    margin: 0.8rem 0 0.4rem 0;
 }
 
 /* --- Footer EU institucional --- */
@@ -1053,12 +1127,15 @@ def render_section_exports(
         return
 
     st.markdown("---")
-    st.markdown("### Descargas")
+    st.markdown(
+        '<div class="reto-download-panel"><div class="reto-download-panel-title">Descargas</div>',
+        unsafe_allow_html=True,
+    )
 
     if clean_csv_items:
         for idx, (name, df) in enumerate(clean_csv_items):
             st.download_button(
-                label=f"Descargar CSV — {name}",
+                label=f"⬇ Descargar CSV — {name}",
                 data=df_to_csv_bytes(df),
                 file_name=f"reto_{section_key}_{name}.csv",
                 mime="text/csv",
@@ -1070,7 +1147,7 @@ def render_section_exports(
         pdf_bytes, pdf_errors = build_section_pdf_bytes(section_title, clean_fig_items)
         if pdf_bytes:
             st.download_button(
-                label="Descargar PDF — gráficos de la sección",
+                label="⬇ Descargar PDF — gráficos de la sección",
                 data=pdf_bytes,
                 file_name=f"reto_{section_key}_graficos.pdf",
                 mime="application/pdf",
@@ -1082,6 +1159,8 @@ def render_section_exports(
 
         if pdf_errors:
             st.caption("Avisos de exportación PDF: " + " | ".join(pdf_errors[:4]))
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ============================================================
@@ -2601,7 +2680,7 @@ def render_panel_general():
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 16px;
-    margin-bottom: 24px;
+    margin-bottom: 16px;
 }}
 .metric-card {{
     background-color: #1B3A6B;
@@ -2635,6 +2714,23 @@ def render_panel_general():
     opacity: 0.7;
     margin-top: 6px;
     min-height: 14px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}}
+.metric-card-secondary {{
+    background: rgba(27,58,107,0.65) !important;
+}}
+.metric-card-secondary .value {{
+    font-size: 1.5rem !important;
+}}
+.metric-subgrid-label {{
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #718096;
+    margin: 0.6rem 0 0.4rem 0;
 }}
 </style>
 
@@ -2654,25 +2750,29 @@ def render_panel_general():
   <div class="metric-card">
     <div class="label">Mensajes validados</div>
     <div class="value">{mensajes_validados:,}</div>
-    <div class="sub">🔴 {mensajes_odio:,} odio</div>
+    <div class="sub"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#C0392B;flex-shrink:0"></span>{mensajes_odio:,} odio</div>
   </div>
   <div class="metric-card">
     <div class="label">Medios monitorizados</div>
     <div class="value">{medios_monitorizados:,}</div>
   </div>
-  <div class="metric-card">
+</div>
+
+<div class="metric-subgrid-label">Actividad reciente</div>
+<div class="metric-grid">
+  <div class="metric-card metric-card-secondary">
     <div class="label">Nuevos X hoy</div>
     <div class="value">{nuevos_x_hoy:,}</div>
   </div>
-  <div class="metric-card">
+  <div class="metric-card metric-card-secondary">
     <div class="label">Nuevos YouTube hoy</div>
     <div class="value">{nuevos_yt_hoy:,}</div>
   </div>
-  <div class="metric-card">
+  <div class="metric-card metric-card-secondary">
     <div class="label">Nuevos X ayer</div>
     <div class="value">{nuevos_x_ayer:,}</div>
   </div>
-  <div class="metric-card">
+  <div class="metric-card metric-card-secondary">
     <div class="label">Nuevos YouTube ayer</div>
     <div class="value">{nuevos_yt_ayer:,}</div>
   </div>
