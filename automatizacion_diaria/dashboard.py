@@ -177,15 +177,15 @@ section[data-testid="stSidebar"] .stButton>button:hover {
 }
 
 /* --- Botón Iniciar sesión: CTA primario --- */
-section[data-testid="stSidebar"] [data-testid="baseButton-secondary"][key="login_link_btn"],
-section[data-testid="stSidebar"] button[data-testid*="login_link_btn"] {
+section[data-testid="stSidebar"] [data-testid="stBaseButton-primary"],
+section[data-testid="stSidebar"] button[kind="primary"] {
     background: #1F4E79 !important;
     color: #FFFFFF !important;
     border-color: #1F4E79 !important;
     font-weight: 600 !important;
 }
-section[data-testid="stSidebar"] [data-testid="baseButton-secondary"][key="login_link_btn"]:hover,
-section[data-testid="stSidebar"] button[data-testid*="login_link_btn"]:hover {
+section[data-testid="stSidebar"] [data-testid="stBaseButton-primary"]:hover,
+section[data-testid="stSidebar"] button[kind="primary"]:hover {
     background: #2B6CB0 !important;
     border-color: #2B6CB0 !important;
 }
