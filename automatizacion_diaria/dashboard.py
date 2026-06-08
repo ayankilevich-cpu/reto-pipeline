@@ -156,12 +156,12 @@ h4 { font-weight: 600; color: #2D3748; }
 
 /* --- Sidebar institucional --- */
 section[data-testid="stSidebar"] {
-    background-color: #FEFBF6 !important;
+    background-color: #F4F6F8 !important;
     border-right: 1px solid #E2E8F0;
 }
 section[data-testid="stSidebar"] > div,
 section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
-    background-color: #FEFBF6 !important;
+    background-color: #F4F6F8 !important;
 }
 section[data-testid="stSidebar"] .stButton>button {
     border-radius: 8px;
@@ -174,6 +174,59 @@ section[data-testid="stSidebar"] .stButton>button:hover {
     background: #EBF8FF;
     border-color: #1F4E79;
     color: #1F4E79;
+}
+
+/* --- Botón Iniciar sesión: CTA primario --- */
+section[data-testid="stSidebar"] [data-testid="baseButton-secondary"][key="login_link_btn"],
+section[data-testid="stSidebar"] button[data-testid*="login_link_btn"] {
+    background: #1F4E79 !important;
+    color: #FFFFFF !important;
+    border-color: #1F4E79 !important;
+    font-weight: 600 !important;
+}
+section[data-testid="stSidebar"] [data-testid="baseButton-secondary"][key="login_link_btn"]:hover,
+section[data-testid="stSidebar"] button[data-testid*="login_link_btn"]:hover {
+    background: #2B6CB0 !important;
+    border-color: #2B6CB0 !important;
+}
+
+/* --- Navegación viewer: radio como nav links --- */
+section[data-testid="stSidebar"] [data-testid="stRadio"] > label:first-of-type {
+    display: none !important;
+}
+section[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+section[data-testid="stSidebar"] [data-testid="stRadio"] label {
+    display: flex !important;
+    align-items: center !important;
+    padding: 8px 12px !important;
+    border-radius: 8px !important;
+    font-size: 0.875rem !important;
+    font-weight: 500 !important;
+    color: #4A5568 !important;
+    cursor: pointer !important;
+    transition: background 0.15s ease, color 0.15s ease !important;
+    margin: 0 !important;
+}
+section[data-testid="stSidebar"] [data-testid="stRadio"] label:hover {
+    background: #EDF2F7 !important;
+    color: #1F4E79 !important;
+}
+section[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) {
+    background: #DBEAFE !important;
+    color: #1F4E79 !important;
+    font-weight: 600 !important;
+}
+section[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
+    appearance: none !important;
+    width: 0 !important;
+    height: 0 !important;
+    margin: 0 !important;
+    opacity: 0 !important;
+    position: absolute !important;
 }
 
 /* --- Métricas: tarjetas limpias con hover --- */
@@ -364,6 +417,32 @@ div[data-baseweb="notification"] {
     outline: 2px solid #3182CE !important;
     outline-offset: 2px;
     border-radius: 4px;
+}
+
+/* --- Footer EU institucional --- */
+section[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+section[data-testid="stSidebar"] .stCaption {
+    font-size: 0.72rem !important;
+    color: #718096 !important;
+    line-height: 1.5;
+}
+/* Separador antes del logo EU */
+section[data-testid="stSidebar"] hr:last-of-type {
+    border-color: #E2E8F0;
+    opacity: 0.6;
+    margin: 0.5rem 0;
+}
+/* Footer principal de cada página */
+footer, [data-testid="stFooter"] {
+    display: none !important;
+}
+.reto-page-footer {
+    margin-top: 2.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid #E2E8F0;
+    font-size: 0.75rem;
+    color: #A0AEC0;
+    line-height: 1.6;
 }
 </style>
 """
@@ -2375,7 +2454,7 @@ def render_sidebar():
             del st.session_state[k]
 
     if st.session_state.get("user_role") == "viewer":
-        if st.sidebar.button("Iniciar sesión", key="login_link_btn"):
+        if st.sidebar.button("Iniciar sesión", key="login_link_btn", type="primary", use_container_width=True):
             # Sin _show_login_form, _check_auth() volvería a asignar viewer al instante.
             st.session_state["_show_login_form"] = True
             st.session_state["user_role"] = None
@@ -2520,7 +2599,7 @@ def render_panel_general():
 <style>
 .metric-grid {{
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 16px;
     margin-bottom: 24px;
 }}
@@ -2852,7 +2931,7 @@ def render_categorias():
 <style>
 .metric-grid {{
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 16px;
     margin-bottom: 24px;
 }}
@@ -4522,7 +4601,7 @@ def render_dataset_validado_guest() -> None:
 <style>
 .guest-metric-grid {{
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 16px;
     margin: 8px 0 24px 0;
 }}
@@ -4857,7 +4936,7 @@ def render_gold_dataset():
 <style>
 .metric-grid {{
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 16px;
     margin-bottom: 24px;
 }}
@@ -6551,7 +6630,7 @@ def _render_art510_full(summary, sel_platforms, sel_sources, solo_delitos):
 <style>
 .metric-grid {{
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 16px;
     margin-bottom: 24px;
 }}
@@ -7191,7 +7270,7 @@ def render_delitos():
 <style>
 .metric-grid {{
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 16px;
     margin-bottom: 24px;
 }}

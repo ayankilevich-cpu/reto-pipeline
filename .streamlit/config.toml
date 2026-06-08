@@ -5,6 +5,6 @@ magicEnabled = false
 base = "light"
 primaryColor = "#1F4E79"
 backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F7FAFC"
+secondaryBackgroundColor = "#F4F6F8"
 textColor = "#1A202C"
 font = "sans serif"
