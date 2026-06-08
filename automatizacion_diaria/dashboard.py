@@ -304,8 +304,8 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
     gap: 0.15rem;
     margin: 0.2rem 0 1.8rem 0;
     padding: 0.75rem 1.25rem 0.75rem 1.25rem;
-    border-left: 4px solid #1F4E79;
-    background: #F8FAFC;
+    border-left: 5px solid #1F4E79;
+    background: #E8EEF4;
     border-radius: 0 8px 8px 0;
 }
 .reto-section-header h1 {
