@@ -470,7 +470,9 @@ div[data-baseweb="notification"] {
 }
 
 /* --- Botones de descarga (outline navy) --- */
-[data-testid="stDownloadButton"] > button {
+[data-testid="stDownloadButton"] > button,
+[data-testid="stDownloadButton"] button[kind="secondary"],
+.stDownloadButton > button {
     background: transparent !important;
     color: #1F4E79 !important;
     border: 1.5px solid #1F4E79 !important;
@@ -480,9 +482,13 @@ div[data-baseweb="notification"] {
     border-radius: 6px !important;
     transition: background 0.15s ease, color 0.15s ease !important;
 }
-[data-testid="stDownloadButton"] > button:hover {
+[data-testid="stDownloadButton"] > button *,
+[data-testid="stDownloadButton"] button[kind="secondary"] * {
+    color: #1F4E79 !important;
+}
+[data-testid="stDownloadButton"] > button:hover,
+[data-testid="stDownloadButton"] button[kind="secondary"]:hover {
     background: #EBF4FF !important;
-    color: #163D61 !important;
     border-color: #163D61 !important;
 }
 
@@ -562,6 +568,116 @@ footer, [data-testid="stFooter"] {
     font-size: 0.75rem;
     color: #A0AEC0;
     line-height: 1.6;
+}
+
+/* ============================================================
+   RESPONSIVE — TABLET (≤ 768px) Y MOBILE (≤ 480px)
+   ============================================================ */
+
+@media (max-width: 768px) {
+    /* Contenedor principal: menos padding lateral */
+    .block-container {
+        padding: 1rem 0.75rem 2rem 0.75rem !important;
+        max-width: 100% !important;
+    }
+
+    /* Section header: título más pequeño, menos padding */
+    .reto-section-header {
+        padding: 0.5rem 0.875rem !important;
+        margin: 0.15rem 0 1.2rem 0 !important;
+    }
+    .reto-section-header h1 {
+        font-size: 1.4rem !important;
+    }
+    .reto-section-header .subtitle {
+        font-size: 0.85rem !important;
+    }
+
+    /* KPI grids: 1 columna en mobile */
+    .pg-kpi-grid,
+    .metric-grid,
+    .guest-metric-grid {
+        grid-template-columns: 1fr !important;
+        gap: 0.6rem !important;
+    }
+    .pg-kpi-card {
+        padding: 0.875rem 1rem !important;
+    }
+    .pg-kpi-value {
+        font-size: 1.8rem !important;
+    }
+
+    /* Chips: texto más pequeño */
+    .reto-chip {
+        font-size: 0.72rem !important;
+        padding: 3px 9px !important;
+    }
+
+    /* Hero (página Proyecto ReTo) */
+    .reto-hero {
+        padding: 1.5rem 1rem !important;
+    }
+    .reto-hero h1 {
+        font-size: 1.6rem !important;
+    }
+
+    /* Botones de descarga: ancho completo en mobile */
+    [data-testid="stDownloadButton"] > button {
+        width: 100% !important;
+        justify-content: center !important;
+    }
+
+    /* Download panel */
+    .reto-download-panel {
+        padding: 0.75rem !important;
+    }
+
+    /* Tablas: scroll horizontal controlado */
+    [data-testid="stDataFrame"] {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+    }
+
+    /* Expanders */
+    [data-testid="stExpander"] summary {
+        font-size: 0.9rem !important;
+    }
+}
+
+@media (max-width: 480px) {
+    /* Mobile puro: ajustes más agresivos */
+    .block-container {
+        padding: 0.75rem 0.5rem 2rem 0.5rem !important;
+    }
+
+    .reto-section-header h1 {
+        font-size: 1.25rem !important;
+    }
+
+    /* KPI values más compactos */
+    .pg-kpi-value {
+        font-size: 1.6rem !important;
+    }
+    .pg-kpi-label {
+        font-size: 0.75rem !important;
+    }
+
+    /* Ocultar subtítulos largos en hero */
+    .reto-hero .subtitle {
+        display: none !important;
+    }
+
+    /* Tabs: scroll horizontal si hay muchos */
+    [data-testid="stTabs"] [role="tablist"] {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        flex-wrap: nowrap !important;
+    }
+    [data-testid="stTabs"] [role="tab"] {
+        white-space: nowrap !important;
+        font-size: 0.8rem !important;
+        padding: 6px 10px !important;
+    }
 }
 </style>
 """
@@ -1011,13 +1127,11 @@ _PLATFORM_ALIASES = {"x": ("x", "twitter"), "twitter": ("x", "twitter")}
 
 
 def _register_plotly_theme() -> None:
-    """Registra el template Plotly 'reto' con paleta y estilo unificados. Idempotente."""
+    """Registra el template Plotly 'reto' con paleta y estilo unificados."""
     if pio is None:
         return
-    if "reto" in pio.templates and pio.templates.default == "plotly_white+reto":
-        return
     template = go.layout.Template()
-    template.layout = dict(
+    template.layout = go.Layout(
         font=dict(family="Inter, -apple-system, sans-serif", size=13, color="#1A202C"),
         title=dict(
             font=dict(size=15, color="#1A202C", family="Inter"),
