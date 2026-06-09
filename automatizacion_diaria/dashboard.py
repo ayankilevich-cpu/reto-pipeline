@@ -148,6 +148,41 @@ html, body, [class*="css"], .stMarkdown, .stButton>button,
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
 }
 
+/* --- Selección de texto con color de marca --- */
+::selection {
+    background: rgba(31, 78, 121, 0.15) !important;
+    color: inherit !important;
+}
+::-moz-selection {
+    background: rgba(31, 78, 121, 0.15) !important;
+    color: inherit !important;
+}
+
+/* --- Scrollbar personalizado (thin, branded) --- */
+::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: #CBD5E0;
+    border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #A0AEC0;
+}
+
+/* --- Cursor pointer en todos los elementos interactivos --- */
+button, [role="button"], label, [data-testid="stRadio"] label,
+[data-baseweb="select"], [data-baseweb="tab"],
+[data-testid="stExpander"] summary,
+[data-testid="stCheckbox"] label,
+a, .reto-chip {
+    cursor: pointer !important;
+}
+
 /* --- Tipografía y jerarquía --- */
 h1 { font-weight: 700; letter-spacing: -0.02em; color: #1A202C; }
 h2 { font-weight: 600; letter-spacing: -0.015em; color: #1A202C; }
@@ -162,6 +197,16 @@ section[data-testid="stSidebar"] {
 section[data-testid="stSidebar"] > div,
 section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
     background-color: #F4F6F8 !important;
+}
+
+/* --- Logo sidebar: tamaño controlado y centrado --- */
+section[data-testid="stSidebar"] [data-testid="stImage"] img,
+section[data-testid="stSidebar"] .stImage img {
+    max-width: 140px !important;
+    width: 140px !important;
+    height: auto !important;
+    display: block !important;
+    margin: 0 auto 0.25rem auto !important;
 }
 section[data-testid="stSidebar"] .stButton>button {
     border-radius: 8px;
@@ -414,6 +459,18 @@ hr { border-color: #E2E8F0; margin: 1.2rem 0; }
 .stButton>button[kind="primary"]:hover {
     background: #2B6CB0;
     border-color: #2B6CB0;
+}
+/* Botones secundarios genéricos (ej. "Refrescar datos"): ghost style */
+.stButton>button[kind="secondary"] {
+    background: transparent !important;
+    color: #4A5568 !important;
+    border: 1px solid #CBD5E0 !important;
+    font-weight: 400 !important;
+}
+.stButton>button[kind="secondary"]:hover {
+    background: #F7FAFC !important;
+    border-color: #A0AEC0 !important;
+    color: #2D3748 !important;
 }
 
 /* --- Expander --- */
