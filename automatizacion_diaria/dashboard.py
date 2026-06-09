@@ -288,13 +288,31 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
 
 /* --- Dataframe mejorado --- */
 .stDataFrame thead tr th {
-    background: #F7FAFC !important;
-    color: #1A202C !important;
+    background: #1F4E79 !important;
+    color: #FFFFFF !important;
     font-weight: 600 !important;
-    border-bottom: 2px solid #E2E8F0 !important;
+    font-size: 0.8rem !important;
+    letter-spacing: 0.04em !important;
+    text-transform: uppercase !important;
+    border-bottom: 2px solid #1A3C5C !important;
+    padding: 8px 12px !important;
+}
+.stDataFrame tbody tr td {
+    border-bottom: 1px solid #EDF2F7 !important;
+    font-size: 0.875rem !important;
+    color: #2D3748 !important;
+}
+.stDataFrame tbody tr:nth-child(even) td {
+    background: #F8FAFC !important;
 }
 .stDataFrame tbody tr:hover td {
-    background: #EBF8FF !important;
+    background: #EBF4FF !important;
+}
+/* Scroll container sin sombra rara */
+.stDataFrame [data-testid="stDataFrameResizable"] {
+    border: 1px solid #E2E8F0 !important;
+    border-radius: 8px !important;
+    overflow: hidden !important;
 }
 
 /* --- Section header con barra de acento --- */
@@ -449,6 +467,33 @@ div[data-baseweb="notification"] {
 [data-testid="stCheckbox"] input:checked ~ div {
     background-color: #1F4E79 !important;
     border-color: #1F4E79 !important;
+}
+
+/* --- Botones de descarga (outline navy) --- */
+[data-testid="stDownloadButton"] > button {
+    background: transparent !important;
+    color: #1F4E79 !important;
+    border: 1.5px solid #1F4E79 !important;
+    font-weight: 500 !important;
+    font-size: 0.85rem !important;
+    padding: 6px 14px !important;
+    border-radius: 6px !important;
+    transition: background 0.15s ease, color 0.15s ease !important;
+}
+[data-testid="stDownloadButton"] > button:hover {
+    background: #EBF4FF !important;
+    color: #163D61 !important;
+    border-color: #163D61 !important;
+}
+
+/* --- Selectbox / multiselect borde más definido --- */
+[data-baseweb="select"] > div:first-child {
+    border-color: #CBD5E0 !important;
+    border-radius: 6px !important;
+    transition: border-color 0.15s ease !important;
+}
+[data-baseweb="select"]:hover > div:first-child {
+    border-color: #A0AEC0 !important;
 }
 
 /* --- Panel de descargas --- */
@@ -995,6 +1040,8 @@ def _register_plotly_theme() -> None:
             bordercolor="rgba(0,0,0,0)",
         ),
         margin=dict(l=40, r=24, t=48, b=44),
+        bargap=0.38,
+        bargroupgap=0.1,
         hoverlabel=dict(
             bgcolor="#1F4E79", bordercolor="#1F4E79",
             font=dict(color="white", family="Inter", size=12),
