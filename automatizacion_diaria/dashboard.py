@@ -581,6 +581,22 @@ footer, [data-testid="stFooter"] {
         max-width: 100% !important;
     }
 
+    /* Modebar de Plotly: ocultar en mobile (no es usable en táctil
+       y colisiona con el título del gráfico) */
+    .modebar-container,
+    .modebar,
+    [class*="modebar"] {
+        display: none !important;
+    }
+
+    /* Título del gráfico: más espacio y sin riesgo de solapamiento */
+    .gtitle, .g-gtitle text {
+        font-size: 13px !important;
+    }
+    .js-plotly-plot .plotly .svg-container {
+        overflow: visible !important;
+    }
+
     /* Section header: título más pequeño, menos padding */
     .reto-section-header {
         padding: 0.5rem 0.875rem !important;
@@ -1153,7 +1169,7 @@ def _register_plotly_theme() -> None:
             bgcolor="rgba(255,255,255,0)",
             bordercolor="rgba(0,0,0,0)",
         ),
-        margin=dict(l=40, r=24, t=48, b=44),
+        margin=dict(l=40, r=24, t=56, b=44),
         bargap=0.38,
         bargroupgap=0.1,
         hoverlabel=dict(
