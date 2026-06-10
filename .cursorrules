@@ -1,0 +1,50 @@
+# Cursor Rules — Proyecto ReTo
+
+## Archivo principal del dashboard
+- Fuente de verdad: `automatizacion_diaria/Diseñador Web Reto/dashboard_v3.py`
+- `dashboard_v2.py` está obsoleto — no modificar ni referenciar
+- NO usar `dashboard.py` de la raíz del Space HF como fuente
+
+## Deploy: SIEMPRE dos pasos
+
+Cuando el usuario pida commit/push de cambios en el dashboard, ejecutar AMBOS:
+
+### Paso 1 — GitHub
+```bash
+cd "/Users/alejandroyankilevich/Documents/MASTER DATA SCIENCE/Clases/RETO"
+git add "automatizacion_diaria/Diseñador Web Reto/dashboard_v3.py"
+git commit -m "<mensaje>"
+git push
+```
+
+### Paso 2 — HuggingFace
+```bash
+cd "/Users/alejandroyankilevich/Documents/MASTER DATA SCIENCE/Clases/RETO"
+./sync_hf.sh "<mismo mensaje>"
+```
+
+**Nunca hacer solo uno de los dos pasos.**
+Si el push a GitHub falla por divergencia: `git pull --rebase origin main` → `git push`
+
+## Repositorios
+
+| Repo | Carpeta | Remote |
+|------|---------|--------|
+| GitHub | `Clases/RETO/` | `github.com/ayankilevich-cpu/reto-pipeline` |
+| HuggingFace | `Clases/RETO/hf-space-temp/` | `huggingface.co/spaces/aleyanki13/proyectoreto` |
+
+El Space HF corre `hf-space-temp/automatizacion_diaria/dashboard.py` (Dockerfile).
+`sync_hf.sh` lo sincroniza automáticamente desde `dashboard_v3.py`.
+
+## Archivos que NO stagear en commits de GitHub
+- `hf-space-temp/**`
+- `.streamlit/config.toml` del Space
+
+## Base de datos
+- PostgreSQL Neon · base: `reto_db`
+- Conexión via `DATABASE_URL` en secrets de Streamlit/HF
+- Schema `raw` → admin/editor only · Schema `processed` → todos
+
+## Stack
+- Python + Streamlit · PostgreSQL (psycopg2) · Plotly · Pandas
+- Despliegue: Streamlit Cloud (admin/editor) + HuggingFace Docker (viewer público)
