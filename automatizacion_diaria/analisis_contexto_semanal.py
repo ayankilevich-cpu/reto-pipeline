@@ -167,7 +167,7 @@ def compute_week_stats(
     pct = round(odio / max(total, 1) * 100, 2)
     promedio_ref = round(float(avg_pct), 2)
     umbral_spike_pct = round(promedio_ref * SPIKE_THRESHOLD, 2)
-    es_spike = pct > umbral_spike_pct and total >= 300
+    es_spike = pct >= umbral_spike_pct and total >= 300
 
     cur.execute("""
         SELECT e.categoria_odio_pred, COUNT(*) as cnt
@@ -493,7 +493,7 @@ def save_week(conn, stats: Dict[str, Any], resumen: str, eventos: str):
             total_odio = EXCLUDED.total_odio,
             pct_odio = EXCLUDED.pct_odio,
             es_spike = (
-                EXCLUDED.pct_odio > COALESCE(
+                EXCLUDED.pct_odio >= COALESCE(
                     analisis_semanal.umbral_spike_pct, EXCLUDED.umbral_spike_pct
                 )
                 AND EXCLUDED.total_mensajes >= 300
