@@ -88,11 +88,30 @@ def generar_resumen_desde_stats(stats: Dict[str, Any]) -> str:
     lead_label = CATEGORIAS_DISPLAY.get(lead, lead or "sin categoría dominante")
     lead_pct = stats.get("categoria_lider_pct")
     spike = "sí" if stats.get("es_spike") else "no"
+    umbral = stats.get("umbral_spike_pct")
+    promedio_ref = stats.get("promedio_referencia_pct")
+
+    if stats.get("es_spike"):
+        spike_ctx = (
+            f"La alerta de spike semanal fue **{spike}** "
+            f"(umbral: {umbral}%, promedio de referencia: {promedio_ref}%)."
+        )
+    elif umbral and pct and float(pct) >= float(umbral) * 0.85:
+        pct_del_umbral = round(float(pct) / float(umbral) * 100)
+        spike_ctx = (
+            f"La alerta de spike semanal fue **{spike}**, aunque el porcentaje de odio "
+            f"({pct}%) alcanzó el {pct_del_umbral}% del umbral de alerta ({umbral}%)."
+        )
+    else:
+        spike_ctx = (
+            f"La alerta de spike semanal fue **{spike}** "
+            f"(umbral configurado: {umbral}%)."
+        )
 
     partes = [
         f"Entre el {ini} y el {fin} se monitorizaron **{total:,}** mensajes en medios; "
         f"**{odio:,}** fueron clasificados como odio (**{pct}%** del volumen). "
-        f"La alerta de spike semanal fue **{spike}**.",
+        f"{spike_ctx}",
     ]
 
     if lead and lead_pct is not None:
@@ -156,11 +175,21 @@ def generar_eventos_desde_stats(stats: Dict[str, Any]) -> str:
         )
         n += 1
 
+    umbral_ev = stats.get("umbral_spike_pct")
+    pct_ev = float(stats.get("pct_odio") or 0)
+    prom_ev = stats.get("promedio_referencia_pct")
+
     if stats.get("es_spike"):
         items.append(
             f"{n}. Semana por encima del umbral de spike "
-            f"({stats.get('umbral_spike_pct')}% vs promedio histórico "
-            f"{stats.get('promedio_referencia_pct')}% en semanas previas)."
+            f"({umbral_ev}% vs promedio histórico {prom_ev}% en semanas previas)."
+        )
+    elif umbral_ev and pct_ev >= float(umbral_ev) * 0.85:
+        pct_rel = round(pct_ev / float(umbral_ev) * 100)
+        items.append(
+            f"{n}. Semana próxima al umbral de spike: **{pct_ev}%** de odio "
+            f"equivale al {pct_rel}% del umbral de alerta "
+            f"({umbral_ev}%; promedio histórico {prom_ev}%)."
         )
 
     return "\n".join(items) if items else ""
