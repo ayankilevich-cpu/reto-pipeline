@@ -3976,10 +3976,10 @@ def render_analisis_contextual():
         um = row.get("umbral_spike_pct")
         if um is not None and not (isinstance(um, float) and pd.isna(um)):
             try:
-                return pct > float(um)
+                return pct >= float(um)
             except (TypeError, ValueError):
                 pass
-        return pct > spike_threshold
+        return pct >= spike_threshold
 
     st.markdown(
         f"Las **líneas horizontales** muestran el **contexto vigente** al cargar la página: promedio "
@@ -4068,8 +4068,9 @@ def render_analisis_contextual():
     )
     fig_timeline.add_hline(
         y=spike_threshold, line_dash="dot", line_color=COLORS["danger"],
-        annotation_text=f"Umbral alerta: >{spike_threshold:.1f}%",
-        annotation_position="top right",
+        annotation_text=f"Umbral alerta: >={spike_threshold:.1f}%",
+        annotation_position="top left",
+        annotation=dict(font=dict(size=11, color=COLORS["danger"]), bgcolor="white", borderpad=3, yshift=8),
     )
     fig_timeline.update_layout(
         height=420,
@@ -4191,7 +4192,7 @@ def render_analisis_contextual():
     k1.metric("Total mensajes", f"{int(row['total_mensajes']):,}")
     k2.metric("Mensajes de odio", f"{int(row['total_odio']):,}")
     k3.metric("% Odio", f"{row['pct_odio']}%")
-    alerta_label = "Sí ⚠️" if _alerta_spike_segun_cierre(row) else "No"
+    alerta_label = "Sí ⚠️" if bool(row.get("es_spike")) else "No"
     k4.metric("Alerta", alerta_label)
 
     st.markdown("---")
