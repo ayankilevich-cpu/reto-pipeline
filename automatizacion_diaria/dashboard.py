@@ -1429,16 +1429,48 @@ _RESTRICTED_SECTIONS: Dict[str, set] = {
 
 _ROLE_DISPLAY = {"admin": "Administrador", "editor": "Editor", "viewer": "Visualización"}
 
+# ── Hashing de contraseñas ──────────────────────────────────────────────────
+# Las contraseñas en st.secrets pueden almacenarse como:
+#   • plain text (legado): se comparan directamente y se muestra aviso al admin.
+#   • hash pbkdf2: formato "pbkdf2:<iterations>:<hex_salt>:<hex_hash>"
+#     Generá el hash con: _hash_password("mi_contraseña")
+# ──────────────────────────────────────────────────────────────────────────────
+import hashlib as _hashlib
+import os as _os_auth
+import binascii as _binascii
 
-_FALLBACK_USERS: Dict[str, Dict[str, str]] = {
-    "Admin": {"password": "2026", "role": "admin"},
-    "Reto": {"password": "2026", "role": "editor"},
-    "usuario1": {"password": "2026", "role": "viewer"},
-}
+
+def _hash_password(plain: str, iterations: int = 260_000) -> str:
+    """Devuelve un hash pbkdf2_hmac listo para almacenar en st.secrets."""
+    salt = _os_auth.urandom(16)
+    dk = _hashlib.pbkdf2_hmac("sha256", plain.encode("utf-8"), salt, iterations)
+    return f"pbkdf2:{iterations}:{_binascii.hexlify(salt).decode()}:{_binascii.hexlify(dk).decode()}"
+
+
+def _verify_password(plain: str, stored: str) -> bool:
+    """Verifica contraseña contra hash pbkdf2 o texto plano (legado)."""
+    if stored.startswith("pbkdf2:"):
+        try:
+            _, iters_str, salt_hex, hash_hex = stored.split(":")
+            iters = int(iters_str)
+            salt = _binascii.unhexlify(salt_hex)
+            expected = _binascii.unhexlify(hash_hex)
+            actual = _hashlib.pbkdf2_hmac("sha256", plain.encode("utf-8"), salt, iters)
+            # Comparación de tiempo constante para evitar timing attacks
+            return _hashlib.compare_digest(actual, expected)
+        except Exception:
+            return False
+    # Legado: plain text — funcional pero inseguro; se mostrará aviso al admin
+    return stored == plain
+
+
+# Sin fallback hardcoded: si no hay secrets configurados, el acceso admin/editor
+# queda bloqueado por diseño (el viewer público sigue funcionando sin login).
+_NO_FALLBACK_USERS: Dict[str, Dict[str, str]] = {}
 
 
 def _load_users() -> Dict[str, Dict[str, str]]:
-    """Lee credenciales de st.secrets['users'], con fallback hardcoded."""
+    """Lee credenciales de st.secrets['users']. Sin fallback hardcoded en producción."""
     try:
         users_section = st.secrets["users"]
         return {
@@ -1446,11 +1478,39 @@ def _load_users() -> Dict[str, Dict[str, str]]:
             for user, data in users_section.items()
         }
     except Exception:
-        return _FALLBACK_USERS
+        return _NO_FALLBACK_USERS
+
+
+def _users_have_plain_text_passwords() -> bool:
+    """True si alguna contraseña en secrets NO está hasheada (aviso para admin)."""
+    users = _load_users()
+    return any(not v["password"].startswith("pbkdf2:") for v in users.values())
+
+
+import time as _time
+
+# Configuración de seguridad del login
+_LOGIN_MAX_ATTEMPTS = 5        # intentos antes de bloqueo
+_LOGIN_LOCKOUT_SECONDS = 300   # 5 minutos de bloqueo
+_SESSION_TIMEOUT_HOURS = 8     # expiración de sesión admin/editor
 
 
 def _check_auth() -> bool:
-    """Asigna viewer por defecto; respeta _show_login_form para admin/editor."""
+    """Asigna viewer por defecto; respeta _show_login_form para admin/editor.
+    También expira sesiones admin/editor tras _SESSION_TIMEOUT_HOURS horas."""
+    # Verificar expiración de sesión para roles privilegiados
+    role = st.session_state.get("user_role")
+    if role in ("admin", "editor"):
+        login_ts = st.session_state.get("_login_timestamp", 0)
+        elapsed_hours = (_time.time() - login_ts) / 3600
+        if elapsed_hours > _SESSION_TIMEOUT_HOURS:
+            # Sesión expirada: limpiar y redirigir a login
+            for k in list(st.session_state.keys()):
+                del st.session_state[k]
+            st.session_state["_show_login_form"] = True
+            st.session_state["_session_expired"] = True
+            return False
+
     if st.session_state.get("_show_login_form"):
         return st.session_state.get("user_role") in ("admin", "editor")
     if st.session_state.get("user_role") not in _RESTRICTED_SECTIONS:
@@ -1460,7 +1520,7 @@ def _check_auth() -> bool:
 
 
 def _render_login():
-    """Pantalla de login."""
+    """Pantalla de login con rate limiting y soporte de contraseñas hasheadas."""
     st.markdown(
         "<h1 style='text-align:center;'>🛡️ ReTo — Dashboard</h1>",
         unsafe_allow_html=True,
@@ -1478,7 +1538,31 @@ def _render_login():
 
     st.markdown("---")
 
+    # Aviso de sesión expirada
+    if st.session_state.pop("_session_expired", False):
+        st.warning("Tu sesión expiró por inactividad. Volvé a iniciar sesión.")
+
+    # ── Rate limiting ─────────────────────────────────────────────────────────
+    failed_attempts = st.session_state.get("_login_failed_attempts", 0)
+    lockout_until = st.session_state.get("_login_lockout_until", 0)
+    now = _time.time()
+
+    if now < lockout_until:
+        remaining = int(lockout_until - now)
+        st.error(
+            f"Demasiados intentos fallidos. Intentá de nuevo en {remaining} segundos."
+        )
+        return
+    # ─────────────────────────────────────────────────────────────────────────
+
     users = _load_users()
+
+    if not users:
+        st.error("No hay credenciales configuradas en los secrets de este entorno.")
+        st.caption(
+            "Configurá `[users]` en Streamlit Secrets o en las variables de entorno del Space."
+        )
+        return
 
     _, col_login, _ = st.columns([1, 1, 1])
     with col_login:
@@ -1497,13 +1581,32 @@ def _render_login():
                 return
 
             user_data = users.get(username)
-            if user_data and user_data["password"] == password:
+            if user_data and _verify_password(password, user_data["password"]):
+                # Login exitoso: resetear contadores y registrar timestamp
+                st.session_state["_login_failed_attempts"] = 0
+                st.session_state["_login_lockout_until"] = 0
                 st.session_state["user_role"] = user_data["role"]
                 st.session_state["user_name"] = username
+                st.session_state["_login_timestamp"] = _time.time()
                 st.session_state["_show_login_form"] = False
                 st.rerun()
             else:
-                st.error("Usuario o contraseña incorrectos.")
+                # Incrementar contador de intentos fallidos
+                failed_attempts += 1
+                st.session_state["_login_failed_attempts"] = failed_attempts
+                remaining_attempts = _LOGIN_MAX_ATTEMPTS - failed_attempts
+                if failed_attempts >= _LOGIN_MAX_ATTEMPTS:
+                    st.session_state["_login_lockout_until"] = now + _LOGIN_LOCKOUT_SECONDS
+                    st.session_state["_login_failed_attempts"] = 0
+                    st.error(
+                        f"Demasiados intentos fallidos. "
+                        f"Acceso bloqueado por {_LOGIN_LOCKOUT_SECONDS // 60} minutos."
+                    )
+                else:
+                    st.error(
+                        f"Usuario o contraseña incorrectos. "
+                        f"Intentos restantes: {remaining_attempts}."
+                    )
 
 
 def _get_sections_for_role(role: str) -> List[str]:
@@ -2171,7 +2274,7 @@ def render_pipeline_status_banner(
     else:
         st.info(msg)
 
-    if state.get("desalineado") and st.session_state.get("role") == "admin":
+    if state.get("desalineado") and st.session_state.get("user_role") == "admin":
         st.caption("⚠️ Desalineación detectada: pipeline_runs legacy más antiguo/en error que pipeline_health cloud.")
 
 
@@ -2854,6 +2957,13 @@ def render_sidebar():
                     _icon = "⚪"
                 _cambios = "con cambios" if _last_run.get("changes_detected") else "sin cambios"
                 st.caption(f"{_icon} Última corrida: {_ts} ({_cambios})")
+
+            # Aviso de contraseñas en texto plano
+            if _users_have_plain_text_passwords():
+                st.warning(
+                    "⚠️ Contraseñas en texto plano detectadas en secrets. "
+                    "Actualizalas con hashes pbkdf2 usando `_hash_password('tu_contraseña')` desde la consola."
+                )
 
     eu_logo = _reto_asset_file("logos", "07_eu.png")
     if eu_logo is not None:
@@ -4070,7 +4180,12 @@ def render_analisis_contextual():
         y=spike_threshold, line_dash="dot", line_color=COLORS["danger"],
         annotation_text=f"Umbral alerta: >={spike_threshold:.1f}%",
         annotation_position="top left",
-        annotation=dict(font=dict(size=11, color=COLORS["danger"]), bgcolor="white", borderpad=3, yshift=8),
+        annotation=dict(
+            font=dict(size=11, color=COLORS["danger"]),
+            bgcolor="white",
+            borderpad=3,
+            yshift=8,
+        ),
     )
     fig_timeline.update_layout(
         height=420,
@@ -4356,7 +4471,21 @@ def render_analisis_contextual():
     )
 
 
+def _require_role(*allowed_roles: str, section: str = "esta sección") -> bool:
+    """Guard de acceso: detiene el renderer si el rol no está autorizado.
+    Devuelve True si el acceso está permitido, False si no."""
+    role = st.session_state.get("user_role")
+    if role not in allowed_roles:
+        st.error(f"No tenés permisos para acceder a {section}.")
+        st.info("Si creés que es un error, iniciá sesión con las credenciales correctas.")
+        st.stop()
+        return False
+    return True
+
+
 def render_comparativa():
+    if not _require_role("admin", "editor", section="Comparativa modelos"):
+        return
     _render_section_header(
         "Comparativa: Baseline vs LLM",
         "Concordancia entre el modelo baseline (TF-IDF + LogReg) y el etiquetado LLM.",
@@ -4536,6 +4665,8 @@ def _render_calidad_llm_cobertura(cobertura_df: pd.DataFrame, platform_key: Opti
 
 
 def render_calidad_llm():
+    if not _require_role("admin", "editor", section="Calidad LLM"):
+        return
     _render_section_header(
         "Calidad del etiquetado LLM",
         "Comparación entre la clasificación del LLM y la validación humana.",
@@ -6539,7 +6670,7 @@ def _render_art510_preview(sel_platforms, sel_sources):
     api_key = _get_openai_api_key()
 
     if api_key:
-        st.caption(f"API key detectada (***{api_key[-4:]})")
+        st.caption("API key de OpenAI configurada ✓")
     else:
         st.warning(
             "No se encontró la API key en secrets. "
@@ -7302,6 +7433,8 @@ def _render_art510_full(summary, sel_platforms, sel_sources, solo_delitos):
 
 def render_analisis_art510():
     """Sección 7: Análisis de mensajes bajo el Art. 510.1 del Código Penal."""
+    if not _require_role("admin", "editor", section="Análisis Art. 510"):
+        return
     # Asegurar que las tablas existan antes de cualquier consulta
     _art510_ensure_tables()
 
@@ -8213,6 +8346,34 @@ def _load_annotation_kpis(annotator_id: str, period: str = "day") -> dict:
     }
 
 
+def _stratified_split(target_ratio: float = 0.85) -> str:
+    """Asigna split TRAIN/TEST de forma estratificada consultando el ratio actual en gold_dataset.
+
+    Si el ratio actual de TRAIN < target_ratio → asigna TRAIN (para reequilibrar).
+    Si ya está en target o más → asigna TEST.
+    Con fallback a asignación aleatoria si la consulta falla.
+    """
+    import random
+    try:
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT
+                    SUM(CASE WHEN split = 'TRAIN' THEN 1 ELSE 0 END) AS n_train,
+                    COUNT(*) AS n_total
+                FROM processed.gold_dataset
+            """)
+            row = cur.fetchone()
+            cur.close()
+        if row and row[1] and row[1] > 0:
+            current_train_ratio = (row[0] or 0) / row[1]
+            return "TRAIN" if current_train_ratio < target_ratio else "TEST"
+    except Exception:
+        pass
+    # Fallback aleatorio si la consulta falla
+    return "TRAIN" if random.random() < target_ratio else "TEST"
+
+
 def _save_annotation(
     message_uuid: str,
     odio_flag: Optional[bool],
@@ -8238,7 +8399,7 @@ def _save_annotation(
     categoria_save = _categoria_odio_for_save(odio_flag, categoria_odio)
     y_categoria = categoria_save
     y_intensidad = intensidad if odio_flag else None
-    split_val = "TRAIN" if random.random() < 0.85 else "TEST"
+    split_val = _stratified_split(target_ratio=0.85)
 
     try:
         with get_conn() as conn:
@@ -8302,6 +8463,8 @@ def _save_annotation(
 
             cur.close()
 
+        # Invalidar cache para que las vistas reflejen la anotación inmediatamente
+        st.cache_data.clear()
         return True
     except Exception as e:
         st.error(f"Error guardando anotación: {e}")
@@ -8438,6 +8601,8 @@ def _save_v510_validation(
                 comentario, annotator_id, date.today(),
             ))
             cur.close()
+        # Invalidar cache para reflejar la validación inmediatamente
+        st.cache_data.clear()
         return True
     except Exception as e:
         st.error(f"Error guardando validación Art. 510: {e}")
@@ -9213,7 +9378,7 @@ def _save_vllm_yt_validation(
 
     y_categoria = categoria_save
     y_intensidad = intensidad if odio_flag else None
-    split_val = "TRAIN" if random.random() < 0.85 else "TEST"
+    split_val = _stratified_split(target_ratio=0.85)
 
     try:
         with get_conn() as conn:
@@ -9255,6 +9420,8 @@ def _save_vllm_yt_validation(
 
             cur.close()
 
+        # Invalidar cache para reflejar la validación inmediatamente
+        st.cache_data.clear()
         return True
     except Exception as e:
         st.error(f"Error guardando validación LLM YT: {e}")
@@ -10168,6 +10335,8 @@ def _render_supervision_panel(period: str) -> None:
 
 def render_anotacion():
     """Sección de anotación humana: YouTube, Art. 510 y validación LLM (YT + X)."""
+    if not _require_role("admin", "editor", section="Anotación y validación"):
+        return
     _render_section_header(
         "Anotación y validación",
         "Anotación en YouTube, validación Art. 510 (X + YouTube) y control de calidad del etiquetado LLM.",
@@ -10190,18 +10359,31 @@ def render_anotacion():
         _render_supervision_panel(period)
         st.divider()
 
-    # --- Identificación del anotador (compartido entre tabs) ---
-    annotator = st.text_input(
-        "Nombre / ID de anotador",
-        value=st.session_state.get("annotator_id", ""),
-        placeholder="Ej: CIEDES, Anotador1...",
-        key="ann_id_input",
-    )
-    if annotator:
-        st.session_state["annotator_id"] = annotator.strip()
+    # --- Identificación del anotador (derivada del usuario autenticado) ---
+    # El annotator_id se fija a partir de la sesión autenticada para garantizar
+    # la integridad de la autoría en el gold dataset.
+    # Los admin pueden sobreescribirlo (para anotar en nombre de otro usuario).
+    session_user = st.session_state.get("user_name", "")
+    user_role = st.session_state.get("user_role")
+
+    if user_role == "admin":
+        annotator = st.text_input(
+            "Nombre / ID de anotador",
+            value=st.session_state.get("annotator_id", session_user),
+            placeholder="Ej: CIEDES, Anotador1...",
+            key="ann_id_input",
+            help="Admin: podés cambiar el ID para anotar en nombre de otro anotador.",
+        )
+        if annotator:
+            st.session_state["annotator_id"] = annotator.strip()
+    else:
+        # Editor: annotator_id fijo al usuario de sesión (no editable)
+        annotator = session_user
+        st.session_state["annotator_id"] = session_user
+        st.caption(f"Anotando como: **{session_user}**")
 
     if not annotator.strip():
-        st.info("Ingresa tu nombre de anotador para comenzar.")
+        st.info("No se pudo determinar tu ID de anotador. Iniciá sesión nuevamente.")
         return
 
     # --- Tabs ---
@@ -11298,32 +11480,24 @@ def _ensure_db_connection() -> bool:
         return True
     if st.session_state.get("_db_ok") is False:
         return False
+
+    is_admin = st.session_state.get("user_role") == "admin"
+
     if not postgres_configured():
         st.session_state["_db_ok"] = False
-        st.error(
-            "No se detectaron credenciales PostgreSQL en este Space."
-        )
-        st.markdown(
-            """
-En **Hugging Face Docker** los secrets son **variables de entorno**, no un archivo TOML con `[postgres]`.
+        st.error("No se pudo establecer conexión con la base de datos.")
+        if is_admin:
+            st.markdown(
+                """
+**[Admin]** No se detectaron credenciales PostgreSQL.
 
-**Opción recomendada (un solo secret):**
-
-1. Settings → Secrets → secret **`DATABASE_URL`**
-2. Valor (una línea, desde Neon):
-
-`postgresql://usuario:contraseña@ep-xxxx.neon.tech/reto_db?sslmode=require`
-
-**O** reemplazá el secret `postgres` por la misma URL en una sola línea (sin cabecera `[postgres]`).
-
-**Opción B:** varios secrets: `POSTGRES_HOST`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DBNAME`, `POSTGRES_SSLMODE=require`.
-            """
-        )
+En **Hugging Face Docker** configurá los secrets como variables de entorno:
+- Opción A (recomendada): secret `DATABASE_URL` con la URL completa de Neon.
+- Opción B: secrets `POSTGRES_HOST`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DBNAME`, `POSTGRES_SSLMODE=require`.
+                """
+            )
         return False
     try:
-        params = get_connection_params()
-        dbname = params.get("dbname", "?")
-        db_user = params.get("user", "?")
         access_raw = _role_can_access_raw()
         probe_table = "raw.mensajes" if access_raw else "processed.mensajes"
         schema_ok = False
@@ -11345,43 +11519,31 @@ En **Hugging Face Docker** los secrets son **variables de entorno**, no un archi
                         raise
         if perm_denied:
             st.session_state["_db_ok"] = False
-            st.error(
-                f"El usuario `{db_user}` no tiene permiso de lectura sobre `{probe_table}`."
-            )
-            st.markdown(
-                f"""
-El rol de **visualización** (`analista_01` en Hugging Face) **no debe acceder a `raw`**.
-Solo necesita lectura en **`processed`** y **`delitos`**.
-
-En Neon → SQL Editor (como `neondb_owner`), ejecutá:
-
-```sql
-GRANT USAGE ON SCHEMA processed TO analista_01;
-GRANT SELECT ON ALL TABLES IN SCHEMA processed TO analista_01;
-GRANT USAGE ON SCHEMA delitos TO analista_01;
-GRANT SELECT ON ALL TABLES IN SCHEMA delitos TO analista_01;
-```
-
-Script completo: `automatizacion_diaria/migrations/grant_analista_01_viewer.sql`
-                """
-            )
+            st.error("El usuario de base de datos no tiene permisos suficientes para este perfil.")
+            if is_admin:
+                st.markdown(
+                    """
+**[Admin]** El usuario de BD configurado no tiene permisos de lectura sobre el esquema requerido.
+Revisá los GRANTs en Neon para el usuario de visualización.
+Script de referencia: `automatizacion_diaria/migrations/grant_analista_01_viewer.sql`
+                    """
+                )
             return False
         if not schema_ok:
             st.session_state["_db_ok"] = False
-            st.error(f"La base `{dbname}` no tiene la tabla `{probe_table}`.")
-            st.caption(
-                "Comprobá que `DATABASE_URL` apunte al proyecto Neon correcto (host `-pooler`, base `reto_db`)."
-            )
+            st.error("La base de datos no está configurada correctamente.")
+            if is_admin:
+                st.caption(
+                    "[Admin] Verificá que DATABASE_URL apunte al proyecto y base de datos correctos."
+                )
             return False
         st.session_state["_db_ok"] = True
         return True
     except Exception as exc:
         st.session_state["_db_ok"] = False
-        st.error(f"No se pudo conectar a PostgreSQL ({type(exc).__name__}): {exc}")
-        st.caption(
-            "Comprobá que Neon permita conexiones externas y que los secrets del Space "
-            "coincidan con los de Streamlit Cloud (misma base `reto_db`)."
-        )
+        st.error("No se pudo conectar a la base de datos. Intentá recargar la página.")
+        if is_admin:
+            st.caption(f"[Admin] Detalle técnico: {type(exc).__name__}")
         return False
 
 
