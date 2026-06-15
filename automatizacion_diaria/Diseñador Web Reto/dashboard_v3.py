@@ -330,6 +330,14 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
     background: #1F4E79 !important;
     height: 3px !important;
 }
+[data-baseweb="tab"][aria-selected="false"] {
+    color: #4A5568 !important;
+    background: transparent !important;
+}
+[data-baseweb="tab"][aria-selected="true"] {
+    color: #1F4E79 !important;
+    font-weight: 600;
+}
 
 /* --- Dataframe mejorado --- */
 .stDataFrame thead tr th {
@@ -437,10 +445,16 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
 }
 .pg-kpi-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    grid-template-columns: repeat(5, 1fr);
     gap: 0.85rem;
     margin: 0.35rem 0 1rem 0;
     width: 100%;
+}
+@media (max-width: 768px) { .pg-kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 480px) { .pg-kpi-grid { grid-template-columns: 1fr; } }
+[data-testid="stImage"] img {
+    max-width: 100% !important;
+    height: auto !important;
 }
 
 /* --- Separadores más sutiles --- */
@@ -1207,7 +1221,7 @@ def _register_plotly_theme() -> None:
     template.layout = go.Layout(
         font=dict(family="Inter, -apple-system, sans-serif", size=13, color="#1A202C"),
         title=dict(
-            font=dict(size=15, color="#1A202C", family="Inter"),
+            font=dict(size=15, color="#1F4E79", family="Inter"),
             x=0.0, xanchor="left", pad=dict(t=4, b=8),
         ),
         paper_bgcolor="#FFFFFF",
