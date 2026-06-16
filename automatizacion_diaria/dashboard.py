@@ -3862,6 +3862,8 @@ def render_ranking_medios():
             st.info("No hay datos de medios en X.")
         else:
             _render_ranking_simple(df_x, top_n, "x")
+            if _is_viewer():
+                st.caption("📅 Monitorización activa: lunes y jueves.")
 
     with tab_yt:
         if df_yt.empty:
@@ -4436,6 +4438,9 @@ def render_analisis_contextual():
                 st.info("Sin datos de intensidad.")
         else:
             st.info("Sin datos de intensidad.")
+
+    if _is_viewer():
+        st.caption("📅 Monitorización activa: lunes y jueves.")
 
     # --- Peak day ---
     if row.get("dia_pico"):
