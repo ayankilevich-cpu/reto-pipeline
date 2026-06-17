@@ -72,7 +72,8 @@ jobs:
           mkdir -p Medios/ML/etiquetado_llm/outputs
 
       - name: Restaurar caché de estado anterior
-        uses: actions/cache@v4
+        id: cache-restore
+        uses: actions/cache/restore@v4
         with:
           path: |
             Medios/ML/etiquetado_llm/outputs
@@ -164,6 +165,24 @@ jobs:
         continue-on-error: true
 
       # ── Validación de etapas críticas ────────────────────────────────────────
+      - name: Guardar caché de estado (siempre, incluso si healthcheck falla)
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            Medios/ML/etiquetado_llm/outputs
+            Medios/youtube_extract_state.json
+            Medios/youtube_hatemedia_comments_30d.csv
+            Medios/youtube_hatemedia_comments_30d_tagged_full.csv
+            X_Mensajes/data/raw/.drive_sync_state.json
+            X_Mensajes/data/raw/*.csv
+            X_Mensajes/data/master/*.csv
+            X_Mensajes/Anon/reto_x_master_anon.csv
+            Medios/x_manual_label_for_sheets_tagged.csv
+            Etiquetado_Modelos/x_manual_label_scored.csv
+            Etiquetado_Modelos/x_manual_label_scored_prioridad_alta.csv
+          key: reto-pipeline-data-${{ github.run_number }}
+
       - name: Validar etapas críticas
         id: critical_gate
         if: always()
