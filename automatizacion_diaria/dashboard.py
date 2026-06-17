@@ -2274,8 +2274,26 @@ def render_pipeline_status_banner(
     else:
         st.info(msg)
 
+    LEGACY_PIPELINE_RUNS_THRESHOLD_DAYS = 7
     if state.get("desalineado") and st.session_state.get("user_role") == "admin":
-        st.caption("⚠️ Desalineación detectada: pipeline_runs legacy más antiguo/en error que pipeline_health cloud.")
+        legacy = load_last_pipeline_run_legacy(pipeline_name=legacy_pipeline_name)
+        legacy_reciente = False
+        if legacy.get("exists"):
+            legacy_ts_raw = legacy.get("started_at")
+            if legacy_ts_raw is not None:
+                try:
+                    legacy_ts = pd.Timestamp(legacy_ts_raw)
+                    now = (
+                        pd.Timestamp.now(tz=legacy_ts.tzinfo)
+                        if legacy_ts.tzinfo is not None
+                        else pd.Timestamp.now()
+                    )
+                    age_days = (now - legacy_ts).total_seconds() / 86400.0
+                    legacy_reciente = age_days < LEGACY_PIPELINE_RUNS_THRESHOLD_DAYS
+                except Exception:
+                    legacy_reciente = False
+        if legacy_reciente:
+            st.caption("⚠️ Desalineación detectada: pipeline_runs legacy más antiguo/en error que pipeline_health cloud.")
 
 
 @st.cache_data(ttl=60)
