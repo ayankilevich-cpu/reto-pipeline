@@ -523,9 +523,8 @@ div[data-baseweb="notification"] {
     background: linear-gradient(90deg, #1F4E79, #4F81BD) !important;
 }
 
-/* --- Checkbox seleccionado con color primario --- */
-[data-testid="stCheckbox"] label span[aria-checked="true"],
-[data-testid="stCheckbox"] input:checked ~ div {
+/* --- Checkbox seleccionado con color primario (solo el recuadro, no el texto) --- */
+[data-testid="stCheckbox"] label span[aria-checked="true"] {
     background-color: #1F4E79 !important;
     border-color: #1F4E79 !important;
 }
