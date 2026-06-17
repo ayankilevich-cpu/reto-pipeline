@@ -526,6 +526,27 @@ div[data-baseweb="notification"] {
     border-color: #1F4E79 !important;
 }
 
+/* ── Checkboxes: legibles en dark mode del OS ── */
+[data-testid="stCheckbox"] {
+    background-color: transparent !important;
+}
+[data-testid="stCheckbox"] label {
+    color: #1a1a2e !important;
+    background-color: rgba(255, 255, 255, 0.92) !important;
+    padding: 2px 8px !important;
+    border-radius: 4px !important;
+}
+[data-testid="stCheckbox"] label p {
+    color: #1a1a2e !important;
+}
+/* Checkbox inline (en columnas y widgets) */
+.stCheckbox > label {
+    color: #1a1a2e !important;
+    background-color: rgba(255, 255, 255, 0.92) !important;
+    padding: 2px 8px !important;
+    border-radius: 4px !important;
+}
+
 /* --- Botones de descarga (outline navy) --- */
 [data-testid="stDownloadButton"] > button,
 [data-testid="stDownloadButton"] button[kind="secondary"],
