@@ -141,6 +141,10 @@ st.set_page_config(
 # ============================================================
 _GLOBAL_CSS = """
 <style>
+/* Forzar modo claro — evita que el dark mode del SO sobreescriba la UI */
+html {
+    color-scheme: only light !important;
+}
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 html, body, [class*="css"], .stMarkdown, .stButton>button,
