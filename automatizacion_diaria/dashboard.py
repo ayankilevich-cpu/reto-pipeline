@@ -2633,6 +2633,8 @@ def load_ranking_medios(
     platforms: Optional[Tuple] = None,
 ) -> pd.DataFrame:
     df = _load_ranking_medios_raw(min_msgs=100)
+    # Solo incluir medios de la lista maestra validada
+    df = df[df["source_media"].apply(lambda sm: _public_medio_label(sm) is not None)]
     if platforms:
         platforms_list = list(platforms)
         df = df[df["platform"].isin(platforms_list)]
