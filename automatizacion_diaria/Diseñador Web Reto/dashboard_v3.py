@@ -7938,6 +7938,13 @@ def render_delitos():
             labels={"grupo_edad": "Grupo de edad", "n_authors": "Nº autores", "year": "Año"},
             color_discrete_sequence=DELITOS_COLORS,
         )
+        years_presentes = sorted(age_agg["year"].unique())
+        fig_age.update_coloraxes(
+            colorbar=dict(
+                tickvals=years_presentes,
+                ticktext=[str(y) for y in years_presentes],
+            )
+        )
         fig_age.update_layout(height=450)
         st.plotly_chart(fig_age, use_container_width=True)
 
