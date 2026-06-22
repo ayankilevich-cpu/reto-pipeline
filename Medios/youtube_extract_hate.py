@@ -1,4 +1,5 @@
 import os
+import sys
 import pandas as pd
 import unicodedata
 import yaml
@@ -403,15 +404,39 @@ def comment_has_hate(text, term_patterns):
     return matches
 
 
-def is_quota_exceeded(error):
-    """Verifica si un HttpError es por cuota excedida."""
+def classify_quota_error(error):
+    """
+    Clasifica un HttpError de la YouTube Data API según el tipo de límite.
+
+    Devuelve:
+      - "quota_exceeded" si la razón es "quotaExceeded"
+      - "rate_limit"     si la razón es "userRateLimitExceeded" o el status HTTP es 429
+      - None             si no es un error de cuota / rate-limit
+    """
     if not isinstance(error, HttpError):
-        return False
+        return None
+
+    # HTTP 429 (Too Many Requests) — puede venir sin error_details detallados
+    status = getattr(getattr(error, "resp", None), "status", None)
+    try:
+        if status is not None and int(status) == 429:
+            return "rate_limit"
+    except (TypeError, ValueError):
+        pass
+
     error_details = error.error_details if hasattr(error, "error_details") else []
     for detail in error_details:
-        if detail.get("reason") == "quotaExceeded":
-            return True
-    return False
+        reason = detail.get("reason")
+        if reason == "quotaExceeded":
+            return "quota_exceeded"
+        if reason == "userRateLimitExceeded":
+            return "rate_limit"
+    return None
+
+
+def is_quota_exceeded(error):
+    """Verifica si un HttpError es por cuota excedida o rate-limit (incluye HTTP 429)."""
+    return classify_quota_error(error) is not None
 
 
 def load_state() -> dict:
@@ -514,6 +539,106 @@ def prepare_medios_list(medios_df, state: dict, randomize: bool = False):
 
 
 # ==========================================================
+# REGISTRO DE SALUD DEL PIPELINE (processed.pipeline_health)
+# ==========================================================
+
+def register_pipeline_health(failure_reason: str | None = None, error_message: str | None = None):
+    """
+    Registra el estado de la etapa 'yt_extract' en processed.pipeline_health.
+
+    Sigue el mismo patrón de escritura que automatizacion_diaria/healthcheck_pipeline.py:
+    asegura la tabla (CREATE TABLE IF NOT EXISTS) e inserta una fila vía db_utils.get_conn().
+
+    - platform          = 'youtube'
+    - critical_stage_ok = False si hubo error de cuota/rate-limit, True en caso normal
+    - failed_stages     = 'yt_extract' si hubo fallo de cuota, NULL en caso normal
+    - errors            = mensaje del error capturado si hubo fallo de cuota
+    """
+    try:
+        _auto_dir = str(
+            Path(os.getenv("PROJECT_ROOT", str(SCRIPT_DIR.parent))) / "automatizacion_diaria"
+        )
+        if _auto_dir not in sys.path:
+            sys.path.insert(0, _auto_dir)
+        from db_utils import get_conn  # type: ignore[import-not-found]
+    except Exception as e:
+        print(f"⚠️ No se pudo importar db_utils; se omite el registro en pipeline_health: {e}")
+        return
+
+    run_id = os.getenv("GITHUB_RUN_ID", "manual")
+    run_at = datetime.now(timezone.utc)
+    critical_stage_ok = failure_reason is None
+    failed_stages = "yt_extract" if failure_reason else None
+    errors_txt = error_message if failure_reason else None
+
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS processed.pipeline_health (
+                        id                        BIGSERIAL PRIMARY KEY,
+                        run_id                    VARCHAR(80) NOT NULL,
+                        run_at                    TIMESTAMPTZ NOT NULL,
+                        pipeline_name             VARCHAR(60) NOT NULL DEFAULT 'reto_pipeline_diario',
+                        platform                  VARCHAR(20) NOT NULL,
+                        last_ingested_at          TIMESTAMPTZ,
+                        hours_since_last_ingest   DOUBLE PRECISION,
+                        rows_new_window           INTEGER NOT NULL DEFAULT 0,
+                        stagnated                 BOOLEAN NOT NULL DEFAULT FALSE,
+                        critical_stage_ok         BOOLEAN NOT NULL DEFAULT TRUE,
+                        failed_stages             TEXT,
+                        warnings                  TEXT,
+                        errors                    TEXT,
+                        created_at                TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_pipeline_health_platform_run_at
+                    ON processed.pipeline_health (platform, run_at DESC);
+                    """
+                )
+                cur.execute(
+                    """
+                    INSERT INTO processed.pipeline_health (
+                        run_id,
+                        run_at,
+                        platform,
+                        last_ingested_at,
+                        hours_since_last_ingest,
+                        rows_new_window,
+                        stagnated,
+                        critical_stage_ok,
+                        failed_stages,
+                        warnings,
+                        errors
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                    """,
+                    (
+                        run_id,
+                        run_at,
+                        "youtube",
+                        None,
+                        None,
+                        0,
+                        False,
+                        critical_stage_ok,
+                        failed_stages,
+                        None,
+                        errors_txt,
+                    ),
+                )
+        print(
+            f"✓ Estado de yt_extract registrado en processed.pipeline_health "
+            f"(critical_stage_ok={critical_stage_ok}, failure_reason={failure_reason})."
+        )
+    except Exception as e:
+        print(f"⚠️ No se pudo registrar el estado en pipeline_health: {e}")
+
+
+# ==========================================================
 # EJECUCIÓN PRINCIPAL
 # ==========================================================
 
@@ -597,6 +722,8 @@ def main():
     all_rows = []
     seen = set()
     quota_exceeded = False
+    failure_reason = None      # "quota_exceeded" | "rate_limit" | None
+    failure_error_msg = None   # mensaje del HttpError capturado
     medios_processed = 0
     current_medio_index = start_index
 
@@ -625,10 +752,12 @@ def main():
 
                 print(f"channelId: {channel_id}")
             except HttpError as e:
-                if is_quota_exceeded(e):
-                    print("\n⚠️ Cuota diaria de YouTube API excedida.")
-                    print("Guardando datos parciales...")
+                reason = classify_quota_error(e)
+                if reason:
+                    print("⚠️ YouTube API quota exceeded. Registrando en pipeline_health y saliendo limpiamente.")
                     quota_exceeded = True
+                    failure_reason = reason
+                    failure_error_msg = str(e)
                     break
                 raise
 
@@ -639,10 +768,12 @@ def main():
                 videos = get_recent_videos(channel_id, youtube, published_after_iso)
                 print(f"Vídeos recientes: {len(videos)}")
             except HttpError as e:
-                if is_quota_exceeded(e):
-                    print("\n⚠️ Cuota diaria de YouTube API excedida.")
-                    print("Guardando datos parciales...")
+                reason = classify_quota_error(e)
+                if reason:
+                    print("⚠️ YouTube API quota exceeded. Registrando en pipeline_health y saliendo limpiamente.")
                     quota_exceeded = True
+                    failure_reason = reason
+                    failure_error_msg = str(e)
                     break
                 raise
 
@@ -655,10 +786,12 @@ def main():
                 try:
                     comments = get_comments(vid["video_id"], youtube)
                 except HttpError as e:
-                    if is_quota_exceeded(e):
-                        print("\n⚠️ Cuota diaria de YouTube API excedida.")
-                        print("Guardando datos parciales...")
+                    reason = classify_quota_error(e)
+                    if reason:
+                        print("⚠️ YouTube API quota exceeded. Registrando en pipeline_health y saliendo limpiamente.")
                         quota_exceeded = True
+                        failure_reason = reason
+                        failure_error_msg = str(e)
                         break
                     
                     error_details = e.error_details if hasattr(e, "error_details") else []
@@ -712,11 +845,13 @@ def main():
             if quota_exceeded:
                 break
     except HttpError as e:
-        # Si es un error de API que no se capturó antes, verificar si es cuota
-        if is_quota_exceeded(e):
-            print("\n⚠️ Cuota diaria de YouTube API excedida.")
-            print("Guardando datos parciales...")
+        # Si es un error de API que no se capturó antes, verificar si es cuota / rate-limit
+        reason = classify_quota_error(e)
+        if reason:
+            print("⚠️ YouTube API quota exceeded. Registrando en pipeline_health y saliendo limpiamente.")
             quota_exceeded = True
+            failure_reason = reason
+            failure_error_msg = str(e)
         else:
             print(f"\n❌ Error de API: {e}")
             print("Guardando datos parciales...")
@@ -783,6 +918,10 @@ def main():
         if medios_processed == 0 and start_index > 0:
             # Si no se procesó ningún medio pero había un estado previo, mantenerlo
             pass
+
+    # Registrar el estado de la etapa yt_extract en processed.pipeline_health.
+    # Si hubo error de cuota/rate-limit -> critical_stage_ok=False; en caso normal -> exitoso.
+    register_pipeline_health(failure_reason=failure_reason, error_message=failure_error_msg)
 
 
 if __name__ == "__main__":

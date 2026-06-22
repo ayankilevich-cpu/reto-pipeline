@@ -47,10 +47,10 @@ jobs:
     steps:
       # ── Setup ───────────────────────────────────────────────────────────────
       - name: Checkout código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -73,7 +73,7 @@ jobs:
 
       - name: Restaurar caché de estado anterior
         id: cache-restore
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: |
             Medios/ML/etiquetado_llm/outputs
@@ -105,6 +105,8 @@ jobs:
       - name: "[1/9] YouTube — Extraer comentarios"
         id: yt_extract
         if: ${{ env.YOUTUBE_API_KEY != '' }}
+        env:
+          PYTHONUNBUFFERED: "1"
         run: python Medios/youtube_extract_hate.py
         continue-on-error: true
 
@@ -167,7 +169,7 @@ jobs:
       # ── Validación de etapas críticas ────────────────────────────────────────
       - name: Guardar caché de estado (siempre, incluso si healthcheck falla)
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: |
             Medios/ML/etiquetado_llm/outputs
