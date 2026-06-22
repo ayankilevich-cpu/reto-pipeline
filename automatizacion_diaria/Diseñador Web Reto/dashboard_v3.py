@@ -151,6 +151,9 @@ html, body, [class*="css"], .stMarkdown, .stButton>button,
 .stTextInput input, .stSelectbox, .stMultiSelect, [data-baseweb="tab"] {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
 }
+h1, h2, h3, .reto-section-header h1 {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+}
 
 /* --- Selección de texto con color de marca --- */
 ::selection {
@@ -445,6 +448,19 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
     gap: 0.85rem;
     margin: 0.35rem 0 1rem 0;
     width: 100%;
+}
+.pg-kpi-section-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #718096;
+    margin: 0.6rem 0 0.4rem 0;
+}
+/* Ranking: barras % Odio visibles y en rojo (coherente con gráfico de odio) */
+[data-testid="stDataFrame"] [data-testid="stProgressBar"] > div > div {
+    background-color: #C0392B !important;
+    min-width: 4px !important;
 }
 
 /* --- Separadores más sutiles --- */
@@ -1118,9 +1134,14 @@ def _render_section_header(title: str, subtitle_html: str = "") -> None:
     )
 
 
-def _render_pg_kpi_grid(cards: List[Tuple[str, str, str]]) -> None:
+def _render_pg_kpi_grid(
+    cards: List[Tuple[str, str, str]],
+    *,
+    secondary: bool = False,
+) -> None:
     """Renderiza KPIs del panel general como grid responsive de tarjetas HTML/CSS."""
     cards_html = []
+    card_style = ' style="opacity:0.75;"' if secondary else ""
     for label, value, delta in cards:
         d = (
             f'<div class="pg-kpi-delta">{html.escape(delta)}</div>'
@@ -1128,7 +1149,7 @@ def _render_pg_kpi_grid(cards: List[Tuple[str, str, str]]) -> None:
             else ""
         )
         cards_html.append(
-            '<div class="pg-kpi-card">'
+            f'<div class="pg-kpi-card"{card_style}>'
             f'<div class="pg-kpi-label">{html.escape(label)}</div>'
             f'<div class="pg-kpi-value">{html.escape(value)}</div>'
             f"{d}"
@@ -3148,110 +3169,26 @@ def render_panel_general():
     nuevos_x_ayer = kpis["nuevos_x_ayer"]
     nuevos_yt_ayer = kpis["nuevos_yt_ayer"]
 
-    st.markdown(f"""
-<style>
-.metric-grid {{
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 16px;
-    margin-bottom: 16px;
-}}
-.metric-card {{
-    background-color: #1B3A6B;
-    border-radius: 12px;
-    padding: 19px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    color: white;
-    text-align: center;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: 124px;
-    box-sizing: border-box;
-}}
-.metric-card .label {{
-    font-size: 13px;
-    font-weight: 400;
-    opacity: 0.85;
-    margin-bottom: 8px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}}
-.metric-card .value {{
-    font-size: 27px;
-    font-weight: 700;
-    line-height: 1;
-}}
-.metric-card .sub {{
-    font-size: 12px;
-    opacity: 0.7;
-    margin-top: 6px;
-    min-height: 14px;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}}
-.metric-card-secondary {{
-    background: rgba(27,58,107,0.65) !important;
-}}
-.metric-card-secondary .value {{
-    font-size: 1.5rem !important;
-}}
-.metric-subgrid-label {{
-    font-size: 0.72rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: #718096;
-    margin: 0.6rem 0 0.4rem 0;
-}}
-</style>
+    label_raw = "Mensajes totales (raw)" if _access_raw else "Mensajes procesados"
+    label_llm = "Etiquetados por IA" if not _access_raw else "Etiquetados por LLM"
 
-<div class="metric-grid">
-  <div class="metric-card">
-    <div class="label">{"Mensajes totales (raw)" if _access_raw else "Mensajes procesados"}</div>
-    <div class="value">{mensajes_totales:,}</div>
-  </div>
-  <div class="metric-card">
-    <div class="label">Candidatos a odio</div>
-    <div class="value">{candidatos_odio:,}</div>
-  </div>
-  <div class="metric-card">
-    <div class="label">{"Etiquetados por IA" if not _access_raw else "Etiquetados por LLM"}</div>
-    <div class="value">{etiquetados_llm:,}</div>
-  </div>
-  <div class="metric-card">
-    <div class="label">Mensajes validados</div>
-    <div class="value">{mensajes_validados:,}</div>
-    <div class="sub"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#C0392B;flex-shrink:0"></span>{mensajes_odio:,} odio</div>
-  </div>
-  <div class="metric-card">
-    <div class="label">Medios monitorizados</div>
-    <div class="value">{medios_monitorizados:,}</div>
-  </div>
-</div>
-
-<div class="metric-subgrid-label">Actividad reciente</div>
-<div class="metric-grid">
-  <div class="metric-card metric-card-secondary">
-    <div class="label">Nuevos X hoy</div>
-    <div class="value">{nuevos_x_hoy:,}</div>
-  </div>
-  <div class="metric-card metric-card-secondary">
-    <div class="label">Nuevos YouTube hoy</div>
-    <div class="value">{nuevos_yt_hoy:,}</div>
-  </div>
-  <div class="metric-card metric-card-secondary">
-    <div class="label">Nuevos X ayer</div>
-    <div class="value">{nuevos_x_ayer:,}</div>
-  </div>
-  <div class="metric-card metric-card-secondary">
-    <div class="label">Nuevos YouTube ayer</div>
-    <div class="value">{nuevos_yt_ayer:,}</div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
+    _render_pg_kpi_grid([
+        (label_raw, f"{mensajes_totales:,}", ""),
+        ("Candidatos a odio", f"{candidatos_odio:,}", ""),
+        (label_llm, f"{etiquetados_llm:,}", ""),
+        ("Mensajes validados", f"{mensajes_validados:,}", f"{mensajes_odio:,} odio"),
+        ("Medios monitorizados", f"{medios_monitorizados:,}", ""),
+    ])
+    st.markdown(
+        '<div class="pg-kpi-section-label">Actividad reciente</div>',
+        unsafe_allow_html=True,
+    )
+    _render_pg_kpi_grid([
+        ("Nuevos X hoy", f"{nuevos_x_hoy:,}", ""),
+        ("Nuevos YouTube hoy", f"{nuevos_yt_hoy:,}", ""),
+        ("Nuevos X ayer", f"{nuevos_x_ayer:,}", ""),
+        ("Nuevos YouTube ayer", f"{nuevos_yt_ayer:,}", ""),
+    ], secondary=True)
 
     st.markdown("---")
 
@@ -3745,6 +3682,7 @@ def _render_ranking_simple(df: pd.DataFrame, top_n: int, key_suffix: str):
             "Odio": st.column_config.NumberColumn("Odio", format="%d"),
             "% Odio": st.column_config.ProgressColumn(
                 "% Odio", format="%.1f%%", min_value=0, max_value=100,
+                color=COLORS["danger"],
             ),
         }
     except Exception:
@@ -4331,7 +4269,7 @@ def render_analisis_contextual():
         xaxis=dict(tickangle=-45, tickfont=dict(size=10)),
         margin=dict(b=80),
     )
-    if gap_sin_barra:
+    if gap_sin_barra and st.session_state.get("user_role") in ("admin", "editor"):
         fig_timeline.add_annotation(
             xref="paper",
             yref="paper",
@@ -4339,7 +4277,7 @@ def render_analisis_contextual():
             y=0.97,
             xanchor="right",
             yanchor="top",
-            text="Semana actual sin fila en BD — ejecutá analisis_contexto_semanal.py",
+            text="⚙️ Sin fila en BD esta semana — ejecutar analisis_contexto_semanal.py",
             showarrow=False,
             bgcolor="rgba(254, 249, 195, 0.95)",
             bordercolor=COLORS["current_week"],
@@ -4348,13 +4286,16 @@ def render_analisis_contextual():
         )
     st.plotly_chart(fig_timeline, use_container_width=True, key="ctx_timeline")
 
-    st.caption(
-        f"Amarillo = semana en curso (parcial; también si coincide el **lunes** calendario con la semana de hoy) · "
-        f"Rojo / azul = alerta (BD o % odio **>** umbral congelado y ≥300 msgs) · "
-        f"Líneas = promedio y umbral **vigentes** hoy ({avg_pct:.1f}% / {spike_threshold:.1f}%) · "
-        f"Solo semanas con {MIN_MSGS_CHART}+ mensajes · "
-        "Si falta el job semanal, puede no haber fila para la semana actual (aviso arriba)."
-    )
+    with st.expander("ℹ️ Cómo leer este gráfico"):
+        st.markdown(
+            f"""
+- 🔴 **Rojo**: semana con alerta (% odio ≥ umbral y ≥300 mensajes)
+- 🔵 **Azul**: semana normal
+- 🟡 **Amarillo**: semana en curso (parcial)
+- **Líneas**: promedio ({avg_pct:.1f}%) y umbral de alerta ({spike_threshold:.1f}%) vigentes al cargar la página
+- Solo se muestran semanas con ≥{MIN_MSGS_CHART} mensajes
+            """
+        )
 
     _tbl = df_chart.sort_values("semana_inicio").copy()
     _tiene_umbral_archivado = bool(
