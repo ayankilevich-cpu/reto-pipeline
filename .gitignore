@@ -108,5 +108,7 @@ Etiquetado_Modelos/*.csv
 Etiquetado_Modelos/*.xlsx
 
 # Archivos de trabajo de diseño (reglas IA, revisiones visuales, config local)
-automatizacion_diaria/Diseñador Web Reto/
+automatizacion_diaria/Diseñador Web Reto/*
+!automatizacion_diaria/Diseñador Web Reto/dashboard_v3.py
+!automatizacion_diaria/Diseñador Web Reto/dashboard_v2.py
 Medios/reto-pipeline/

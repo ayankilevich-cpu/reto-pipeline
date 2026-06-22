@@ -2633,6 +2633,8 @@ def load_ranking_medios(
     platforms: Optional[Tuple] = None,
 ) -> pd.DataFrame:
     df = _load_ranking_medios_raw(min_msgs=100)
+    # Solo incluir medios de la lista maestra validada
+    df = df[df["source_media"].apply(lambda sm: _public_medio_label(sm) is not None)]
     if platforms:
         platforms_list = list(platforms)
         df = df[df["platform"].isin(platforms_list)]
@@ -3021,6 +3023,92 @@ def render_sidebar():
 # ============================================================
 # SECTIONS
 # ============================================================
+@st.cache_data(ttl=3600)
+def load_gold_stats() -> dict:
+    with get_conn() as conn:
+        row = pd.read_sql("""
+            WITH llm_comparison AS (
+                SELECT
+                    g.message_uuid,
+                    UPPER(g.y_odio_final) != UPPER(e.clasificacion_principal)        AS corrigio_odio,
+                    g.y_categoria_final IS DISTINCT FROM e.categoria_odio_pred
+                        AND g.y_categoria_final IS NOT NULL                          AS corrigio_categoria,
+                    g.y_intensidad_final IS DISTINCT FROM NULLIF(e.intensidad_pred,'')::smallint
+                        AND g.y_intensidad_final IS NOT NULL                        AS corrigio_intensidad
+                FROM processed.gold_dataset g
+                JOIN processed.etiquetas_llm e USING (message_uuid)
+                WHERE g.label_source = 'llm_validated'
+                  AND g.y_odio_bin IS NOT NULL
+            )
+            SELECT
+                (SELECT COUNT(*) FROM processed.gold_dataset
+                 WHERE y_odio_bin IS NOT NULL)                    AS total_gold,
+                COUNT(*)                                          AS total_llm,
+                COUNT(*) FILTER (WHERE corrigio_odio)             AS n_corrigio_odio,
+                COUNT(*) FILTER (WHERE corrigio_categoria)        AS n_corrigio_categoria,
+                COUNT(*) FILTER (WHERE corrigio_intensidad
+                    AND corrigio_intensidad IS NOT NULL)          AS n_corrigio_intensidad,
+                COUNT(*) FILTER (WHERE corrigio_intensidad
+                    IS NOT NULL)                                  AS total_con_intensidad,
+                (SELECT MAX(ingested_at) FROM processed.gold_dataset) AS fecha_validacion
+            FROM llm_comparison
+        """, conn).iloc[0]
+
+    total_gold = int(row["total_gold"] or 0)
+    total_llm  = int(row["total_llm"]  or 0)
+    total_int  = int(row["total_con_intensidad"] or 0)
+
+    return {
+        "total_gold":              total_gold,
+        "total_llm":               total_llm,
+        "pct_concordancia_llm":    (1 - row["n_corrigio_odio"] / total_llm) * 100 if total_llm else None,
+        "pct_corrigio_odio":       (row["n_corrigio_odio"]      / total_llm) * 100 if total_llm else None,
+        "pct_corrigio_categoria":  (row["n_corrigio_categoria"]  / total_llm) * 100 if total_llm else None,
+        "pct_corrigio_intensidad": (row["n_corrigio_intensidad"] / total_int) * 100 if total_int else None,
+        "total_con_intensidad":    total_int,
+        "fecha_validacion":        row["fecha_validacion"],
+    }
+
+
+def _render_gold_dataset_card() -> None:
+    st.markdown("---")
+    st.subheader("📋 Gold Dataset")
+    try:
+        g = load_gold_stats()
+    except Exception:
+        st.warning("Gold dataset no disponible")
+        return
+    if not g or g["total_gold"] == 0:
+        st.warning("Gold dataset no disponible")
+        return
+
+    fecha_str = (
+        pd.Timestamp(g["fecha_validacion"]).strftime("%d/%m/%Y")
+        if g["fecha_validacion"] is not None else "—"
+    )
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total mensajes gold", f"{g['total_gold']:,}")
+    c2.metric("Etiquetados con LLM", f"{g['total_llm']:,}")
+    c3.metric("Última validación", fecha_str)
+
+    st.markdown("**Calidad del etiquetado LLM** *(sobre los 733 mensajes llm_validated)*")
+
+    c4, c5, c6, c7 = st.columns(4)
+    def fmt_pct(v):
+        return f"{v:.1f}%" if v is not None else "—"
+
+    c4.metric("Concordancia LLM",     fmt_pct(g["pct_concordancia_llm"]))
+    c5.metric("Corrección odio",      fmt_pct(g["pct_corrigio_odio"]))
+    c6.metric("Corrección categoría", fmt_pct(g["pct_corrigio_categoria"]))
+    c7.metric("Corrección intensidad",fmt_pct(g["pct_corrigio_intensidad"]))
+
+    st.caption(
+        f"Correcciones calculadas sobre {g['total_llm']:,} mensajes llm_validated · "
+        f"Corrección de intensidad sobre {g['total_con_intensidad']:,} con intensidad registrada"
+    )
+
+
 def render_panel_general():
     _render_section_header(
         "Panel general",
@@ -3325,6 +3413,10 @@ def render_panel_general():
                 {"title": "Intensidad promedio por categoría", "fig": fig_avg if "fig_avg" in locals() else None, "kind": "plotly"},
             ],
         )
+
+    # Tarjeta de rendimiento del modelo: solo admin (no viewer ni editor)
+    if st.session_state.get("user_role") == "admin":
+        _render_gold_dataset_card()
 
 
 @st.cache_data(ttl=300)
