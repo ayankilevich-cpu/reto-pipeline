@@ -92,3 +92,20 @@ X_Mensajes/Anon/reto_x_run_summary.json
 youtube_extract_state.json
 etiquetado_cache.json
 relevancia_cache.json
+
+# HF Space — repo git separado, no mezclar con reto-pipeline
+hf-space-temp/
+
+# daily.yml duplicado — la fuente real es .github/workflows/daily.yml
+automatizacion_diaria/daily.yml
+
+# Experimentos locales de reentrenamiento — no son parte del pipeline diario
+Etiquetado_Modelos/fase05_reentrenamiento/
+Etiquetado_Modelos/fase0_validacion_yt/
+
+# Datasets y outputs locales grandes
+Etiquetado_Modelos/*.csv
+Etiquetado_Modelos/*.xlsx
+
+# Archivos de trabajo de diseño (reglas IA, revisiones visuales, config local)
+automatizacion_diaria/Diseñador Web Reto/
