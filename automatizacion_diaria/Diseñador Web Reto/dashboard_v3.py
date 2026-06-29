@@ -627,7 +627,8 @@ div[data-baseweb="notification"] {
 
 /* --- KPI cards secundarias (actividad reciente) --- */
 .metric-card-secondary {
-    background: rgba(27,58,107,0.65) !important;
+    background-color: #1F4E79 !important;
+    opacity: 0.75;
 }
 .metric-card-secondary .value {
     font-size: 1.5rem !important;
@@ -1181,6 +1182,18 @@ COLORS = {
     "muted": "#95A5A6",
     "current_week": "#EAB308",
 }
+
+
+def _apply_horizontal_bar_labels(fig):
+    """Etiquetas fuera de barras cortas en gráficos horizontales."""
+    fig.update_traces(
+        textposition="outside",
+        cliponaxis=False,
+        textfont_size=11,
+    )
+    fig.update_layout(margin=dict(r=70))
+    return fig
+
 
 # Paleta fija por categoría de odio (orden estable, vinculada a las etiquetas visibles)
 # Mapea la LABEL visible (no la key interna) para funcionar con cualquier gráfico que use el label.
@@ -2610,11 +2623,17 @@ def _render_muestra_ultima_corrida_llm_section(*, key_suffix: str = "") -> None:
         _render_one_muestra_card(row)
 
 
-@st.cache_data(ttl=300)
-def _load_ranking_medios_raw(min_msgs: int = 100) -> pd.DataFrame:
+@st.cache_data(ttl=3600)
+def _load_ranking_medios_raw(min_msgs: int = 100, fecha_desde: Optional[str] = None, fecha_hasta: Optional[str] = None) -> pd.DataFrame:
     conds = ["pm.source_media IS NOT NULL AND pm.source_media != ''",
              "pm.source_media NOT IN %s"]
     params: list = [tuple(EXCLUDED_SOURCE_MEDIA)]
+    if fecha_desde:
+        conds.append("pm.created_at >= %s")
+        params.append(fecha_desde)
+    if fecha_hasta:
+        conds.append("pm.created_at <= %s")
+        params.append(fecha_hasta)
     where = " AND ".join(conds)
 
     with get_conn() as conn:
@@ -2649,11 +2668,13 @@ def _load_ranking_medios_raw(min_msgs: int = 100) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def load_ranking_medios(
     platforms: Optional[Tuple] = None,
+    fecha_desde: Optional[str] = None,
+    fecha_hasta: Optional[str] = None,
 ) -> pd.DataFrame:
-    df = _load_ranking_medios_raw(min_msgs=100)
+    df = _load_ranking_medios_raw(min_msgs=100, fecha_desde=fecha_desde, fecha_hasta=fecha_hasta)
     # Solo incluir medios de la lista maestra validada
     df = df[df["source_media"].apply(lambda sm: _public_medio_label(sm) is not None)]
     if platforms:
@@ -3147,9 +3168,11 @@ def render_panel_general():
     sel_platforms = fc1.multiselect(
         "Plataforma", opts["platforms"], default=[], key="pg_plat",
         format_func=platform_label,
+        placeholder="Todas las plataformas",
     )
     sel_medios = fc2.multiselect(
         "Medio", opts["medios"], default=[], key="pg_med",
+        placeholder="Todos los medios",
     )
 
     kpis = load_kpis(
@@ -3303,6 +3326,7 @@ def render_panel_general():
                     height=380, showlegend=False,
                     yaxis=dict(autorange="reversed"),
                 )
+                _apply_horizontal_bar_labels(fig_cat)
                 st.plotly_chart(fig_cat, use_container_width=True)
             else:
                 st.info("Sin datos de categoría.")
@@ -3333,6 +3357,7 @@ def render_panel_general():
                 height=380, yaxis=dict(autorange="reversed"),
                 coloraxis_colorbar=dict(title="Intensidad"),
             )
+            _apply_horizontal_bar_labels(fig_avg)
             st.plotly_chart(fig_avg, use_container_width=True)
 
         render_section_exports(
@@ -3522,12 +3547,15 @@ def render_categorias():
     sel_platforms = fc1.multiselect(
         "Plataforma", opts["platforms"], default=[], key="cat_plat",
         format_func=platform_label,
+        placeholder="Todas las plataformas",
     )
     sel_medios = fc2.multiselect(
         "Medio", opts["medios"], default=[], key="cat_med",
+        placeholder="Todos los medios",
     )
     sel_intensidades = fc3.multiselect(
         "Intensidad", opts["intensidades"], default=[], key="cat_int",
+        placeholder="Seleccionar…",
     )
 
     df = load_categorias(
@@ -3553,6 +3581,7 @@ def render_categorias():
             text_auto=True,
         )
         fig.update_layout(showlegend=False, height=400, yaxis=dict(autorange="reversed"))
+        _apply_horizontal_bar_labels(fig)
         st.plotly_chart(fig, use_container_width=True)
 
     with col2:
@@ -3578,7 +3607,7 @@ def render_categorias():
         format_func=lambda x: CATEGORIAS_LABELS.get(x, x),
         default=[],
         key="cat_int_filter",
-        placeholder="Todas",
+        placeholder="Todas las categorías",
     )
 
     df_int = load_intensidad_por_categoria(
@@ -3652,6 +3681,7 @@ def _render_ranking_simple(df: pd.DataFrame, top_n: int, key_suffix: str):
             height=chart_h, yaxis=dict(autorange="reversed"),
             showlegend=False, coloraxis_showscale=False,
         )
+        _apply_horizontal_bar_labels(fig1)
         st.plotly_chart(fig1, use_container_width=True, key=f"rm_vol_{key_suffix}")
 
     with col2:
@@ -3666,6 +3696,7 @@ def _render_ranking_simple(df: pd.DataFrame, top_n: int, key_suffix: str):
             height=chart_h, yaxis=dict(autorange="reversed"),
             showlegend=False, coloraxis_showscale=False,
         )
+        _apply_horizontal_bar_labels(fig2)
         st.plotly_chart(fig2, use_container_width=True, key=f"rm_pct_{key_suffix}")
 
     detail_cols = {
@@ -3823,6 +3854,7 @@ def _render_explorar_medio():
                 title="Top 15 medios reconocidos — Volumen (color = % Odio)",
             )
             fig.update_layout(height=500, yaxis=dict(autorange="reversed"))
+            _apply_horizontal_bar_labels(fig)
             st.plotly_chart(fig, use_container_width=True, key="explore_todos_chart")
         return
 
@@ -3903,9 +3935,18 @@ def render_ranking_medios():
         "Top 10 medios de comunicación por volumen de mensajes y porcentaje de odio.",
     )
 
+    col_fd, col_fh = st.columns(2)
+    with col_fd:
+        fecha_desde = st.date_input("Desde", value=None, key="ranking_fecha_desde")
+    with col_fh:
+        fecha_hasta = st.date_input("Hasta", value=None, key="ranking_fecha_hasta")
+
+    fd_str = fecha_desde.isoformat() if fecha_desde else None
+    fh_str = fecha_hasta.isoformat() if fecha_hasta else None
+
     top_n = 10
 
-    df_all = load_ranking_medios()
+    df_all = load_ranking_medios(fecha_desde=fd_str, fecha_hasta=fh_str)
     if df_all.empty:
         st.warning("No hay datos de medios.")
         return
@@ -3962,7 +4003,7 @@ def render_ranking_medios():
 # ============================================================
 # ANÁLISIS CONTEXTUAL SEMANAL
 # ============================================================
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=3600)
 def load_analisis_semanal() -> pd.DataFrame:
     with get_conn() as conn:
         df = pd.read_sql("""
@@ -4269,7 +4310,7 @@ def render_analisis_contextual():
         xaxis=dict(tickangle=-45, tickfont=dict(size=10)),
         margin=dict(b=80),
     )
-    if gap_sin_barra and st.session_state.get("user_role") in ("admin", "editor"):
+    if gap_sin_barra:
         fig_timeline.add_annotation(
             xref="paper",
             yref="paper",
@@ -4277,7 +4318,7 @@ def render_analisis_contextual():
             y=0.97,
             xanchor="right",
             yanchor="top",
-            text="⚙️ Sin fila en BD esta semana — ejecutar analisis_contexto_semanal.py",
+            text="Semana en curso — datos pendientes de cierre",
             showarrow=False,
             bgcolor="rgba(254, 249, 195, 0.95)",
             bordercolor=COLORS["current_week"],
@@ -4338,8 +4379,13 @@ def render_analisis_contextual():
         axis=1,
     )
 
+    def _estilo_alerta(val):
+        if val == "Sí":
+            return "background-color: #FEE2E2; color: #991B1B; font-weight: 600"
+        return "color: #6B7280"
+
     st.dataframe(
-        pd.DataFrame(_tab_cols),
+        pd.DataFrame(_tab_cols).style.map(_estilo_alerta, subset=["Alerta"]),
         use_container_width=True,
         hide_index=True,
         key="ctx_umbral_por_semana",
@@ -4432,6 +4478,7 @@ def render_analisis_contextual():
                 color="Mensajes", color_continuous_scale="Reds",
             )
             fig_cat.update_layout(height=300, showlegend=False, yaxis=dict(autorange="reversed"))
+            _apply_horizontal_bar_labels(fig_cat)
             st.plotly_chart(fig_cat, use_container_width=True, key="ctx_cats")
         else:
             st.info("Sin datos de categorías.")
@@ -4456,6 +4503,7 @@ def render_analisis_contextual():
                 color="Menciones", color_continuous_scale="Oranges",
             )
             fig_tgt.update_layout(height=300, showlegend=False, yaxis=dict(autorange="reversed"))
+            _apply_horizontal_bar_labels(fig_tgt)
             st.plotly_chart(fig_tgt, use_container_width=True, key="ctx_targets")
         else:
             st.info("Sin datos de targets.")
@@ -4479,6 +4527,7 @@ def render_analisis_contextual():
                 color="Menciones", color_continuous_scale="Blues",
             )
             fig_tema.update_layout(height=300, showlegend=False, yaxis=dict(autorange="reversed"))
+            _apply_horizontal_bar_labels(fig_tema)
             st.plotly_chart(fig_tema, use_container_width=True, key="ctx_temas")
         else:
             st.info("Sin datos de temas.")
@@ -4577,18 +4626,22 @@ def render_comparativa():
     sel_platforms = fc1.multiselect(
         "Plataforma", opts["platforms"], default=[], key="comp_plat",
         format_func=platform_label,
+        placeholder="Todas las plataformas",
     )
     sel_medios = fc2.multiselect(
         "Medio", opts["medios"], default=[], key="comp_med",
+        placeholder="Todos los medios",
     )
     sel_cats = fc3.multiselect(
         "Categoría LLM",
         options=list(CATEGORIAS_LABELS.keys()),
         format_func=lambda x: CATEGORIAS_LABELS.get(x, x),
         default=[], key="comp_cat",
+        placeholder="Todas las categorías",
     )
     sel_prio = fc4.multiselect(
         "Prioridad (baseline)", opts["prioridades"], default=[], key="comp_prio",
+        placeholder="Seleccionar…",
     )
 
     df = load_comparativa(
@@ -4665,6 +4718,7 @@ def render_comparativa():
                 title="% de acuerdo baseline-LLM por categoría (en mensajes ODIO del LLM)",
             )
             fig_cat.update_layout(height=350, yaxis=dict(autorange="reversed"))
+            _apply_horizontal_bar_labels(fig_cat)
             st.plotly_chart(fig_cat, use_container_width=True)
 
     render_section_exports(
@@ -4767,9 +4821,11 @@ def render_calidad_llm():
             options=list(CATEGORIAS_LABELS.keys()),
             format_func=lambda x: CATEGORIAS_LABELS.get(x, x),
             default=[], key="cal_cat",
+            placeholder="Todas las categorías",
         )
         sel_annot = fc_annot.multiselect(
             "Validador", annotators, default=[], key="cal_annot",
+            placeholder="Seleccionar…",
         )
     else:
         sel_cats, sel_annot = [], []
@@ -4883,6 +4939,7 @@ def render_calidad_llm():
                 title="Accuracy del LLM por categoría (vs validación humana)",
             )
             fig.update_layout(height=400, yaxis=dict(autorange="reversed"))
+            _apply_horizontal_bar_labels(fig)
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("No hay casos odio ∩ odio para calcular accuracy por categoría.")
@@ -4897,6 +4954,7 @@ def render_calidad_llm():
                 title="Accuracy del LLM por categoría (vs validación humana)",
             )
             fig.update_layout(height=350, yaxis=dict(autorange="reversed"))
+            _apply_horizontal_bar_labels(fig)
             st.plotly_chart(fig, use_container_width=True)
 
     if show_yt_errors:
@@ -4929,15 +4987,18 @@ def render_terminos():
     sel_platforms = fc1.multiselect(
         "Plataforma", opts["platforms"], default=[], key="term_plat",
         format_func=platform_label,
+        placeholder="Todas las plataformas",
     )
     sel_medios = fc2.multiselect(
         "Medio", opts["medios"], default=[], key="term_med",
+        placeholder="Todos los medios",
     )
     sel_cats = fc3.multiselect(
         "Categoría de odio",
         options=list(CATEGORIAS_LABELS.keys()),
         format_func=lambda x: CATEGORIAS_LABELS.get(x, x),
         default=[], key="term_cat",
+        placeholder="Todas las categorías",
     )
     PERIODO_OPTIONS = {"Todo": None, "24 hs": 24, "48 hs": 48, "72 hs": 72}
     sel_periodo = fc4.selectbox(
@@ -5024,6 +5085,7 @@ def render_terminos():
             title=f"Top {top_n} términos más frecuentes",
         )
         fig.update_layout(height=max(400, top_n * 22), yaxis=dict(autorange="reversed"), showlegend=False)
+        _apply_horizontal_bar_labels(fig)
         st.plotly_chart(fig, use_container_width=True)
 
     with col2:
@@ -5265,6 +5327,7 @@ def render_dataset_validado_guest() -> None:
             height=420, showlegend=False, yaxis=dict(autorange="reversed"),
             xaxis_title="Mensajes", yaxis_title="",
         )
+        _apply_horizontal_bar_labels(fig_cat)
         st.plotly_chart(fig_cat, use_container_width=True)
 
     st.markdown("---")
@@ -5429,28 +5492,28 @@ def render_gold_dataset():
     if role == "admin":
         col_f0, col_f1, col_f2, col_f3 = st.columns(4)
         with col_f0:
-            sel_platforms = st.multiselect("Plataforma", platforms, default=platforms, key="gold_plat")
+            sel_platforms = st.multiselect("Plataforma", platforms, default=platforms, key="gold_plat", placeholder="Todas las plataformas")
         with col_f1:
-            sel_splits = st.multiselect("Split", splits, default=splits, key="gold_split")
+            sel_splits = st.multiselect("Split", splits, default=splits, key="gold_split", placeholder="Seleccionar…")
         with col_f2:
-            sel_annotators = st.multiselect("Anotador", annotators, default=annotators, key="gold_annot")
+            sel_annotators = st.multiselect("Anotador", annotators, default=annotators, key="gold_annot", placeholder="Seleccionar…")
         with col_f3:
-            sel_labels = st.multiselect("Label final", labels, default=labels, key="gold_label")
+            sel_labels = st.multiselect("Label final", labels, default=labels, key="gold_label", placeholder="Seleccionar…")
     elif role == "editor":
         col_f0, col_f1, col_f2 = st.columns(3)
         with col_f0:
-            sel_platforms = st.multiselect("Plataforma", platforms, default=platforms, key="gold_plat")
+            sel_platforms = st.multiselect("Plataforma", platforms, default=platforms, key="gold_plat", placeholder="Todas las plataformas")
         with col_f1:
-            sel_annotators = st.multiselect("Anotador", annotators, default=annotators, key="gold_annot")
+            sel_annotators = st.multiselect("Anotador", annotators, default=annotators, key="gold_annot", placeholder="Seleccionar…")
         with col_f2:
-            sel_labels = st.multiselect("Label final", labels, default=labels, key="gold_label")
+            sel_labels = st.multiselect("Label final", labels, default=labels, key="gold_label", placeholder="Seleccionar…")
         sel_splits = splits
     else:
         col_f0, col_f1 = st.columns(2)
         with col_f0:
-            sel_platforms = st.multiselect("Plataforma", platforms, default=platforms, key="gold_plat")
+            sel_platforms = st.multiselect("Plataforma", platforms, default=platforms, key="gold_plat", placeholder="Todas las plataformas")
         with col_f1:
-            sel_labels = st.multiselect("Label final", labels, default=labels, key="gold_label")
+            sel_labels = st.multiselect("Label final", labels, default=labels, key="gold_label", placeholder="Seleccionar…")
         sel_splits = splits
         sel_annotators = annotators
 
@@ -5620,6 +5683,7 @@ def render_gold_dataset():
         fig_cat.update_layout(
             showlegend=False, height=400, yaxis=dict(autorange="reversed"),
         )
+        _apply_horizontal_bar_labels(fig_cat)
         st.plotly_chart(fig_cat, use_container_width=True)
 
     # ── 3. Distribución de intensidad ──
@@ -5702,6 +5766,7 @@ def render_gold_dataset():
                 height=380, yaxis=dict(autorange="reversed"),
                 coloraxis_colorbar=dict(title="Intensidad"),
             )
+            _apply_horizontal_bar_labels(fig_avg_gold)
             st.plotly_chart(fig_avg_gold, use_container_width=True)
     else:
         st.info("No hay casos de odio en la selección actual.")
@@ -7296,6 +7361,7 @@ def _render_art510_full(summary, sel_platforms, sel_sources, solo_delitos):
                 color_discrete_sequence=[COLORS["accent"]],
             )
             fig_gp.update_layout(height=400, yaxis=dict(autorange="reversed"))
+            _apply_horizontal_bar_labels(fig_gp)
             st.plotly_chart(fig_gp, use_container_width=True)
 
     # ── Vista agrupada: Plataforma x Fuente ──
@@ -7549,6 +7615,7 @@ def render_analisis_art510():
             format_func=lambda x: platforms_display[x],
             default=list(platforms_display.keys()),
             key="art510_plat",
+            placeholder="Todas las plataformas",
         )
 
     with col_f2:
@@ -7558,6 +7625,7 @@ def render_analisis_art510():
             format_func=lambda x: LABEL_SOURCE_LABELS[x],
             default=list(LABEL_SOURCE_LABELS.keys()),
             key="art510_source",
+            placeholder="Seleccionar…",
         )
 
     solo_delitos = False
@@ -7774,11 +7842,13 @@ def render_delitos():
     col_f1, col_f2 = st.columns(2)
     with col_f1:
         selected_years = st.multiselect(
-            "Años", years, default=years, key="delitos_years"
+            "Años", years, default=years, key="delitos_years",
+            placeholder="Seleccionar…",
         )
     with col_f2:
         selected_motives = st.multiselect(
-            "Motivos de odio", all_motives, default=all_motives, key="delitos_motives"
+            "Motivos de odio", all_motives, default=all_motives, key="delitos_motives",
+            placeholder="Seleccionar…",
         )
 
     if not selected_years or not selected_motives:
@@ -7946,6 +8016,7 @@ def render_delitos():
         height=450,
         legend=dict(orientation="h", yanchor="bottom", y=-0.2),
     )
+    _apply_horizontal_bar_labels(fig_solve)
     st.plotly_chart(fig_solve, use_container_width=True)
 
     # ── 4. Perfil de autores por edad ──
@@ -8019,6 +8090,7 @@ def render_delitos():
         height=450,
         legend=dict(orientation="h", yanchor="bottom", y=-0.2),
     )
+    _apply_horizontal_bar_labels(fig_sex)
     st.plotly_chart(fig_sex, use_container_width=True)
 
     # Porcentaje de mujeres por motivo
@@ -8061,6 +8133,7 @@ def render_delitos():
         yaxis=dict(categoryorder="total ascending"),
         legend=dict(orientation="h", yanchor="bottom", y=-0.2),
     )
+    _apply_horizontal_bar_labels(fig_pros)
     st.plotly_chart(fig_pros, use_container_width=True)
 
     # ── 7. Artículos del Código Penal más aplicados ──
@@ -8084,6 +8157,7 @@ def render_delitos():
             color_discrete_sequence=[COLORS["primary"]],
         )
         fig_art.update_layout(height=450, yaxis_title="")
+        _apply_horizontal_bar_labels(fig_art)
         st.plotly_chart(fig_art, use_container_width=True)
     elif not df_articles.empty:
         df_art_f = df_articles[df_articles["year"].isin(selected_years)]
@@ -8103,6 +8177,7 @@ def render_delitos():
                 color_discrete_sequence=[COLORS["primary"]],
             )
             fig_art.update_layout(height=450, yaxis_title="")
+            _apply_horizontal_bar_labels(fig_art)
             st.plotly_chart(fig_art, use_container_width=True)
         else:
             st.info("No hay datos de acusaciones por artículo para los años seleccionados.")
@@ -10816,6 +10891,34 @@ def render_proyecto():
         st.markdown("<br>", unsafe_allow_html=True)
         _render_proyecto_intro_con_imagen()
 
+    if _is_viewer():
+        with st.expander("ℹ️ Sobre esta plataforma"):
+            st.markdown(
+                """
+                **Alcance del análisis**
+                Esta plataforma monitoriza comentarios públicos en perfiles oficiales de medios
+                de comunicación andaluces en **X (Twitter)** y **YouTube**. No se accede a
+                información privada, mensajes directos ni perfiles personales.
+
+                **Metodología**
+                Los comentarios se clasifican mediante un sistema de inteligencia artificial (IA)
+                en 6 categorías de discurso de odio, validado con revisión humana experta.
+                Los resultados reflejan tendencias observadas, no un censo exhaustivo de todo
+                el contenido publicado en las plataformas.
+
+                **Limitaciones**
+                - La clasificación automática puede contener errores; los datos se revisan
+                  periódicamente por el equipo del proyecto.
+                - El volumen recogido depende de las cuotas de las APIs de cada plataforma.
+                - Los datos de X se actualizan los lunes y jueves; YouTube, con menor frecuencia.
+                - Esta herramienta es de uso investigador y no tiene valor probatorio legal.
+
+                **Proyecto**
+                ReTo es una iniciativa financiada por el programa CERV-2024-CHAR-LITI
+                de la Unión Europea. Más información en la sección *Proyecto ReTo*.
+                """
+            )
+
     _render_proyecto_consorcio_y_actividades()
 
     # --- Hero (sin repetir el título de página; ya está en la cabecera de sección) ---
@@ -11286,6 +11389,7 @@ def render_buscador_terminos() -> None:
             },
         )
     fig_medios.update_layout(height=520, margin=dict(l=160, t=20))
+    _apply_horizontal_bar_labels(fig_medios)
     st.plotly_chart(fig_medios, use_container_width=True)
 
     # 7) Distribución de categorías por medio (solo si filtro IA/LLM activo)

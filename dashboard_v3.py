@@ -151,6 +151,9 @@ html, body, [class*="css"], .stMarkdown, .stButton>button,
 .stTextInput input, .stSelectbox, .stMultiSelect, [data-baseweb="tab"] {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
 }
+h1, h2, h3, .reto-section-header h1 {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+}
 
 /* --- Selección de texto con color de marca --- */
 ::selection {
@@ -446,6 +449,19 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
     margin: 0.35rem 0 1rem 0;
     width: 100%;
 }
+.pg-kpi-section-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #718096;
+    margin: 0.6rem 0 0.4rem 0;
+}
+/* Ranking: barras % Odio visibles y en rojo (coherente con gráfico de odio) */
+[data-testid="stDataFrame"] [data-testid="stProgressBar"] > div > div {
+    background-color: #C0392B !important;
+    min-width: 4px !important;
+}
 
 /* --- Separadores más sutiles --- */
 hr { border-color: #E2E8F0; margin: 1.2rem 0; }
@@ -611,7 +627,8 @@ div[data-baseweb="notification"] {
 
 /* --- KPI cards secundarias (actividad reciente) --- */
 .metric-card-secondary {
-    background: rgba(27,58,107,0.65) !important;
+    background-color: #1F4E79 !important;
+    opacity: 0.75;
 }
 .metric-card-secondary .value {
     font-size: 1.5rem !important;
@@ -1118,9 +1135,14 @@ def _render_section_header(title: str, subtitle_html: str = "") -> None:
     )
 
 
-def _render_pg_kpi_grid(cards: List[Tuple[str, str, str]]) -> None:
+def _render_pg_kpi_grid(
+    cards: List[Tuple[str, str, str]],
+    *,
+    secondary: bool = False,
+) -> None:
     """Renderiza KPIs del panel general como grid responsive de tarjetas HTML/CSS."""
     cards_html = []
+    card_style = ' style="opacity:0.75;"' if secondary else ""
     for label, value, delta in cards:
         d = (
             f'<div class="pg-kpi-delta">{html.escape(delta)}</div>'
@@ -1128,7 +1150,7 @@ def _render_pg_kpi_grid(cards: List[Tuple[str, str, str]]) -> None:
             else ""
         )
         cards_html.append(
-            '<div class="pg-kpi-card">'
+            f'<div class="pg-kpi-card"{card_style}>'
             f'<div class="pg-kpi-label">{html.escape(label)}</div>'
             f'<div class="pg-kpi-value">{html.escape(value)}</div>'
             f"{d}"
@@ -1160,6 +1182,18 @@ COLORS = {
     "muted": "#95A5A6",
     "current_week": "#EAB308",
 }
+
+
+def _apply_horizontal_bar_labels(fig):
+    """Etiquetas fuera de barras cortas en gráficos horizontales."""
+    fig.update_traces(
+        textposition="outside",
+        cliponaxis=False,
+        textfont_size=11,
+    )
+    fig.update_layout(margin=dict(r=70))
+    return fig
+
 
 # Paleta fija por categoría de odio (orden estable, vinculada a las etiquetas visibles)
 # Mapea la LABEL visible (no la key interna) para funcionar con cualquier gráfico que use el label.
@@ -3134,9 +3168,11 @@ def render_panel_general():
     sel_platforms = fc1.multiselect(
         "Plataforma", opts["platforms"], default=[], key="pg_plat",
         format_func=platform_label,
+        placeholder="Todas las plataformas",
     )
     sel_medios = fc2.multiselect(
         "Medio", opts["medios"], default=[], key="pg_med",
+        placeholder="Todos los medios",
     )
 
     kpis = load_kpis(
@@ -3156,110 +3192,26 @@ def render_panel_general():
     nuevos_x_ayer = kpis["nuevos_x_ayer"]
     nuevos_yt_ayer = kpis["nuevos_yt_ayer"]
 
-    st.markdown(f"""
-<style>
-.metric-grid {{
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 16px;
-    margin-bottom: 16px;
-}}
-.metric-card {{
-    background-color: #1B3A6B;
-    border-radius: 12px;
-    padding: 19px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    color: white;
-    text-align: center;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: 124px;
-    box-sizing: border-box;
-}}
-.metric-card .label {{
-    font-size: 13px;
-    font-weight: 400;
-    opacity: 0.85;
-    margin-bottom: 8px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}}
-.metric-card .value {{
-    font-size: 27px;
-    font-weight: 700;
-    line-height: 1;
-}}
-.metric-card .sub {{
-    font-size: 12px;
-    opacity: 0.7;
-    margin-top: 6px;
-    min-height: 14px;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}}
-.metric-card-secondary {{
-    background: rgba(27,58,107,0.65) !important;
-}}
-.metric-card-secondary .value {{
-    font-size: 1.5rem !important;
-}}
-.metric-subgrid-label {{
-    font-size: 0.72rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: #718096;
-    margin: 0.6rem 0 0.4rem 0;
-}}
-</style>
+    label_raw = "Mensajes totales (raw)" if _access_raw else "Mensajes procesados"
+    label_llm = "Etiquetados por IA" if not _access_raw else "Etiquetados por LLM"
 
-<div class="metric-grid">
-  <div class="metric-card">
-    <div class="label">{"Mensajes totales (raw)" if _access_raw else "Mensajes procesados"}</div>
-    <div class="value">{mensajes_totales:,}</div>
-  </div>
-  <div class="metric-card">
-    <div class="label">Candidatos a odio</div>
-    <div class="value">{candidatos_odio:,}</div>
-  </div>
-  <div class="metric-card">
-    <div class="label">{"Etiquetados por IA" if not _access_raw else "Etiquetados por LLM"}</div>
-    <div class="value">{etiquetados_llm:,}</div>
-  </div>
-  <div class="metric-card">
-    <div class="label">Mensajes validados</div>
-    <div class="value">{mensajes_validados:,}</div>
-    <div class="sub"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#C0392B;flex-shrink:0"></span>{mensajes_odio:,} odio</div>
-  </div>
-  <div class="metric-card">
-    <div class="label">Medios monitorizados</div>
-    <div class="value">{medios_monitorizados:,}</div>
-  </div>
-</div>
-
-<div class="metric-subgrid-label">Actividad reciente</div>
-<div class="metric-grid">
-  <div class="metric-card metric-card-secondary">
-    <div class="label">Nuevos X hoy</div>
-    <div class="value">{nuevos_x_hoy:,}</div>
-  </div>
-  <div class="metric-card metric-card-secondary">
-    <div class="label">Nuevos YouTube hoy</div>
-    <div class="value">{nuevos_yt_hoy:,}</div>
-  </div>
-  <div class="metric-card metric-card-secondary">
-    <div class="label">Nuevos X ayer</div>
-    <div class="value">{nuevos_x_ayer:,}</div>
-  </div>
-  <div class="metric-card metric-card-secondary">
-    <div class="label">Nuevos YouTube ayer</div>
-    <div class="value">{nuevos_yt_ayer:,}</div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
+    _render_pg_kpi_grid([
+        (label_raw, f"{mensajes_totales:,}", ""),
+        ("Candidatos a odio", f"{candidatos_odio:,}", ""),
+        (label_llm, f"{etiquetados_llm:,}", ""),
+        ("Mensajes validados", f"{mensajes_validados:,}", f"{mensajes_odio:,} odio"),
+        ("Medios monitorizados", f"{medios_monitorizados:,}", ""),
+    ])
+    st.markdown(
+        '<div class="pg-kpi-section-label">Actividad reciente</div>',
+        unsafe_allow_html=True,
+    )
+    _render_pg_kpi_grid([
+        ("Nuevos X hoy", f"{nuevos_x_hoy:,}", ""),
+        ("Nuevos YouTube hoy", f"{nuevos_yt_hoy:,}", ""),
+        ("Nuevos X ayer", f"{nuevos_x_ayer:,}", ""),
+        ("Nuevos YouTube ayer", f"{nuevos_yt_ayer:,}", ""),
+    ], secondary=True)
 
     st.markdown("---")
 
@@ -3374,6 +3326,7 @@ def render_panel_general():
                     height=380, showlegend=False,
                     yaxis=dict(autorange="reversed"),
                 )
+                _apply_horizontal_bar_labels(fig_cat)
                 st.plotly_chart(fig_cat, use_container_width=True)
             else:
                 st.info("Sin datos de categoría.")
@@ -3404,6 +3357,7 @@ def render_panel_general():
                 height=380, yaxis=dict(autorange="reversed"),
                 coloraxis_colorbar=dict(title="Intensidad"),
             )
+            _apply_horizontal_bar_labels(fig_avg)
             st.plotly_chart(fig_avg, use_container_width=True)
 
         render_section_exports(
@@ -3593,12 +3547,15 @@ def render_categorias():
     sel_platforms = fc1.multiselect(
         "Plataforma", opts["platforms"], default=[], key="cat_plat",
         format_func=platform_label,
+        placeholder="Todas las plataformas",
     )
     sel_medios = fc2.multiselect(
         "Medio", opts["medios"], default=[], key="cat_med",
+        placeholder="Todos los medios",
     )
     sel_intensidades = fc3.multiselect(
         "Intensidad", opts["intensidades"], default=[], key="cat_int",
+        placeholder="Seleccionar…",
     )
 
     df = load_categorias(
@@ -3624,6 +3581,7 @@ def render_categorias():
             text_auto=True,
         )
         fig.update_layout(showlegend=False, height=400, yaxis=dict(autorange="reversed"))
+        _apply_horizontal_bar_labels(fig)
         st.plotly_chart(fig, use_container_width=True)
 
     with col2:
@@ -3649,7 +3607,7 @@ def render_categorias():
         format_func=lambda x: CATEGORIAS_LABELS.get(x, x),
         default=[],
         key="cat_int_filter",
-        placeholder="Todas",
+        placeholder="Todas las categorías",
     )
 
     df_int = load_intensidad_por_categoria(
@@ -3723,6 +3681,7 @@ def _render_ranking_simple(df: pd.DataFrame, top_n: int, key_suffix: str):
             height=chart_h, yaxis=dict(autorange="reversed"),
             showlegend=False, coloraxis_showscale=False,
         )
+        _apply_horizontal_bar_labels(fig1)
         st.plotly_chart(fig1, use_container_width=True, key=f"rm_vol_{key_suffix}")
 
     with col2:
@@ -3737,6 +3696,7 @@ def _render_ranking_simple(df: pd.DataFrame, top_n: int, key_suffix: str):
             height=chart_h, yaxis=dict(autorange="reversed"),
             showlegend=False, coloraxis_showscale=False,
         )
+        _apply_horizontal_bar_labels(fig2)
         st.plotly_chart(fig2, use_container_width=True, key=f"rm_pct_{key_suffix}")
 
     detail_cols = {
@@ -3753,6 +3713,7 @@ def _render_ranking_simple(df: pd.DataFrame, top_n: int, key_suffix: str):
             "Odio": st.column_config.NumberColumn("Odio", format="%d"),
             "% Odio": st.column_config.ProgressColumn(
                 "% Odio", format="%.1f%%", min_value=0, max_value=100,
+                color=COLORS["danger"],
             ),
         }
     except Exception:
@@ -3893,6 +3854,7 @@ def _render_explorar_medio():
                 title="Top 15 medios reconocidos — Volumen (color = % Odio)",
             )
             fig.update_layout(height=500, yaxis=dict(autorange="reversed"))
+            _apply_horizontal_bar_labels(fig)
             st.plotly_chart(fig, use_container_width=True, key="explore_todos_chart")
         return
 
@@ -4356,7 +4318,7 @@ def render_analisis_contextual():
             y=0.97,
             xanchor="right",
             yanchor="top",
-            text="Semana actual sin fila en BD — ejecutá analisis_contexto_semanal.py",
+            text="Semana en curso — datos pendientes de cierre",
             showarrow=False,
             bgcolor="rgba(254, 249, 195, 0.95)",
             bordercolor=COLORS["current_week"],
@@ -4365,13 +4327,16 @@ def render_analisis_contextual():
         )
     st.plotly_chart(fig_timeline, use_container_width=True, key="ctx_timeline")
 
-    st.caption(
-        f"Amarillo = semana en curso (parcial; también si coincide el **lunes** calendario con la semana de hoy) · "
-        f"Rojo / azul = alerta (BD o % odio **>** umbral congelado y ≥300 msgs) · "
-        f"Líneas = promedio y umbral **vigentes** hoy ({avg_pct:.1f}% / {spike_threshold:.1f}%) · "
-        f"Solo semanas con {MIN_MSGS_CHART}+ mensajes · "
-        "Si falta el job semanal, puede no haber fila para la semana actual (aviso arriba)."
-    )
+    with st.expander("ℹ️ Cómo leer este gráfico"):
+        st.markdown(
+            f"""
+- 🔴 **Rojo**: semana con alerta (% odio ≥ umbral y ≥300 mensajes)
+- 🔵 **Azul**: semana normal
+- 🟡 **Amarillo**: semana en curso (parcial)
+- **Líneas**: promedio ({avg_pct:.1f}%) y umbral de alerta ({spike_threshold:.1f}%) vigentes al cargar la página
+- Solo se muestran semanas con ≥{MIN_MSGS_CHART} mensajes
+            """
+        )
 
     _tbl = df_chart.sort_values("semana_inicio").copy()
     _tiene_umbral_archivado = bool(
@@ -4414,8 +4379,13 @@ def render_analisis_contextual():
         axis=1,
     )
 
+    def _estilo_alerta(val):
+        if val == "Sí":
+            return "background-color: #FEE2E2; color: #991B1B; font-weight: 600"
+        return "color: #6B7280"
+
     st.dataframe(
-        pd.DataFrame(_tab_cols),
+        pd.DataFrame(_tab_cols).style.map(_estilo_alerta, subset=["Alerta"]),
         use_container_width=True,
         hide_index=True,
         key="ctx_umbral_por_semana",
@@ -4508,6 +4478,7 @@ def render_analisis_contextual():
                 color="Mensajes", color_continuous_scale="Reds",
             )
             fig_cat.update_layout(height=300, showlegend=False, yaxis=dict(autorange="reversed"))
+            _apply_horizontal_bar_labels(fig_cat)
             st.plotly_chart(fig_cat, use_container_width=True, key="ctx_cats")
         else:
             st.info("Sin datos de categorías.")
@@ -4532,6 +4503,7 @@ def render_analisis_contextual():
                 color="Menciones", color_continuous_scale="Oranges",
             )
             fig_tgt.update_layout(height=300, showlegend=False, yaxis=dict(autorange="reversed"))
+            _apply_horizontal_bar_labels(fig_tgt)
             st.plotly_chart(fig_tgt, use_container_width=True, key="ctx_targets")
         else:
             st.info("Sin datos de targets.")
@@ -4555,6 +4527,7 @@ def render_analisis_contextual():
                 color="Menciones", color_continuous_scale="Blues",
             )
             fig_tema.update_layout(height=300, showlegend=False, yaxis=dict(autorange="reversed"))
+            _apply_horizontal_bar_labels(fig_tema)
             st.plotly_chart(fig_tema, use_container_width=True, key="ctx_temas")
         else:
             st.info("Sin datos de temas.")
@@ -4653,18 +4626,22 @@ def render_comparativa():
     sel_platforms = fc1.multiselect(
         "Plataforma", opts["platforms"], default=[], key="comp_plat",
         format_func=platform_label,
+        placeholder="Todas las plataformas",
     )
     sel_medios = fc2.multiselect(
         "Medio", opts["medios"], default=[], key="comp_med",
+        placeholder="Todos los medios",
     )
     sel_cats = fc3.multiselect(
         "Categoría LLM",
         options=list(CATEGORIAS_LABELS.keys()),
         format_func=lambda x: CATEGORIAS_LABELS.get(x, x),
         default=[], key="comp_cat",
+        placeholder="Todas las categorías",
     )
     sel_prio = fc4.multiselect(
         "Prioridad (baseline)", opts["prioridades"], default=[], key="comp_prio",
+        placeholder="Seleccionar…",
     )
 
     df = load_comparativa(
@@ -4741,6 +4718,7 @@ def render_comparativa():
                 title="% de acuerdo baseline-LLM por categoría (en mensajes ODIO del LLM)",
             )
             fig_cat.update_layout(height=350, yaxis=dict(autorange="reversed"))
+            _apply_horizontal_bar_labels(fig_cat)
             st.plotly_chart(fig_cat, use_container_width=True)
 
     render_section_exports(
@@ -4843,9 +4821,11 @@ def render_calidad_llm():
             options=list(CATEGORIAS_LABELS.keys()),
             format_func=lambda x: CATEGORIAS_LABELS.get(x, x),
             default=[], key="cal_cat",
+            placeholder="Todas las categorías",
         )
         sel_annot = fc_annot.multiselect(
             "Validador", annotators, default=[], key="cal_annot",
+            placeholder="Seleccionar…",
         )
     else:
         sel_cats, sel_annot = [], []
@@ -4959,6 +4939,7 @@ def render_calidad_llm():
                 title="Accuracy del LLM por categoría (vs validación humana)",
             )
             fig.update_layout(height=400, yaxis=dict(autorange="reversed"))
+            _apply_horizontal_bar_labels(fig)
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("No hay casos odio ∩ odio para calcular accuracy por categoría.")
@@ -4973,6 +4954,7 @@ def render_calidad_llm():
                 title="Accuracy del LLM por categoría (vs validación humana)",
             )
             fig.update_layout(height=350, yaxis=dict(autorange="reversed"))
+            _apply_horizontal_bar_labels(fig)
             st.plotly_chart(fig, use_container_width=True)
 
     if show_yt_errors:
@@ -5005,15 +4987,18 @@ def render_terminos():
     sel_platforms = fc1.multiselect(
         "Plataforma", opts["platforms"], default=[], key="term_plat",
         format_func=platform_label,
+        placeholder="Todas las plataformas",
     )
     sel_medios = fc2.multiselect(
         "Medio", opts["medios"], default=[], key="term_med",
+        placeholder="Todos los medios",
     )
     sel_cats = fc3.multiselect(
         "Categoría de odio",
         options=list(CATEGORIAS_LABELS.keys()),
         format_func=lambda x: CATEGORIAS_LABELS.get(x, x),
         default=[], key="term_cat",
+        placeholder="Todas las categorías",
     )
     PERIODO_OPTIONS = {"Todo": None, "24 hs": 24, "48 hs": 48, "72 hs": 72}
     sel_periodo = fc4.selectbox(
@@ -5100,6 +5085,7 @@ def render_terminos():
             title=f"Top {top_n} términos más frecuentes",
         )
         fig.update_layout(height=max(400, top_n * 22), yaxis=dict(autorange="reversed"), showlegend=False)
+        _apply_horizontal_bar_labels(fig)
         st.plotly_chart(fig, use_container_width=True)
 
     with col2:
@@ -5341,6 +5327,7 @@ def render_dataset_validado_guest() -> None:
             height=420, showlegend=False, yaxis=dict(autorange="reversed"),
             xaxis_title="Mensajes", yaxis_title="",
         )
+        _apply_horizontal_bar_labels(fig_cat)
         st.plotly_chart(fig_cat, use_container_width=True)
 
     st.markdown("---")
@@ -5505,28 +5492,28 @@ def render_gold_dataset():
     if role == "admin":
         col_f0, col_f1, col_f2, col_f3 = st.columns(4)
         with col_f0:
-            sel_platforms = st.multiselect("Plataforma", platforms, default=platforms, key="gold_plat")
+            sel_platforms = st.multiselect("Plataforma", platforms, default=platforms, key="gold_plat", placeholder="Todas las plataformas")
         with col_f1:
-            sel_splits = st.multiselect("Split", splits, default=splits, key="gold_split")
+            sel_splits = st.multiselect("Split", splits, default=splits, key="gold_split", placeholder="Seleccionar…")
         with col_f2:
-            sel_annotators = st.multiselect("Anotador", annotators, default=annotators, key="gold_annot")
+            sel_annotators = st.multiselect("Anotador", annotators, default=annotators, key="gold_annot", placeholder="Seleccionar…")
         with col_f3:
-            sel_labels = st.multiselect("Label final", labels, default=labels, key="gold_label")
+            sel_labels = st.multiselect("Label final", labels, default=labels, key="gold_label", placeholder="Seleccionar…")
     elif role == "editor":
         col_f0, col_f1, col_f2 = st.columns(3)
         with col_f0:
-            sel_platforms = st.multiselect("Plataforma", platforms, default=platforms, key="gold_plat")
+            sel_platforms = st.multiselect("Plataforma", platforms, default=platforms, key="gold_plat", placeholder="Todas las plataformas")
         with col_f1:
-            sel_annotators = st.multiselect("Anotador", annotators, default=annotators, key="gold_annot")
+            sel_annotators = st.multiselect("Anotador", annotators, default=annotators, key="gold_annot", placeholder="Seleccionar…")
         with col_f2:
-            sel_labels = st.multiselect("Label final", labels, default=labels, key="gold_label")
+            sel_labels = st.multiselect("Label final", labels, default=labels, key="gold_label", placeholder="Seleccionar…")
         sel_splits = splits
     else:
         col_f0, col_f1 = st.columns(2)
         with col_f0:
-            sel_platforms = st.multiselect("Plataforma", platforms, default=platforms, key="gold_plat")
+            sel_platforms = st.multiselect("Plataforma", platforms, default=platforms, key="gold_plat", placeholder="Todas las plataformas")
         with col_f1:
-            sel_labels = st.multiselect("Label final", labels, default=labels, key="gold_label")
+            sel_labels = st.multiselect("Label final", labels, default=labels, key="gold_label", placeholder="Seleccionar…")
         sel_splits = splits
         sel_annotators = annotators
 
@@ -5696,6 +5683,7 @@ def render_gold_dataset():
         fig_cat.update_layout(
             showlegend=False, height=400, yaxis=dict(autorange="reversed"),
         )
+        _apply_horizontal_bar_labels(fig_cat)
         st.plotly_chart(fig_cat, use_container_width=True)
 
     # ── 3. Distribución de intensidad ──
@@ -5778,6 +5766,7 @@ def render_gold_dataset():
                 height=380, yaxis=dict(autorange="reversed"),
                 coloraxis_colorbar=dict(title="Intensidad"),
             )
+            _apply_horizontal_bar_labels(fig_avg_gold)
             st.plotly_chart(fig_avg_gold, use_container_width=True)
     else:
         st.info("No hay casos de odio en la selección actual.")
@@ -7372,6 +7361,7 @@ def _render_art510_full(summary, sel_platforms, sel_sources, solo_delitos):
                 color_discrete_sequence=[COLORS["accent"]],
             )
             fig_gp.update_layout(height=400, yaxis=dict(autorange="reversed"))
+            _apply_horizontal_bar_labels(fig_gp)
             st.plotly_chart(fig_gp, use_container_width=True)
 
     # ── Vista agrupada: Plataforma x Fuente ──
@@ -7625,6 +7615,7 @@ def render_analisis_art510():
             format_func=lambda x: platforms_display[x],
             default=list(platforms_display.keys()),
             key="art510_plat",
+            placeholder="Todas las plataformas",
         )
 
     with col_f2:
@@ -7634,6 +7625,7 @@ def render_analisis_art510():
             format_func=lambda x: LABEL_SOURCE_LABELS[x],
             default=list(LABEL_SOURCE_LABELS.keys()),
             key="art510_source",
+            placeholder="Seleccionar…",
         )
 
     solo_delitos = False
@@ -7850,11 +7842,13 @@ def render_delitos():
     col_f1, col_f2 = st.columns(2)
     with col_f1:
         selected_years = st.multiselect(
-            "Años", years, default=years, key="delitos_years"
+            "Años", years, default=years, key="delitos_years",
+            placeholder="Seleccionar…",
         )
     with col_f2:
         selected_motives = st.multiselect(
-            "Motivos de odio", all_motives, default=all_motives, key="delitos_motives"
+            "Motivos de odio", all_motives, default=all_motives, key="delitos_motives",
+            placeholder="Seleccionar…",
         )
 
     if not selected_years or not selected_motives:
@@ -8022,6 +8016,7 @@ def render_delitos():
         height=450,
         legend=dict(orientation="h", yanchor="bottom", y=-0.2),
     )
+    _apply_horizontal_bar_labels(fig_solve)
     st.plotly_chart(fig_solve, use_container_width=True)
 
     # ── 4. Perfil de autores por edad ──
@@ -8095,6 +8090,7 @@ def render_delitos():
         height=450,
         legend=dict(orientation="h", yanchor="bottom", y=-0.2),
     )
+    _apply_horizontal_bar_labels(fig_sex)
     st.plotly_chart(fig_sex, use_container_width=True)
 
     # Porcentaje de mujeres por motivo
@@ -8137,6 +8133,7 @@ def render_delitos():
         yaxis=dict(categoryorder="total ascending"),
         legend=dict(orientation="h", yanchor="bottom", y=-0.2),
     )
+    _apply_horizontal_bar_labels(fig_pros)
     st.plotly_chart(fig_pros, use_container_width=True)
 
     # ── 7. Artículos del Código Penal más aplicados ──
@@ -8160,6 +8157,7 @@ def render_delitos():
             color_discrete_sequence=[COLORS["primary"]],
         )
         fig_art.update_layout(height=450, yaxis_title="")
+        _apply_horizontal_bar_labels(fig_art)
         st.plotly_chart(fig_art, use_container_width=True)
     elif not df_articles.empty:
         df_art_f = df_articles[df_articles["year"].isin(selected_years)]
@@ -8179,6 +8177,7 @@ def render_delitos():
                 color_discrete_sequence=[COLORS["primary"]],
             )
             fig_art.update_layout(height=450, yaxis_title="")
+            _apply_horizontal_bar_labels(fig_art)
             st.plotly_chart(fig_art, use_container_width=True)
         else:
             st.info("No hay datos de acusaciones por artículo para los años seleccionados.")
@@ -11390,6 +11389,7 @@ def render_buscador_terminos() -> None:
             },
         )
     fig_medios.update_layout(height=520, margin=dict(l=160, t=20))
+    _apply_horizontal_bar_labels(fig_medios)
     st.plotly_chart(fig_medios, use_container_width=True)
 
     # 7) Distribución de categorías por medio (solo si filtro IA/LLM activo)

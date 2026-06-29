@@ -141,10 +141,17 @@ st.set_page_config(
 # ============================================================
 _GLOBAL_CSS = """
 <style>
+/* Forzar modo claro — evita que el dark mode del SO sobreescriba la UI */
+html {
+    color-scheme: only light !important;
+}
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 html, body, [class*="css"], .stMarkdown, .stButton>button,
 .stTextInput input, .stSelectbox, .stMultiSelect, [data-baseweb="tab"] {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+}
+h1, h2, h3, .reto-section-header h1 {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
 }
 
@@ -442,6 +449,19 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
     margin: 0.35rem 0 1rem 0;
     width: 100%;
 }
+.pg-kpi-section-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #718096;
+    margin: 0.6rem 0 0.4rem 0;
+}
+/* Ranking: barras % Odio visibles y en rojo (coherente con gráfico de odio) */
+[data-testid="stDataFrame"] [data-testid="stProgressBar"] > div > div {
+    background-color: #C0392B !important;
+    min-width: 4px !important;
+}
 
 /* --- Separadores más sutiles --- */
 hr { border-color: #E2E8F0; margin: 1.2rem 0; }
@@ -519,11 +539,31 @@ div[data-baseweb="notification"] {
     background: linear-gradient(90deg, #1F4E79, #4F81BD) !important;
 }
 
-/* --- Checkbox seleccionado con color primario --- */
-[data-testid="stCheckbox"] label span[aria-checked="true"],
-[data-testid="stCheckbox"] input:checked ~ div {
+/* --- Checkbox seleccionado con color primario (solo el recuadro, no el texto) --- */
+[data-testid="stCheckbox"] label span[aria-checked="true"] {
     background-color: #1F4E79 !important;
     border-color: #1F4E79 !important;
+}
+
+/* ── Checkboxes: legibles en dark mode del OS ── */
+[data-testid="stCheckbox"] {
+    background-color: transparent !important;
+}
+[data-testid="stCheckbox"] label {
+    color: #1a1a2e !important;
+    background-color: rgba(255, 255, 255, 0.92) !important;
+    padding: 2px 8px !important;
+    border-radius: 4px !important;
+}
+[data-testid="stCheckbox"] label p {
+    color: #1a1a2e !important;
+}
+/* Checkbox inline (en columnas y widgets) */
+.stCheckbox > label {
+    color: #1a1a2e !important;
+    background-color: rgba(255, 255, 255, 0.92) !important;
+    padding: 2px 8px !important;
+    border-radius: 4px !important;
 }
 
 /* --- Botones de descarga (outline navy) --- */
@@ -1095,9 +1135,14 @@ def _render_section_header(title: str, subtitle_html: str = "") -> None:
     )
 
 
-def _render_pg_kpi_grid(cards: List[Tuple[str, str, str]]) -> None:
+def _render_pg_kpi_grid(
+    cards: List[Tuple[str, str, str]],
+    *,
+    secondary: bool = False,
+) -> None:
     """Renderiza KPIs del panel general como grid responsive de tarjetas HTML/CSS."""
     cards_html = []
+    card_style = ' style="opacity:0.75;"' if secondary else ""
     for label, value, delta in cards:
         d = (
             f'<div class="pg-kpi-delta">{html.escape(delta)}</div>'
@@ -1105,7 +1150,7 @@ def _render_pg_kpi_grid(cards: List[Tuple[str, str, str]]) -> None:
             else ""
         )
         cards_html.append(
-            '<div class="pg-kpi-card">'
+            f'<div class="pg-kpi-card"{card_style}>'
             f'<div class="pg-kpi-label">{html.escape(label)}</div>'
             f'<div class="pg-kpi-value">{html.escape(value)}</div>'
             f"{d}"
@@ -1442,16 +1487,48 @@ _RESTRICTED_SECTIONS: Dict[str, set] = {
 
 _ROLE_DISPLAY = {"admin": "Administrador", "editor": "Editor", "viewer": "Visualización"}
 
+# ── Hashing de contraseñas ──────────────────────────────────────────────────
+# Las contraseñas en st.secrets pueden almacenarse como:
+#   • plain text (legado): se comparan directamente y se muestra aviso al admin.
+#   • hash pbkdf2: formato "pbkdf2:<iterations>:<hex_salt>:<hex_hash>"
+#     Generá el hash con: _hash_password("mi_contraseña")
+# ──────────────────────────────────────────────────────────────────────────────
+import hashlib as _hashlib
+import os as _os_auth
+import binascii as _binascii
 
-_FALLBACK_USERS: Dict[str, Dict[str, str]] = {
-    "Admin": {"password": "2026", "role": "admin"},
-    "Reto": {"password": "2026", "role": "editor"},
-    "usuario1": {"password": "2026", "role": "viewer"},
-}
+
+def _hash_password(plain: str, iterations: int = 260_000) -> str:
+    """Devuelve un hash pbkdf2_hmac listo para almacenar en st.secrets."""
+    salt = _os_auth.urandom(16)
+    dk = _hashlib.pbkdf2_hmac("sha256", plain.encode("utf-8"), salt, iterations)
+    return f"pbkdf2:{iterations}:{_binascii.hexlify(salt).decode()}:{_binascii.hexlify(dk).decode()}"
+
+
+def _verify_password(plain: str, stored: str) -> bool:
+    """Verifica contraseña contra hash pbkdf2 o texto plano (legado)."""
+    if stored.startswith("pbkdf2:"):
+        try:
+            _, iters_str, salt_hex, hash_hex = stored.split(":")
+            iters = int(iters_str)
+            salt = _binascii.unhexlify(salt_hex)
+            expected = _binascii.unhexlify(hash_hex)
+            actual = _hashlib.pbkdf2_hmac("sha256", plain.encode("utf-8"), salt, iters)
+            # Comparación de tiempo constante para evitar timing attacks
+            return _hashlib.compare_digest(actual, expected)
+        except Exception:
+            return False
+    # Legado: plain text — funcional pero inseguro; se mostrará aviso al admin
+    return stored == plain
+
+
+# Sin fallback hardcoded: si no hay secrets configurados, el acceso admin/editor
+# queda bloqueado por diseño (el viewer público sigue funcionando sin login).
+_NO_FALLBACK_USERS: Dict[str, Dict[str, str]] = {}
 
 
 def _load_users() -> Dict[str, Dict[str, str]]:
-    """Lee credenciales de st.secrets['users'], con fallback hardcoded."""
+    """Lee credenciales de st.secrets['users']. Sin fallback hardcoded en producción."""
     try:
         users_section = st.secrets["users"]
         return {
@@ -1459,11 +1536,39 @@ def _load_users() -> Dict[str, Dict[str, str]]:
             for user, data in users_section.items()
         }
     except Exception:
-        return _FALLBACK_USERS
+        return _NO_FALLBACK_USERS
+
+
+def _users_have_plain_text_passwords() -> bool:
+    """True si alguna contraseña en secrets NO está hasheada (aviso para admin)."""
+    users = _load_users()
+    return any(not v["password"].startswith("pbkdf2:") for v in users.values())
+
+
+import time as _time
+
+# Configuración de seguridad del login
+_LOGIN_MAX_ATTEMPTS = 5        # intentos antes de bloqueo
+_LOGIN_LOCKOUT_SECONDS = 300   # 5 minutos de bloqueo
+_SESSION_TIMEOUT_HOURS = 8     # expiración de sesión admin/editor
 
 
 def _check_auth() -> bool:
-    """Asigna viewer por defecto; respeta _show_login_form para admin/editor."""
+    """Asigna viewer por defecto; respeta _show_login_form para admin/editor.
+    También expira sesiones admin/editor tras _SESSION_TIMEOUT_HOURS horas."""
+    # Verificar expiración de sesión para roles privilegiados
+    role = st.session_state.get("user_role")
+    if role in ("admin", "editor"):
+        login_ts = st.session_state.get("_login_timestamp", 0)
+        elapsed_hours = (_time.time() - login_ts) / 3600
+        if elapsed_hours > _SESSION_TIMEOUT_HOURS:
+            # Sesión expirada: limpiar y redirigir a login
+            for k in list(st.session_state.keys()):
+                del st.session_state[k]
+            st.session_state["_show_login_form"] = True
+            st.session_state["_session_expired"] = True
+            return False
+
     if st.session_state.get("_show_login_form"):
         return st.session_state.get("user_role") in ("admin", "editor")
     if st.session_state.get("user_role") not in _RESTRICTED_SECTIONS:
@@ -1473,7 +1578,7 @@ def _check_auth() -> bool:
 
 
 def _render_login():
-    """Pantalla de login."""
+    """Pantalla de login con rate limiting y soporte de contraseñas hasheadas."""
     st.markdown(
         "<h1 style='text-align:center;'>🛡️ ReTo — Dashboard</h1>",
         unsafe_allow_html=True,
@@ -1491,7 +1596,31 @@ def _render_login():
 
     st.markdown("---")
 
+    # Aviso de sesión expirada
+    if st.session_state.pop("_session_expired", False):
+        st.warning("Tu sesión expiró por inactividad. Volvé a iniciar sesión.")
+
+    # ── Rate limiting ─────────────────────────────────────────────────────────
+    failed_attempts = st.session_state.get("_login_failed_attempts", 0)
+    lockout_until = st.session_state.get("_login_lockout_until", 0)
+    now = _time.time()
+
+    if now < lockout_until:
+        remaining = int(lockout_until - now)
+        st.error(
+            f"Demasiados intentos fallidos. Intentá de nuevo en {remaining} segundos."
+        )
+        return
+    # ─────────────────────────────────────────────────────────────────────────
+
     users = _load_users()
+
+    if not users:
+        st.error("No hay credenciales configuradas en los secrets de este entorno.")
+        st.caption(
+            "Configurá `[users]` en Streamlit Secrets o en las variables de entorno del Space."
+        )
+        return
 
     _, col_login, _ = st.columns([1, 1, 1])
     with col_login:
@@ -1510,13 +1639,32 @@ def _render_login():
                 return
 
             user_data = users.get(username)
-            if user_data and user_data["password"] == password:
+            if user_data and _verify_password(password, user_data["password"]):
+                # Login exitoso: resetear contadores y registrar timestamp
+                st.session_state["_login_failed_attempts"] = 0
+                st.session_state["_login_lockout_until"] = 0
                 st.session_state["user_role"] = user_data["role"]
                 st.session_state["user_name"] = username
+                st.session_state["_login_timestamp"] = _time.time()
                 st.session_state["_show_login_form"] = False
                 st.rerun()
             else:
-                st.error("Usuario o contraseña incorrectos.")
+                # Incrementar contador de intentos fallidos
+                failed_attempts += 1
+                st.session_state["_login_failed_attempts"] = failed_attempts
+                remaining_attempts = _LOGIN_MAX_ATTEMPTS - failed_attempts
+                if failed_attempts >= _LOGIN_MAX_ATTEMPTS:
+                    st.session_state["_login_lockout_until"] = now + _LOGIN_LOCKOUT_SECONDS
+                    st.session_state["_login_failed_attempts"] = 0
+                    st.error(
+                        f"Demasiados intentos fallidos. "
+                        f"Acceso bloqueado por {_LOGIN_LOCKOUT_SECONDS // 60} minutos."
+                    )
+                else:
+                    st.error(
+                        f"Usuario o contraseña incorrectos. "
+                        f"Intentos restantes: {remaining_attempts}."
+                    )
 
 
 def _get_sections_for_role(role: str) -> List[str]:
@@ -2184,8 +2332,26 @@ def render_pipeline_status_banner(
     else:
         st.info(msg)
 
-    if state.get("desalineado") and st.session_state.get("role") == "admin":
-        st.caption("⚠️ Desalineación detectada: pipeline_runs legacy más antiguo/en error que pipeline_health cloud.")
+    LEGACY_PIPELINE_RUNS_THRESHOLD_DAYS = 7
+    if state.get("desalineado") and st.session_state.get("user_role") == "admin":
+        legacy = load_last_pipeline_run_legacy(pipeline_name=legacy_pipeline_name)
+        legacy_reciente = False
+        if legacy.get("exists"):
+            legacy_ts_raw = legacy.get("started_at")
+            if legacy_ts_raw is not None:
+                try:
+                    legacy_ts = pd.Timestamp(legacy_ts_raw)
+                    now = (
+                        pd.Timestamp.now(tz=legacy_ts.tzinfo)
+                        if legacy_ts.tzinfo is not None
+                        else pd.Timestamp.now()
+                    )
+                    age_days = (now - legacy_ts).total_seconds() / 86400.0
+                    legacy_reciente = age_days < LEGACY_PIPELINE_RUNS_THRESHOLD_DAYS
+                except Exception:
+                    legacy_reciente = False
+        if legacy_reciente:
+            st.caption("⚠️ Desalineación detectada: pipeline_runs legacy más antiguo/en error que pipeline_health cloud.")
 
 
 @st.cache_data(ttl=60)
@@ -2457,11 +2623,17 @@ def _render_muestra_ultima_corrida_llm_section(*, key_suffix: str = "") -> None:
         _render_one_muestra_card(row)
 
 
-@st.cache_data(ttl=300)
-def _load_ranking_medios_raw(min_msgs: int = 100) -> pd.DataFrame:
+@st.cache_data(ttl=3600)
+def _load_ranking_medios_raw(min_msgs: int = 100, fecha_desde: Optional[str] = None, fecha_hasta: Optional[str] = None) -> pd.DataFrame:
     conds = ["pm.source_media IS NOT NULL AND pm.source_media != ''",
              "pm.source_media NOT IN %s"]
     params: list = [tuple(EXCLUDED_SOURCE_MEDIA)]
+    if fecha_desde:
+        conds.append("pm.created_at >= %s")
+        params.append(fecha_desde)
+    if fecha_hasta:
+        conds.append("pm.created_at <= %s")
+        params.append(fecha_hasta)
     where = " AND ".join(conds)
 
     with get_conn() as conn:
@@ -2496,11 +2668,15 @@ def _load_ranking_medios_raw(min_msgs: int = 100) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def load_ranking_medios(
     platforms: Optional[Tuple] = None,
+    fecha_desde: Optional[str] = None,
+    fecha_hasta: Optional[str] = None,
 ) -> pd.DataFrame:
-    df = _load_ranking_medios_raw(min_msgs=100)
+    df = _load_ranking_medios_raw(min_msgs=100, fecha_desde=fecha_desde, fecha_hasta=fecha_hasta)
+    # Solo incluir medios de la lista maestra validada
+    df = df[df["source_media"].apply(lambda sm: _public_medio_label(sm) is not None)]
     if platforms:
         platforms_list = list(platforms)
         df = df[df["platform"].isin(platforms_list)]
@@ -2868,6 +3044,13 @@ def render_sidebar():
                 _cambios = "con cambios" if _last_run.get("changes_detected") else "sin cambios"
                 st.caption(f"{_icon} Última corrida: {_ts} ({_cambios})")
 
+            # Aviso de contraseñas en texto plano
+            if _users_have_plain_text_passwords():
+                st.warning(
+                    "⚠️ Contraseñas en texto plano detectadas en secrets. "
+                    "Actualizalas con hashes pbkdf2 usando `_hash_password('tu_contraseña')` desde la consola."
+                )
+
     eu_logo = _reto_asset_file("logos", "07_eu.png")
     if eu_logo is not None:
         st.sidebar.markdown("---")
@@ -2882,6 +3065,92 @@ def render_sidebar():
 # ============================================================
 # SECTIONS
 # ============================================================
+@st.cache_data(ttl=3600)
+def load_gold_stats() -> dict:
+    with get_conn() as conn:
+        row = pd.read_sql("""
+            WITH llm_comparison AS (
+                SELECT
+                    g.message_uuid,
+                    UPPER(g.y_odio_final) != UPPER(e.clasificacion_principal)        AS corrigio_odio,
+                    g.y_categoria_final IS DISTINCT FROM e.categoria_odio_pred
+                        AND g.y_categoria_final IS NOT NULL                          AS corrigio_categoria,
+                    g.y_intensidad_final IS DISTINCT FROM NULLIF(e.intensidad_pred,'')::smallint
+                        AND g.y_intensidad_final IS NOT NULL                        AS corrigio_intensidad
+                FROM processed.gold_dataset g
+                JOIN processed.etiquetas_llm e USING (message_uuid)
+                WHERE g.label_source = 'llm_validated'
+                  AND g.y_odio_bin IS NOT NULL
+            )
+            SELECT
+                (SELECT COUNT(*) FROM processed.gold_dataset
+                 WHERE y_odio_bin IS NOT NULL)                    AS total_gold,
+                COUNT(*)                                          AS total_llm,
+                COUNT(*) FILTER (WHERE corrigio_odio)             AS n_corrigio_odio,
+                COUNT(*) FILTER (WHERE corrigio_categoria)        AS n_corrigio_categoria,
+                COUNT(*) FILTER (WHERE corrigio_intensidad
+                    AND corrigio_intensidad IS NOT NULL)          AS n_corrigio_intensidad,
+                COUNT(*) FILTER (WHERE corrigio_intensidad
+                    IS NOT NULL)                                  AS total_con_intensidad,
+                (SELECT MAX(ingested_at) FROM processed.gold_dataset) AS fecha_validacion
+            FROM llm_comparison
+        """, conn).iloc[0]
+
+    total_gold = int(row["total_gold"] or 0)
+    total_llm  = int(row["total_llm"]  or 0)
+    total_int  = int(row["total_con_intensidad"] or 0)
+
+    return {
+        "total_gold":              total_gold,
+        "total_llm":               total_llm,
+        "pct_concordancia_llm":    (1 - row["n_corrigio_odio"] / total_llm) * 100 if total_llm else None,
+        "pct_corrigio_odio":       (row["n_corrigio_odio"]      / total_llm) * 100 if total_llm else None,
+        "pct_corrigio_categoria":  (row["n_corrigio_categoria"]  / total_llm) * 100 if total_llm else None,
+        "pct_corrigio_intensidad": (row["n_corrigio_intensidad"] / total_int) * 100 if total_int else None,
+        "total_con_intensidad":    total_int,
+        "fecha_validacion":        row["fecha_validacion"],
+    }
+
+
+def _render_gold_dataset_card() -> None:
+    st.markdown("---")
+    st.subheader("📋 Gold Dataset")
+    try:
+        g = load_gold_stats()
+    except Exception:
+        st.warning("Gold dataset no disponible")
+        return
+    if not g or g["total_gold"] == 0:
+        st.warning("Gold dataset no disponible")
+        return
+
+    fecha_str = (
+        pd.Timestamp(g["fecha_validacion"]).strftime("%d/%m/%Y")
+        if g["fecha_validacion"] is not None else "—"
+    )
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total mensajes gold", f"{g['total_gold']:,}")
+    c2.metric("Etiquetados con LLM", f"{g['total_llm']:,}")
+    c3.metric("Última validación", fecha_str)
+
+    st.markdown("**Calidad del etiquetado LLM** *(sobre los 733 mensajes llm_validated)*")
+
+    c4, c5, c6, c7 = st.columns(4)
+    def fmt_pct(v):
+        return f"{v:.1f}%" if v is not None else "—"
+
+    c4.metric("Concordancia LLM",     fmt_pct(g["pct_concordancia_llm"]))
+    c5.metric("Corrección odio",      fmt_pct(g["pct_corrigio_odio"]))
+    c6.metric("Corrección categoría", fmt_pct(g["pct_corrigio_categoria"]))
+    c7.metric("Corrección intensidad",fmt_pct(g["pct_corrigio_intensidad"]))
+
+    st.caption(
+        f"Correcciones calculadas sobre {g['total_llm']:,} mensajes llm_validated · "
+        f"Corrección de intensidad sobre {g['total_con_intensidad']:,} con intensidad registrada"
+    )
+
+
 def render_panel_general():
     _render_section_header(
         "Panel general",
@@ -2923,111 +3192,26 @@ def render_panel_general():
     nuevos_x_ayer = kpis["nuevos_x_ayer"]
     nuevos_yt_ayer = kpis["nuevos_yt_ayer"]
 
-    st.markdown(f"""
-<style>
-.metric-grid {{
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 16px;
-    margin-bottom: 16px;
-}}
-.metric-card {{
-    background-color: #1B3A6B;
-    border-radius: 12px;
-    padding: 19px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    color: white;
-    text-align: center;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: 124px;
-    box-sizing: border-box;
-}}
-.metric-card .label {{
-    font-size: 13px;
-    font-weight: 400;
-    opacity: 0.85;
-    margin-bottom: 8px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}}
-.metric-card .value {{
-    font-size: 27px;
-    font-weight: 700;
-    line-height: 1;
-}}
-.metric-card .sub {{
-    font-size: 12px;
-    opacity: 0.7;
-    margin-top: 6px;
-    min-height: 14px;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}}
-.metric-card-secondary {{
-    background-color: #1F4E79 !important;
-    opacity: 0.75;
-}}
-.metric-card-secondary .value {{
-    font-size: 1.5rem !important;
-}}
-.metric-subgrid-label {{
-    font-size: 0.72rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: #718096;
-    margin: 0.6rem 0 0.4rem 0;
-}}
-</style>
+    label_raw = "Mensajes totales (raw)" if _access_raw else "Mensajes procesados"
+    label_llm = "Etiquetados por IA" if not _access_raw else "Etiquetados por LLM"
 
-<div class="metric-grid">
-  <div class="metric-card">
-    <div class="label">{"Mensajes totales (raw)" if _access_raw else "Mensajes procesados"}</div>
-    <div class="value">{mensajes_totales:,}</div>
-  </div>
-  <div class="metric-card">
-    <div class="label">Candidatos a odio</div>
-    <div class="value">{candidatos_odio:,}</div>
-  </div>
-  <div class="metric-card">
-    <div class="label">{"Etiquetados por IA" if not _access_raw else "Etiquetados por LLM"}</div>
-    <div class="value">{etiquetados_llm:,}</div>
-  </div>
-  <div class="metric-card">
-    <div class="label">Mensajes validados</div>
-    <div class="value">{mensajes_validados:,}</div>
-    <div class="sub"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#C0392B;flex-shrink:0"></span>{mensajes_odio:,} odio</div>
-  </div>
-  <div class="metric-card">
-    <div class="label">Medios monitorizados</div>
-    <div class="value">{medios_monitorizados:,}</div>
-  </div>
-</div>
-
-<div class="metric-subgrid-label">Actividad reciente</div>
-<div class="metric-grid">
-  <div class="metric-card metric-card-secondary">
-    <div class="label">Nuevos X hoy</div>
-    <div class="value">{nuevos_x_hoy:,}</div>
-  </div>
-  <div class="metric-card metric-card-secondary">
-    <div class="label">Nuevos YouTube hoy</div>
-    <div class="value">{nuevos_yt_hoy:,}</div>
-  </div>
-  <div class="metric-card metric-card-secondary">
-    <div class="label">Nuevos X ayer</div>
-    <div class="value">{nuevos_x_ayer:,}</div>
-  </div>
-  <div class="metric-card metric-card-secondary">
-    <div class="label">Nuevos YouTube ayer</div>
-    <div class="value">{nuevos_yt_ayer:,}</div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
+    _render_pg_kpi_grid([
+        (label_raw, f"{mensajes_totales:,}", ""),
+        ("Candidatos a odio", f"{candidatos_odio:,}", ""),
+        (label_llm, f"{etiquetados_llm:,}", ""),
+        ("Mensajes validados", f"{mensajes_validados:,}", f"{mensajes_odio:,} odio"),
+        ("Medios monitorizados", f"{medios_monitorizados:,}", ""),
+    ])
+    st.markdown(
+        '<div class="pg-kpi-section-label">Actividad reciente</div>',
+        unsafe_allow_html=True,
+    )
+    _render_pg_kpi_grid([
+        ("Nuevos X hoy", f"{nuevos_x_hoy:,}", ""),
+        ("Nuevos YouTube hoy", f"{nuevos_yt_hoy:,}", ""),
+        ("Nuevos X ayer", f"{nuevos_x_ayer:,}", ""),
+        ("Nuevos YouTube ayer", f"{nuevos_yt_ayer:,}", ""),
+    ], secondary=True)
 
     st.markdown("---")
 
@@ -3191,6 +3375,10 @@ def render_panel_general():
                 {"title": "Intensidad promedio por categoría", "fig": fig_avg if "fig_avg" in locals() else None, "kind": "plotly"},
             ],
         )
+
+    # Tarjeta de rendimiento del modelo: solo admin (no viewer ni editor)
+    if st.session_state.get("user_role") == "admin":
+        _render_gold_dataset_card()
 
 
 @st.cache_data(ttl=300)
@@ -3525,6 +3713,7 @@ def _render_ranking_simple(df: pd.DataFrame, top_n: int, key_suffix: str):
             "Odio": st.column_config.NumberColumn("Odio", format="%d"),
             "% Odio": st.column_config.ProgressColumn(
                 "% Odio", format="%.1f%%", min_value=0, max_value=100,
+                color=COLORS["danger"],
             ),
         }
     except Exception:
@@ -3746,9 +3935,18 @@ def render_ranking_medios():
         "Top 10 medios de comunicación por volumen de mensajes y porcentaje de odio.",
     )
 
+    col_fd, col_fh = st.columns(2)
+    with col_fd:
+        fecha_desde = st.date_input("Desde", value=None, key="ranking_fecha_desde")
+    with col_fh:
+        fecha_hasta = st.date_input("Hasta", value=None, key="ranking_fecha_hasta")
+
+    fd_str = fecha_desde.isoformat() if fecha_desde else None
+    fh_str = fecha_hasta.isoformat() if fecha_hasta else None
+
     top_n = 10
 
-    df_all = load_ranking_medios()
+    df_all = load_ranking_medios(fecha_desde=fd_str, fecha_hasta=fh_str)
     if df_all.empty:
         st.warning("No hay datos de medios.")
         return
@@ -3777,6 +3975,8 @@ def render_ranking_medios():
             st.info("No hay datos de medios en X.")
         else:
             _render_ranking_simple(df_x, top_n, "x")
+            if _is_viewer():
+                st.caption("📅 Monitorización activa: lunes y jueves.")
 
     with tab_yt:
         if df_yt.empty:
@@ -3803,7 +4003,7 @@ def render_ranking_medios():
 # ============================================================
 # ANÁLISIS CONTEXTUAL SEMANAL
 # ============================================================
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=3600)
 def load_analisis_semanal() -> pd.DataFrame:
     with get_conn() as conn:
         df = pd.read_sql("""
@@ -4095,7 +4295,12 @@ def render_analisis_contextual():
         y=spike_threshold, line_dash="dot", line_color=COLORS["danger"],
         annotation_text=f"Umbral alerta: >={spike_threshold:.1f}%",
         annotation_position="top left",
-        annotation=dict(font=dict(size=11, color=COLORS["danger"]), bgcolor="white", borderpad=3, yshift=8),
+        annotation=dict(
+            font=dict(size=11, color=COLORS["danger"]),
+            bgcolor="white",
+            borderpad=3,
+            yshift=8,
+        ),
     )
     fig_timeline.update_layout(
         height=420,
@@ -4122,13 +4327,16 @@ def render_analisis_contextual():
         )
     st.plotly_chart(fig_timeline, use_container_width=True, key="ctx_timeline")
 
-    st.caption(
-        f"Amarillo = semana en curso (parcial; también si coincide el **lunes** calendario con la semana de hoy) · "
-        f"Rojo / azul = alerta (BD o % odio **>** umbral congelado y ≥300 msgs) · "
-        f"Líneas = promedio y umbral **vigentes** hoy ({avg_pct:.1f}% / {spike_threshold:.1f}%) · "
-        f"Solo semanas con {MIN_MSGS_CHART}+ mensajes · "
-        "Si falta el job semanal, puede no haber fila para la semana actual (aviso arriba)."
-    )
+    with st.expander("ℹ️ Cómo leer este gráfico"):
+        st.markdown(
+            f"""
+- 🔴 **Rojo**: semana con alerta (% odio ≥ umbral y ≥300 mensajes)
+- 🔵 **Azul**: semana normal
+- 🟡 **Amarillo**: semana en curso (parcial)
+- **Líneas**: promedio ({avg_pct:.1f}%) y umbral de alerta ({spike_threshold:.1f}%) vigentes al cargar la página
+- Solo se muestran semanas con ≥{MIN_MSGS_CHART} mensajes
+            """
+        )
 
     _tbl = df_chart.sort_values("semana_inicio").copy()
     _tiene_umbral_archivado = bool(
@@ -4355,6 +4563,9 @@ def render_analisis_contextual():
         else:
             st.info("Sin datos de intensidad.")
 
+    if _is_viewer():
+        st.caption("📅 Monitorización activa: lunes y jueves.")
+
     # --- Peak day ---
     if row.get("dia_pico"):
         st.markdown("---")
@@ -4389,7 +4600,21 @@ def render_analisis_contextual():
     )
 
 
+def _require_role(*allowed_roles: str, section: str = "esta sección") -> bool:
+    """Guard de acceso: detiene el renderer si el rol no está autorizado.
+    Devuelve True si el acceso está permitido, False si no."""
+    role = st.session_state.get("user_role")
+    if role not in allowed_roles:
+        st.error(f"No tenés permisos para acceder a {section}.")
+        st.info("Si creés que es un error, iniciá sesión con las credenciales correctas.")
+        st.stop()
+        return False
+    return True
+
+
 def render_comparativa():
+    if not _require_role("admin", "editor", section="Comparativa modelos"):
+        return
     _render_section_header(
         "Comparativa: Baseline vs LLM",
         "Concordancia entre el modelo baseline (TF-IDF + LogReg) y el etiquetado LLM.",
@@ -4574,6 +4799,8 @@ def _render_calidad_llm_cobertura(cobertura_df: pd.DataFrame, platform_key: Opti
 
 
 def render_calidad_llm():
+    if not _require_role("admin", "editor", section="Calidad LLM"):
+        return
     _render_section_header(
         "Calidad del etiquetado LLM",
         "Comparación entre la clasificación del LLM y la validación humana.",
@@ -6588,7 +6815,7 @@ def _render_art510_preview(sel_platforms, sel_sources):
     api_key = _get_openai_api_key()
 
     if api_key:
-        st.caption(f"API key detectada (***{api_key[-4:]})")
+        st.caption("API key de OpenAI configurada ✓")
     else:
         st.warning(
             "No se encontró la API key en secrets. "
@@ -7352,6 +7579,8 @@ def _render_art510_full(summary, sel_platforms, sel_sources, solo_delitos):
 
 def render_analisis_art510():
     """Sección 7: Análisis de mensajes bajo el Art. 510.1 del Código Penal."""
+    if not _require_role("admin", "editor", section="Análisis Art. 510"):
+        return
     # Asegurar que las tablas existan antes de cualquier consulta
     _art510_ensure_tables()
 
@@ -7813,6 +8042,13 @@ def render_delitos():
             labels={"grupo_edad": "Grupo de edad", "n_authors": "Nº autores", "year": "Año"},
             color_discrete_sequence=DELITOS_COLORS,
         )
+        years_presentes = sorted(age_agg["year"].unique())
+        fig_age.update_coloraxes(
+            colorbar=dict(
+                tickvals=years_presentes,
+                ticktext=[str(y) for y in years_presentes],
+            )
+        )
         fig_age.update_layout(height=450)
         st.plotly_chart(fig_age, use_container_width=True)
 
@@ -8272,6 +8508,34 @@ def _load_annotation_kpis(annotator_id: str, period: str = "day") -> dict:
     }
 
 
+def _stratified_split(target_ratio: float = 0.85) -> str:
+    """Asigna split TRAIN/TEST de forma estratificada consultando el ratio actual en gold_dataset.
+
+    Si el ratio actual de TRAIN < target_ratio → asigna TRAIN (para reequilibrar).
+    Si ya está en target o más → asigna TEST.
+    Con fallback a asignación aleatoria si la consulta falla.
+    """
+    import random
+    try:
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT
+                    SUM(CASE WHEN split = 'TRAIN' THEN 1 ELSE 0 END) AS n_train,
+                    COUNT(*) AS n_total
+                FROM processed.gold_dataset
+            """)
+            row = cur.fetchone()
+            cur.close()
+        if row and row[1] and row[1] > 0:
+            current_train_ratio = (row[0] or 0) / row[1]
+            return "TRAIN" if current_train_ratio < target_ratio else "TEST"
+    except Exception:
+        pass
+    # Fallback aleatorio si la consulta falla
+    return "TRAIN" if random.random() < target_ratio else "TEST"
+
+
 def _save_annotation(
     message_uuid: str,
     odio_flag: Optional[bool],
@@ -8297,7 +8561,7 @@ def _save_annotation(
     categoria_save = _categoria_odio_for_save(odio_flag, categoria_odio)
     y_categoria = categoria_save
     y_intensidad = intensidad if odio_flag else None
-    split_val = "TRAIN" if random.random() < 0.85 else "TEST"
+    split_val = _stratified_split(target_ratio=0.85)
 
     try:
         with get_conn() as conn:
@@ -8361,6 +8625,8 @@ def _save_annotation(
 
             cur.close()
 
+        # Invalidar cache para que las vistas reflejen la anotación inmediatamente
+        st.cache_data.clear()
         return True
     except Exception as e:
         st.error(f"Error guardando anotación: {e}")
@@ -8497,6 +8763,8 @@ def _save_v510_validation(
                 comentario, annotator_id, date.today(),
             ))
             cur.close()
+        # Invalidar cache para reflejar la validación inmediatamente
+        st.cache_data.clear()
         return True
     except Exception as e:
         st.error(f"Error guardando validación Art. 510: {e}")
@@ -9272,7 +9540,7 @@ def _save_vllm_yt_validation(
 
     y_categoria = categoria_save
     y_intensidad = intensidad if odio_flag else None
-    split_val = "TRAIN" if random.random() < 0.85 else "TEST"
+    split_val = _stratified_split(target_ratio=0.85)
 
     try:
         with get_conn() as conn:
@@ -9314,6 +9582,8 @@ def _save_vllm_yt_validation(
 
             cur.close()
 
+        # Invalidar cache para reflejar la validación inmediatamente
+        st.cache_data.clear()
         return True
     except Exception as e:
         st.error(f"Error guardando validación LLM YT: {e}")
@@ -10227,6 +10497,8 @@ def _render_supervision_panel(period: str) -> None:
 
 def render_anotacion():
     """Sección de anotación humana: YouTube, Art. 510 y validación LLM (YT + X)."""
+    if not _require_role("admin", "editor", section="Anotación y validación"):
+        return
     _render_section_header(
         "Anotación y validación",
         "Anotación en YouTube, validación Art. 510 (X + YouTube) y control de calidad del etiquetado LLM.",
@@ -10249,18 +10521,31 @@ def render_anotacion():
         _render_supervision_panel(period)
         st.divider()
 
-    # --- Identificación del anotador (compartido entre tabs) ---
-    annotator = st.text_input(
-        "Nombre / ID de anotador",
-        value=st.session_state.get("annotator_id", ""),
-        placeholder="Ej: CIEDES, Anotador1...",
-        key="ann_id_input",
-    )
-    if annotator:
-        st.session_state["annotator_id"] = annotator.strip()
+    # --- Identificación del anotador (derivada del usuario autenticado) ---
+    # El annotator_id se fija a partir de la sesión autenticada para garantizar
+    # la integridad de la autoría en el gold dataset.
+    # Los admin pueden sobreescribirlo (para anotar en nombre de otro usuario).
+    session_user = st.session_state.get("user_name", "")
+    user_role = st.session_state.get("user_role")
+
+    if user_role == "admin":
+        annotator = st.text_input(
+            "Nombre / ID de anotador",
+            value=st.session_state.get("annotator_id", session_user),
+            placeholder="Ej: CIEDES, Anotador1...",
+            key="ann_id_input",
+            help="Admin: podés cambiar el ID para anotar en nombre de otro anotador.",
+        )
+        if annotator:
+            st.session_state["annotator_id"] = annotator.strip()
+    else:
+        # Editor: annotator_id fijo al usuario de sesión (no editable)
+        annotator = session_user
+        st.session_state["annotator_id"] = session_user
+        st.caption(f"Anotando como: **{session_user}**")
 
     if not annotator.strip():
-        st.info("Ingresa tu nombre de anotador para comenzar.")
+        st.info("No se pudo determinar tu ID de anotador. Iniciá sesión nuevamente.")
         return
 
     # --- Tabs ---
@@ -10605,6 +10890,34 @@ def render_proyecto():
     else:
         st.markdown("<br>", unsafe_allow_html=True)
         _render_proyecto_intro_con_imagen()
+
+    if _is_viewer():
+        with st.expander("ℹ️ Sobre esta plataforma"):
+            st.markdown(
+                """
+                **Alcance del análisis**
+                Esta plataforma monitoriza comentarios públicos en perfiles oficiales de medios
+                de comunicación andaluces en **X (Twitter)** y **YouTube**. No se accede a
+                información privada, mensajes directos ni perfiles personales.
+
+                **Metodología**
+                Los comentarios se clasifican mediante un sistema de inteligencia artificial (IA)
+                en 6 categorías de discurso de odio, validado con revisión humana experta.
+                Los resultados reflejan tendencias observadas, no un censo exhaustivo de todo
+                el contenido publicado en las plataformas.
+
+                **Limitaciones**
+                - La clasificación automática puede contener errores; los datos se revisan
+                  periódicamente por el equipo del proyecto.
+                - El volumen recogido depende de las cuotas de las APIs de cada plataforma.
+                - Los datos de X se actualizan los lunes y jueves; YouTube, con menor frecuencia.
+                - Esta herramienta es de uso investigador y no tiene valor probatorio legal.
+
+                **Proyecto**
+                ReTo es una iniciativa financiada por el programa CERV-2024-CHAR-LITI
+                de la Unión Europea. Más información en la sección *Proyecto ReTo*.
+                """
+            )
 
     _render_proyecto_consorcio_y_actividades()
 
@@ -11358,32 +11671,24 @@ def _ensure_db_connection() -> bool:
         return True
     if st.session_state.get("_db_ok") is False:
         return False
+
+    is_admin = st.session_state.get("user_role") == "admin"
+
     if not postgres_configured():
         st.session_state["_db_ok"] = False
-        st.error(
-            "No se detectaron credenciales PostgreSQL en este Space."
-        )
-        st.markdown(
-            """
-En **Hugging Face Docker** los secrets son **variables de entorno**, no un archivo TOML con `[postgres]`.
+        st.error("No se pudo establecer conexión con la base de datos.")
+        if is_admin:
+            st.markdown(
+                """
+**[Admin]** No se detectaron credenciales PostgreSQL.
 
-**Opción recomendada (un solo secret):**
-
-1. Settings → Secrets → secret **`DATABASE_URL`**
-2. Valor (una línea, desde Neon):
-
-`postgresql://usuario:contraseña@ep-xxxx.neon.tech/reto_db?sslmode=require`
-
-**O** reemplazá el secret `postgres` por la misma URL en una sola línea (sin cabecera `[postgres]`).
-
-**Opción B:** varios secrets: `POSTGRES_HOST`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DBNAME`, `POSTGRES_SSLMODE=require`.
-            """
-        )
+En **Hugging Face Docker** configurá los secrets como variables de entorno:
+- Opción A (recomendada): secret `DATABASE_URL` con la URL completa de Neon.
+- Opción B: secrets `POSTGRES_HOST`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DBNAME`, `POSTGRES_SSLMODE=require`.
+                """
+            )
         return False
     try:
-        params = get_connection_params()
-        dbname = params.get("dbname", "?")
-        db_user = params.get("user", "?")
         access_raw = _role_can_access_raw()
         probe_table = "raw.mensajes" if access_raw else "processed.mensajes"
         schema_ok = False
@@ -11405,43 +11710,31 @@ En **Hugging Face Docker** los secrets son **variables de entorno**, no un archi
                         raise
         if perm_denied:
             st.session_state["_db_ok"] = False
-            st.error(
-                f"El usuario `{db_user}` no tiene permiso de lectura sobre `{probe_table}`."
-            )
-            st.markdown(
-                f"""
-El rol de **visualización** (`analista_01` en Hugging Face) **no debe acceder a `raw`**.
-Solo necesita lectura en **`processed`** y **`delitos`**.
-
-En Neon → SQL Editor (como `neondb_owner`), ejecutá:
-
-```sql
-GRANT USAGE ON SCHEMA processed TO analista_01;
-GRANT SELECT ON ALL TABLES IN SCHEMA processed TO analista_01;
-GRANT USAGE ON SCHEMA delitos TO analista_01;
-GRANT SELECT ON ALL TABLES IN SCHEMA delitos TO analista_01;
-```
-
-Script completo: `automatizacion_diaria/migrations/grant_analista_01_viewer.sql`
-                """
-            )
+            st.error("El usuario de base de datos no tiene permisos suficientes para este perfil.")
+            if is_admin:
+                st.markdown(
+                    """
+**[Admin]** El usuario de BD configurado no tiene permisos de lectura sobre el esquema requerido.
+Revisá los GRANTs en Neon para el usuario de visualización.
+Script de referencia: `automatizacion_diaria/migrations/grant_analista_01_viewer.sql`
+                    """
+                )
             return False
         if not schema_ok:
             st.session_state["_db_ok"] = False
-            st.error(f"La base `{dbname}` no tiene la tabla `{probe_table}`.")
-            st.caption(
-                "Comprobá que `DATABASE_URL` apunte al proyecto Neon correcto (host `-pooler`, base `reto_db`)."
-            )
+            st.error("La base de datos no está configurada correctamente.")
+            if is_admin:
+                st.caption(
+                    "[Admin] Verificá que DATABASE_URL apunte al proyecto y base de datos correctos."
+                )
             return False
         st.session_state["_db_ok"] = True
         return True
     except Exception as exc:
         st.session_state["_db_ok"] = False
-        st.error(f"No se pudo conectar a PostgreSQL ({type(exc).__name__}): {exc}")
-        st.caption(
-            "Comprobá que Neon permita conexiones externas y que los secrets del Space "
-            "coincidan con los de Streamlit Cloud (misma base `reto_db`)."
-        )
+        st.error("No se pudo conectar a la base de datos. Intentá recargar la página.")
+        if is_admin:
+            st.caption(f"[Admin] Detalle técnico: {type(exc).__name__}")
         return False
 
 
