@@ -2589,11 +2589,17 @@ def _render_muestra_ultima_corrida_llm_section(*, key_suffix: str = "") -> None:
         _render_one_muestra_card(row)
 
 
-@st.cache_data(ttl=300)
-def _load_ranking_medios_raw(min_msgs: int = 100) -> pd.DataFrame:
+@st.cache_data(ttl=3600)
+def _load_ranking_medios_raw(min_msgs: int = 100, fecha_desde: Optional[str] = None, fecha_hasta: Optional[str] = None) -> pd.DataFrame:
     conds = ["pm.source_media IS NOT NULL AND pm.source_media != ''",
              "pm.source_media NOT IN %s"]
     params: list = [tuple(EXCLUDED_SOURCE_MEDIA)]
+    if fecha_desde:
+        conds.append("pm.created_at >= %s")
+        params.append(fecha_desde)
+    if fecha_hasta:
+        conds.append("pm.created_at <= %s")
+        params.append(fecha_hasta)
     where = " AND ".join(conds)
 
     with get_conn() as conn:
@@ -2628,11 +2634,13 @@ def _load_ranking_medios_raw(min_msgs: int = 100) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def load_ranking_medios(
     platforms: Optional[Tuple] = None,
+    fecha_desde: Optional[str] = None,
+    fecha_hasta: Optional[str] = None,
 ) -> pd.DataFrame:
-    df = _load_ranking_medios_raw(min_msgs=100)
+    df = _load_ranking_medios_raw(min_msgs=100, fecha_desde=fecha_desde, fecha_hasta=fecha_hasta)
     # Solo incluir medios de la lista maestra validada
     df = df[df["source_media"].apply(lambda sm: _public_medio_label(sm) is not None)]
     if platforms:
@@ -3965,9 +3973,18 @@ def render_ranking_medios():
         "Top 10 medios de comunicación por volumen de mensajes y porcentaje de odio.",
     )
 
+    col_fd, col_fh = st.columns(2)
+    with col_fd:
+        fecha_desde = st.date_input("Desde", value=None, key="ranking_fecha_desde")
+    with col_fh:
+        fecha_hasta = st.date_input("Hasta", value=None, key="ranking_fecha_hasta")
+
+    fd_str = fecha_desde.isoformat() if fecha_desde else None
+    fh_str = fecha_hasta.isoformat() if fecha_hasta else None
+
     top_n = 10
 
-    df_all = load_ranking_medios()
+    df_all = load_ranking_medios(fecha_desde=fd_str, fecha_hasta=fh_str)
     if df_all.empty:
         st.warning("No hay datos de medios.")
         return
@@ -4024,7 +4041,7 @@ def render_ranking_medios():
 # ============================================================
 # ANÁLISIS CONTEXTUAL SEMANAL
 # ============================================================
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=3600)
 def load_analisis_semanal() -> pd.DataFrame:
     with get_conn() as conn:
         df = pd.read_sql("""
@@ -10874,6 +10891,34 @@ def render_proyecto():
     else:
         st.markdown("<br>", unsafe_allow_html=True)
         _render_proyecto_intro_con_imagen()
+
+    if _is_viewer():
+        with st.expander("ℹ️ Sobre esta plataforma"):
+            st.markdown(
+                """
+                **Alcance del análisis**
+                Esta plataforma monitoriza comentarios públicos en perfiles oficiales de medios
+                de comunicación andaluces en **X (Twitter)** y **YouTube**. No se accede a
+                información privada, mensajes directos ni perfiles personales.
+
+                **Metodología**
+                Los comentarios se clasifican mediante un sistema de inteligencia artificial (IA)
+                en 6 categorías de discurso de odio, validado con revisión humana experta.
+                Los resultados reflejan tendencias observadas, no un censo exhaustivo de todo
+                el contenido publicado en las plataformas.
+
+                **Limitaciones**
+                - La clasificación automática puede contener errores; los datos se revisan
+                  periódicamente por el equipo del proyecto.
+                - El volumen recogido depende de las cuotas de las APIs de cada plataforma.
+                - Los datos de X se actualizan los lunes y jueves; YouTube, con menor frecuencia.
+                - Esta herramienta es de uso investigador y no tiene valor probatorio legal.
+
+                **Proyecto**
+                ReTo es una iniciativa financiada por el programa CERV-2024-CHAR-LITI
+                de la Unión Europea. Más información en la sección *Proyecto ReTo*.
+                """
+            )
 
     _render_proyecto_consorcio_y_actividades()
 
