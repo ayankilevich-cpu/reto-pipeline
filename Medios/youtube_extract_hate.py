@@ -43,8 +43,8 @@ DAYS_WINDOW = 2
 MAX_COMMENTS_PER_VIDEO = 500
 
 # Configuración de rotación de medios
-ROTATE_MEDIOS = True  # Si True, continúa desde el último medio procesado
-RANDOMIZE_ORDER = True  # Si True, aleatoriza el orden de medios cada día
+ROTATE_MEDIOS = True  # Continúa desde el último medio procesado (orden fijo del Excel)
+RANDOMIZE_ORDER = False  # Rotación secuencial fija para garantizar cobertura predecible
 
 # Filtrar stopwords comunes del español que causan falsos positivos
 FILTER_STOPWORDS = True  # Cambiar a False para respetar TODO el diccionario
@@ -511,6 +511,8 @@ def prepare_medios_list(medios_df, state: dict, randomize: bool = False):
         random.seed(today_seed)
         random.shuffle(medios_list)
         print(f"   Orden aleatorio (semilla: {today_seed})")
+    else:
+        print("📋 Usando orden fijo del Excel (rotación secuencial predecible)")
     
     # Si no hay rotación, empezar desde el inicio
     if not ROTATE_MEDIOS:
