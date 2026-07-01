@@ -96,6 +96,9 @@ relevancia_cache.json
 # HF Space — repo git separado, no mezclar con reto-pipeline
 hf-space-temp/
 
+# Datasets JSON de Instagram (no versionar)
+Instagram/*.json
+
 # daily.yml duplicado — la fuente real es .github/workflows/daily.yml
 automatizacion_diaria/daily.yml
 
