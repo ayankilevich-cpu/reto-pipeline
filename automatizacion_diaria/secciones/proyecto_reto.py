@@ -279,9 +279,7 @@ def _render_proyecto_intro_viewer() -> None:
 
 def _render_proyecto_intro_con_imagen() -> None:
     """Bloque superior con portada + texto (admin y editor)."""
-    _portada_path = _reto_asset_file("ppt_assets", "Portada_manual_Reto.jpg") or _reto_asset_file(
-        "ppt_assets", "Portada_manual_Reto.png"
-    )
+    _portada_path = _reto_asset_file("ppt_assets", "Portada_manual_Reto.jpg")
     _portada_b64 = ""
     if _portada_path is not None:
         try:

@@ -6,7 +6,49 @@
 
 Script maestro que ejecuta cada día, en orden, los 7 scripts del pipeline.
 
-## Orden de ejecución
+## Dashboard Streamlit (modular)
+
+Entry point: `dashboard.py` (config + auth + routing). Lógica repartida en:
+
+### `components/` — módulos compartidos
+
+| Módulo | Rol |
+|--------|-----|
+| `auth.py` | Login, roles y visibilidad de secciones |
+| `constants.py` | Paletas, etiquetas y constantes de dominio |
+| `db_helpers.py` | Loaders `load_*` compartidos entre secciones |
+| `exports.py` | Export CSV/PNG/PDF por sección |
+| `ui.py` | Cabeceras, helpers de barras, assets |
+| `theme.py` | CSS global, tema Plotly, footer |
+| `layout.py` | Sidebar, navegación, chequeo de BD |
+| `art510_shared.py` | Renderers compartidos Art. 510 |
+| `validacion_shared.py` | Análisis de errores vLLM (Calidad + Anotación) |
+
+### `secciones/` — una sección por archivo
+
+| Módulo | Sección |
+|--------|---------|
+| `proyecto_reto.py` | Proyecto ReTo |
+| `panel_general.py` | Panel general |
+| `categorias_odio.py` | Categorías de odio (LLM) |
+| `ranking_medios.py` | Ranking de medios |
+| `analisis_contextual.py` | Análisis contextual |
+| `comparativa_modelos.py` | Comparativa modelos |
+| `calidad_llm.py` | Calidad LLM |
+| `terminos_frecuentes.py` | Términos frecuentes |
+| `buscador_analisis.py` | Buscador y Análisis |
+| `gold_dataset.py` | Dataset Gold |
+| `analisis_510.py` | Análisis Art. 510 |
+| `anotacion_validacion.py` | Anotación y validación |
+| `delitos_odio.py` | Delitos de odio (oficial) |
+
+Deploy: Streamlit Cloud (`proyectoreto.streamlit.app`). Ejecutar desde la raíz del repo:
+
+```bash
+streamlit run automatizacion_diaria/dashboard.py
+```
+
+---
 
 1. `X_Mensajes/sync_drive_csvs.py`
 2. `X_Mensajes/consolidar_csv.py`

@@ -9,9 +9,21 @@ El repositorio público **`ayankilevich-cpu/reto`** queda como **referencia arch
 
 ## Qué incluye este proyecto
 
-- **Dashboard** Streamlit (`dashboard.py`): monitorización de discurso de odio en redes, conexión a PostgreSQL (`reto_db`).
+- **Dashboard** Streamlit modular (`automatizacion_diaria/dashboard.py`): monitorización de discurso de odio en redes, conexión a PostgreSQL (`reto_db`).
 - **Pipeline y automatización** (`automatizacion_diaria/`, `Medios/`, `Etiquetado_Modelos/`, etc.).
 - **Scrapers y utilidades** (`reto-scraper/`, `Limpieza/`, `X_Mensajes/`, …).
+
+---
+
+## Estructura del dashboard (modular desde jul 2026)
+
+El dashboard Streamlit vive en `automatizacion_diaria/` con arquitectura modular:
+
+- `dashboard.py` — entry point (118 líneas: config + auth + routing)
+- `components/` — módulos compartidos (auth, constants, db_helpers, exports, ui, theme, layout)
+- `secciones/` — 13 secciones independientes, una por archivo
+
+Deploy activo: Streamlit Cloud (`proyectoreto.streamlit.app`)
 
 ---
 
@@ -29,10 +41,10 @@ El repositorio público **`ayankilevich-cpu/reto`** queda como **referencia arch
 3. Copiar variables de entorno a partir de `.env.example` → `.env` (sin subir `.env` a Git).
 4. Credenciales de base de datos: el dashboard usa `db_utils` desde `automatizacion_diaria/` (vía `sys.path`).
 
-5. Ejecutar:
+5. Ejecutar (desde la raíz del repo):
 
    ```bash
-   streamlit run dashboard.py
+   streamlit run automatizacion_diaria/dashboard.py
    ```
 
 **Streamlit secrets:** si usás `secrets.toml`, debe quedar fuera del repo (ya está en `.gitignore`).
@@ -43,12 +55,12 @@ El repositorio público **`ayankilevich-cpu/reto`** queda como **referencia arch
 
 | Archivo / carpeta | Uso |
 |-------------------|-----|
-| `dashboard.py` | App Streamlit principal |
+| `automatizacion_diaria/` | Dashboard modular, pipeline diario, `db_utils` |
 | `logo_reto.png`, `logos/` | Imágenes del dashboard |
-| `medios_validos.json` | Lista de medios válidos (usada por el dashboard) |
-| `terminos_exclusion_oficial.py` | Lemas excluidos en análisis de términos |
-| `analisis_contexto_semanal.py` | Análisis semanal (copia alineada con `automatizacion_diaria/`) |
+| `legacy/` | Dashboard y scripts legacy (no productivos) |
 | `Dockerfile`, `docker-compose.yml` | Despliegue opcional |
+
+Los duplicados que antes vivían en la raíz (`terminos_exclusion_oficial.py`, `medios_validos.json`, `dashboard.py`) están en `automatizacion_diaria/` o en `legacy/`.
 
 ---
 
