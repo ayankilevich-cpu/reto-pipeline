@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Any, Callable, Dict, Optional, Tuple
 import re
 from contextlib import contextmanager
@@ -687,7 +687,6 @@ def _save_annotation(
 ) -> bool:
     """Guarda la anotación en validaciones_manuales y gold_dataset."""
     import random
-    from datetime import date
 
     if odio_flag is True:
         y_odio_final = "Odio"
@@ -879,8 +878,6 @@ def _save_v510_validation(
     annotator_id: str,
 ) -> bool:
     """Guarda la validación humana de Art. 510."""
-    from datetime import date
-
     try:
         with get_conn() as conn:
             cur = conn.cursor()
@@ -1644,7 +1641,6 @@ def _save_vllm_yt_validation(
 ) -> bool:
     """Guarda validación de etiquetado LLM (YT/X) en validaciones_manuales y gold_dataset."""
     import random
-    from datetime import date
 
     if odio_flag is True and not (categoria_odio or "").strip():
         st.error(
