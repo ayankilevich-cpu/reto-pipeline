@@ -1,4 +1,5 @@
 """Constantes compartidas del dashboard RETO (paletas, etiquetas, alias)."""
+from typing import List, Optional
 
 
 CATEGORIAS_LABELS = {
@@ -84,3 +85,39 @@ DELITOS_COLORS = [
     "#1ABC9C", "#E67E22", "#34495E", "#E91E63", "#00BCD4",
     "#8BC34A", "#FF5722",
 ]
+
+
+def _expand_platforms(platforms: Optional[List[str]]) -> Optional[List[str]]:
+    """Expande aliases de plataforma para que 'x' incluya 'twitter' en SQL."""
+    if not platforms:
+        return platforms
+    expanded: set = set()
+    for p in platforms:
+        if p in _PLATFORM_ALIASES:
+            expanded.update(_PLATFORM_ALIASES[p])
+        else:
+            expanded.add(p)
+    return sorted(expanded)
+
+
+LABEL_SOURCE_LABELS = {
+    "llm": "Etiquetado LLM",
+    "humano": "Etiquetado humano",
+}
+
+
+# Categorías del etiquetado que mapean a grupos protegidos Art. 510
+CATEGORIAS_ART510 = {
+    "odio_etnico_cultural_religioso",
+    "odio_genero_identidad_orientacion",
+    "odio_condicion_social_economica_salud",
+    "odio_ideologico_politico",
+}
+
+
+CATEGORIA_TO_GRUPO_510 = {
+    "odio_etnico_cultural_religioso": "Raza / Etnia / Religión",
+    "odio_genero_identidad_orientacion": "Sexo / Orientación / Identidad sexual",
+    "odio_condicion_social_economica_salud": "Aporofobia / Enfermedad / Discapacidad",
+    "odio_ideologico_politico": "Ideología",
+}

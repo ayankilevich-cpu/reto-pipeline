@@ -7,6 +7,8 @@ from typing import Dict, List
 
 import streamlit as st
 
+from components.ui import _reto_asset_file
+
 
 # ============================================================
 # AUTH — roles y acceso
@@ -126,21 +128,22 @@ def _check_auth() -> bool:
 
 def _render_login():
     """Pantalla de login con rate limiting y soporte de contraseñas hasheadas."""
-    st.markdown(
-        "<h1 style='text-align:center;'>🛡️ ReTo — Dashboard</h1>",
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        "<p style='text-align:center;'>Red de Tolerancia contra los delitos de odio</p>",
-        unsafe_allow_html=True,
-    )
-
-    from dashboard import _reto_asset_file  # import diferido: evita ciclo con el entry point
     logo_path = _reto_asset_file("logo_reto.png")
     if logo_path is not None:
         col_l, col_c, col_r = st.columns([1, 1, 1])
         with col_c:
             st.image(str(logo_path), width=200)
+
+    st.markdown(
+        "<h2 style='text-align:center; margin-top:0.5rem; margin-bottom:0.25rem;'>"
+        "Monitor de Discurso de Odio</h2>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<p style='text-align:center; color:#6B7280; font-size:0.95rem; margin-top:0;'>"
+        "Red de Tolerancia contra los delitos de odio</p>",
+        unsafe_allow_html=True,
+    )
 
     st.markdown("---")
 

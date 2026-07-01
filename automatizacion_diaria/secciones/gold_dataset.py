@@ -22,48 +22,7 @@ from components.constants import (
 )
 from components.ui import _render_section_header, _apply_horizontal_bar_labels
 from components.exports import render_section_exports
-
-
-@st.cache_data(ttl=300)
-def load_gold_full() -> pd.DataFrame:
-    """Carga el gold dataset unido con validaciones manuales y etiquetas LLM."""
-    with get_conn() as conn:
-        df = pd.read_sql("""
-            SELECT
-                g.message_uuid,
-                pm.platform,
-                g.y_odio_final,
-                g.y_odio_bin,
-                g.y_categoria_final,
-                g.y_intensidad_final,
-                g.corrigio_odio,
-                g.corrigio_categoria,
-                g.corrigio_intensidad,
-                g.label_source,
-                g.split,
-                v.odio_flag       AS human_odio,
-                v.categoria_odio  AS human_categoria,
-                v.intensidad      AS human_intensidad,
-                v.humor_flag      AS human_humor,
-                v.annotator_id,
-                v.coincide_con_llm,
-                e.clasificacion_principal AS llm_clasif,
-                e.categoria_odio_pred     AS llm_categoria,
-                e.intensidad_pred         AS llm_intensidad,
-                e.resumen_motivo          AS llm_motivo
-            FROM processed.gold_dataset g
-            LEFT JOIN processed.mensajes pm USING (message_uuid)
-            LEFT JOIN processed.validaciones_manuales v USING (message_uuid)
-            LEFT JOIN processed.etiquetas_llm e USING (message_uuid)
-            ORDER BY g.message_uuid
-        """, conn)
-    # Etiquetas de plataforma legibles
-    df["platform_label"] = df["platform"].map(
-        {"x": "X", "twitter": "X", "youtube": "YouTube"}
-    ).fillna(df["platform"])
-    df["split"] = df["split"].fillna("sin_asignar")
-    df["annotator_id"] = df["annotator_id"].fillna("sin_asignar")
-    return df
+from components.db_helpers import load_gold_full
 
 
 def render_gold_dataset():
