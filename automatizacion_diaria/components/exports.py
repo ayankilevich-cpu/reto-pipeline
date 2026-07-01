@@ -1,7 +1,7 @@
 """Helpers de exportación CSV / PDF por sección del dashboard RETO."""
 from datetime import datetime
 from io import BytesIO
-from typing import Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 import streamlit as st

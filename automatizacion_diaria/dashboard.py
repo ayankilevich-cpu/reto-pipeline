@@ -99,7 +99,23 @@ sys.path.insert(0, str(_AUTO_DIR))
 from db_utils import get_conn, get_connection_params, postgres_configured
 
 # ── Módulos refactorizados (Fase 1) ────────────────
-from secciones.gold_dataset import load_gold_full, render_gold_dataset
+from components.constants import (
+    _expand_platforms,
+    LABEL_SOURCE_LABELS,
+    CATEGORIAS_ART510,
+    CATEGORIA_TO_GRUPO_510,
+)
+from components.db_helpers import (
+    load_filter_options,
+    _load_valid_media_map,
+    _public_medio_label,
+    _load_vllm_yt_corrections,
+    load_art510_summary,
+    load_art510_validaciones_humanas,
+    load_art510_candidates,
+    load_gold_full,
+)
+from secciones.gold_dataset import render_gold_dataset
 from secciones.analisis_contextual import render_analisis_contextual
 from components.ui import (
     _apply_horizontal_bar_labels,
@@ -1270,60 +1286,6 @@ def _nav_section_label(section: str) -> str:
     return _labels.get(section, section.replace("(LLM)", "por IA").replace("LLM", "IA"))
 
 
-def _expand_platforms(platforms: Optional[List[str]]) -> Optional[List[str]]:
-    """Expande aliases de plataforma para que 'x' incluya 'twitter' en SQL."""
-    if not platforms:
-        return platforms
-    expanded: set = set()
-    for p in platforms:
-        if p in _PLATFORM_ALIASES:
-            expanded.update(_PLATFORM_ALIASES[p])
-        else:
-            expanded.add(p)
-    return sorted(expanded)
-
-
-_MEDIOS_JSON_PATH = Path(__file__).resolve().parent / "medios_validos.json"
-
-
-@st.cache_data(ttl=3600)
-def _load_valid_media_map() -> Tuple[Set[str], Dict[str, str]]:
-    """Carga el JSON con los medios válidos y el mapeo handle → nombre.
-    El JSON se genera a partir del Excel maestro y se despliega junto a la app.
-    """
-    with open(_MEDIOS_JSON_PATH, encoding="utf-8") as f:
-        data = json.load(f)
-    valid_names: Set[str] = set(data["valid_names"])
-    handle_to_name: Dict[str, str] = data["handle_to_name"]
-    return valid_names, handle_to_name
-
-
-def _public_medio_label(source_media: Any) -> Optional[str]:
-    """Nombre del medio monitorizado seguro para UI pública.
-
-    Solo devuelve texto si `source_media` está en la lista maestra de medios (o su handle
-    mapea a un nombre válido). Cualquier otro valor (p. ej. cuenta personal no catalogada)
-    devuelve None para no exponer identificadores.
-    """
-    if source_media is None:
-        return None
-    if isinstance(source_media, float) and pd.isna(source_media):
-        return None
-    sm = str(source_media).strip()
-    if not sm:
-        return None
-    try:
-        valid_names, handle_to_name = _load_valid_media_map()
-    except Exception:
-        return None
-    display = handle_to_name.get(sm, sm)
-    if display in valid_names:
-        return display
-    if sm in valid_names:
-        return sm
-    return None
-
-
 # ============================================================
 # HELPERS — build dynamic WHERE clauses
 # ============================================================
@@ -1366,58 +1328,6 @@ def build_where(
 
     where = " AND ".join(conditions)
     return (f"WHERE {where}" if where else ""), params
-
-
-# ============================================================
-# DATA LOADING — filter-aware
-# ============================================================
-@st.cache_data(ttl=300)
-def load_filter_options(access_raw: bool) -> dict:
-    """Load distinct values for all filter dropdowns."""
-    platform_sql = (
-        "SELECT DISTINCT platform FROM raw.mensajes WHERE platform IS NOT NULL ORDER BY platform"
-        if access_raw
-        else "SELECT DISTINCT platform FROM processed.mensajes WHERE platform IS NOT NULL ORDER BY platform"
-    )
-    with get_conn() as conn:
-        platforms_raw = pd.read_sql(platform_sql, conn)["platform"].tolist()
-        platforms = sorted({PLATFORM_DISPLAY.get(p, p) for p in platforms_raw})
-        platform_internal = sorted({
-            "x" if p in ("twitter", "x") else p for p in platforms_raw
-        })
-        platforms = platform_internal
-
-        medios = pd.read_sql(
-            "SELECT source_media FROM processed.mensajes "
-            "WHERE source_media IS NOT NULL AND source_media != '' "
-            "  AND source_media NOT IN %s "
-            "GROUP BY source_media "
-            "HAVING COUNT(*) >= 100 "
-            "ORDER BY source_media", conn,
-            params=[tuple(EXCLUDED_SOURCE_MEDIA)],
-        )["source_media"].tolist()
-
-        prioridades = pd.read_sql(
-            "SELECT DISTINCT priority FROM processed.scores "
-            "WHERE priority IS NOT NULL ORDER BY priority", conn
-        )["priority"].tolist()
-
-        clasificaciones = pd.read_sql(
-            "SELECT DISTINCT clasificacion_principal FROM processed.etiquetas_llm "
-            "WHERE clasificacion_principal IS NOT NULL ORDER BY clasificacion_principal", conn
-        )["clasificacion_principal"].tolist()
-
-    categorias = list(CATEGORIAS_LABELS.keys())
-    intensidades = ["1", "2", "3"]
-
-    return {
-        "platforms": platforms,
-        "medios": medios,
-        "categorias": categorias,
-        "intensidades": intensidades,
-        "prioridades": prioridades,
-        "clasificaciones": clasificaciones,
-    }
 
 
 @st.cache_data(ttl=300)
@@ -4433,10 +4343,6 @@ APARTADO_LABELS = {
     "1c": "Art. 510.1c — Negación/trivialización",
 }
 
-LABEL_SOURCE_LABELS = {
-    "llm": "Etiquetado LLM",
-    "humano": "Etiquetado humano",
-}
 
 ART510_COLORS = {
     "1a": "#E74C3C",
@@ -4767,22 +4673,6 @@ def _art510_save_batch(results: list) -> int:
         return 0
 
 
-# Categorías del etiquetado que mapean a grupos protegidos Art. 510
-CATEGORIAS_ART510 = {
-    "odio_etnico_cultural_religioso",
-    "odio_genero_identidad_orientacion",
-    "odio_condicion_social_economica_salud",
-    "odio_ideologico_politico",
-}
-
-CATEGORIA_TO_GRUPO_510 = {
-    "odio_etnico_cultural_religioso": "Raza / Etnia / Religión",
-    "odio_genero_identidad_orientacion": "Sexo / Orientación / Identidad sexual",
-    "odio_condicion_social_economica_salud": "Aporofobia / Enfermedad / Discapacidad",
-    "odio_ideologico_politico": "Ideología",
-}
-
-
 @st.cache_data(ttl=300)
 def load_art510_data(
     platforms: Optional[Tuple] = None,
@@ -4834,185 +4724,6 @@ def load_art510_data(
         )
         df["apartado_label"] = df["apartado_510"].map(
             lambda x: APARTADO_LABELS.get(x, x) if pd.notna(x) and x else "Sin apartado"
-        )
-
-    return df
-
-
-@st.cache_data(ttl=300)
-def load_art510_summary() -> dict:
-    """KPIs generales de Art. 510 (sin filtros)."""
-    with get_conn() as conn:
-        cur = conn.cursor()
-
-        try:
-            cur.execute("SELECT COUNT(*) FROM processed.evaluacion_art510")
-            total_evaluados = cur.fetchone()[0]
-        except Exception:
-            conn.rollback()
-            total_evaluados = 0
-
-        try:
-            cur.execute("""
-                SELECT COUNT(*) FROM processed.evaluacion_art510
-                WHERE es_potencial_delito = TRUE
-            """)
-            total_delitos = cur.fetchone()[0]
-        except Exception:
-            conn.rollback()
-            total_delitos = 0
-
-        try:
-            cur.execute("SELECT COUNT(*) FROM processed.validacion_art510_humana")
-            total_validados = cur.fetchone()[0]
-        except Exception:
-            conn.rollback()
-            total_validados = 0
-
-        total_confirmados = 0
-        total_rechazados = 0
-        try:
-            cur.execute("""
-                SELECT validacion_humana, COUNT(*)
-                FROM processed.validacion_art510_humana
-                GROUP BY validacion_humana
-            """)
-            for val, cnt in cur.fetchall():
-                if val == "confirmado":
-                    total_confirmados = cnt
-                elif val == "rechazado":
-                    total_rechazados = cnt
-        except Exception:
-            conn.rollback()
-
-        cur.close()
-
-    return {
-        "total_evaluados": total_evaluados,
-        "total_delitos": total_delitos,
-        "total_validados": total_validados,
-        "total_confirmados": total_confirmados,
-        "total_rechazados": total_rechazados,
-    }
-
-
-@st.cache_data(ttl=300)
-def load_art510_validaciones_humanas() -> pd.DataFrame:
-    """Carga validaciones humanas de Art. 510 cruzadas con la evaluación LLM."""
-    with get_conn() as conn:
-        df = pd.read_sql("""
-            SELECT
-                vh.message_uuid,
-                vh.validacion_humana,
-                vh.apartado_510_final,
-                vh.grupo_protegido_final,
-                vh.conducta_final,
-                vh.comentario,
-                vh.annotator_id,
-                vh.annotation_date,
-                ea.es_potencial_delito   AS llm_potencial_delito,
-                ea.apartado_510          AS llm_apartado,
-                ea.conducta_detectada    AS llm_conducta,
-                ea.grupo_protegido       AS llm_grupo,
-                ea.confianza             AS llm_confianza,
-                ea.justificacion         AS llm_justificacion,
-                pm.content_original,
-                pm.platform,
-                pm.source_media
-            FROM processed.validacion_art510_humana vh
-            LEFT JOIN processed.evaluacion_art510 ea USING (message_uuid)
-            LEFT JOIN processed.mensajes pm USING (message_uuid)
-            ORDER BY vh.validacion_humana DESC, vh.annotation_date DESC
-        """, conn)
-    if not df.empty:
-        df["platform_label"] = df["platform"].map(PLATFORM_DISPLAY).fillna(df["platform"])
-    return df
-
-
-@st.cache_data(ttl=300)
-def load_art510_candidates(
-    platforms: Optional[Tuple] = None,
-    label_sources: Optional[Tuple] = None,
-) -> pd.DataFrame:
-    """
-    Carga candidatos a Art. 510 desde gold dataset y etiquetas LLM.
-
-    Mensajes ODIO cuya categoría mapea a grupos protegidos del Art. 510.
-    Se usa como vista previa cuando aún no se ha ejecutado evaluar_art510.py.
-    """
-    platforms = _expand_platforms(list(platforms) if platforms else None)
-    dfs = []
-
-    with get_conn() as conn:
-        # --- Fuente LLM ---
-        if not label_sources or "llm" in label_sources:
-            plat_cond = ""
-            params_llm: list = []
-            if platforms:
-                plat_cond = "AND pm.platform IN %s"
-                params_llm.append(tuple(platforms))
-
-            df_llm = pd.read_sql(f"""
-                SELECT pm.message_uuid,
-                       'llm' AS label_source,
-                       pm.content_original,
-                       pm.platform,
-                       pm.source_media,
-                       e.categoria_odio_pred AS categoria,
-                       e.intensidad_pred AS intensidad,
-                       e.resumen_motivo AS motivo_etiquetado
-                FROM processed.mensajes pm
-                JOIN processed.etiquetas_llm e USING (message_uuid)
-                WHERE e.clasificacion_principal = 'ODIO'
-                  {plat_cond}
-                ORDER BY e.intensidad_pred DESC NULLS LAST
-            """, conn, params=params_llm if params_llm else None)
-            dfs.append(df_llm)
-
-        # --- Fuente Humano (gold + validaciones) ---
-        if not label_sources or "humano" in label_sources:
-            plat_cond = ""
-            params_h: list = []
-            if platforms:
-                plat_cond = "AND pm.platform IN %s"
-                params_h.append(tuple(platforms))
-
-            df_human = pd.read_sql(f"""
-                SELECT pm.message_uuid,
-                       'humano' AS label_source,
-                       pm.content_original,
-                       pm.platform,
-                       pm.source_media,
-                       COALESCE(g.y_categoria_final, v.categoria_odio) AS categoria,
-                       COALESCE(g.y_intensidad_final::text, v.intensidad::text) AS intensidad,
-                       'Validación humana' AS motivo_etiquetado
-                FROM processed.mensajes pm
-                LEFT JOIN processed.validaciones_manuales v USING (message_uuid)
-                LEFT JOIN processed.gold_dataset g USING (message_uuid)
-                WHERE (v.odio_flag = TRUE OR g.y_odio_bin = 1)
-                  {plat_cond}
-            """, conn, params=params_h if params_h else None)
-            dfs.append(df_human)
-
-    if not dfs:
-        return pd.DataFrame()
-
-    df = pd.concat(dfs, ignore_index=True)
-    df = df.drop_duplicates(subset=["message_uuid", "label_source"])
-
-    # Pre-filtro Art. 510: solo categorías que mapean a grupos protegidos
-    df = df[df["categoria"].isin(CATEGORIAS_ART510)].copy()
-
-    if not df.empty:
-        df["platform_label"] = df["platform"].map(platform_label)
-        df["source_label"] = df["label_source"].map(
-            lambda x: LABEL_SOURCE_LABELS.get(x, x)
-        )
-        df["grupo_protegido_estimado"] = df["categoria"].map(
-            lambda x: CATEGORIA_TO_GRUPO_510.get(x, x)
-        )
-        df["categoria_label"] = df["categoria"].map(
-            lambda x: CATEGORIAS_LABELS.get(x, x)
         )
 
     return df
@@ -7961,39 +7672,6 @@ def _save_vllm_yt_validation(
     except Exception as e:
         st.error(f"Error guardando validación LLM YT: {e}")
         return False
-
-
-@st.cache_data(ttl=120)
-def _load_vllm_yt_corrections() -> pd.DataFrame:
-    """Carga todas las validaciones humanas de etiquetado LLM en YouTube."""
-    try:
-        with get_conn() as conn:
-            df = pd.read_sql("""
-                SELECT pm.message_uuid,
-                       pm.content_original,
-                       pm.source_media,
-                       e.clasificacion_principal AS llm_clasif,
-                       e.categoria_odio_pred     AS llm_categoria,
-                       e.intensidad_pred         AS llm_intensidad,
-                       e.resumen_motivo          AS llm_motivo,
-                       CASE WHEN v.odio_flag = TRUE THEN 'ODIO'
-                            WHEN v.odio_flag = FALSE THEN 'NO_ODIO'
-                            ELSE 'DUDOSO' END    AS humano_clasif,
-                       v.categoria_odio          AS humano_categoria,
-                       v.intensidad              AS humano_intensidad,
-                       v.humor_flag              AS humano_humor,
-                       v.coincide_con_llm,
-                       v.annotator_id,
-                       v.annotation_date
-                FROM processed.validaciones_manuales v
-                JOIN processed.mensajes pm USING (message_uuid)
-                JOIN processed.etiquetas_llm e USING (message_uuid)
-                WHERE pm.platform = 'youtube'
-                ORDER BY v.annotation_date DESC
-            """, conn)
-    except Exception:
-        return pd.DataFrame()
-    return df
 
 
 def _render_vllm_label_error_analysis(
