@@ -7,6 +7,8 @@ from typing import Dict, List
 
 import streamlit as st
 
+from components.ui import _reto_asset_file
+
 
 # ============================================================
 # AUTH — roles y acceso
@@ -135,7 +137,6 @@ def _render_login():
         unsafe_allow_html=True,
     )
 
-    from dashboard import _reto_asset_file  # import diferido: evita ciclo con el entry point
     logo_path = _reto_asset_file("logo_reto.png")
     if logo_path is not None:
         col_l, col_c, col_r = st.columns([1, 1, 1])

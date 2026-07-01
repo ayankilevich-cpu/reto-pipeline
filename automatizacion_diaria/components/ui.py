@@ -1,7 +1,34 @@
 """Helpers de UI compartidos entre secciones del dashboard RETO."""
 import html
+from pathlib import Path
+from typing import Optional
 
 import streamlit as st
+
+_AUTO_DIR = Path(__file__).resolve().parent.parent  # automatizacion_diaria/
+# Raíz del paquete ReTo (logo y carpeta logos/ están ahí, no dentro de automatizacion_diaria/)
+_RETO_ROOT = _AUTO_DIR.parent
+
+
+def _reto_asset_file(*parts: str) -> Optional[Path]:
+    """Resuelve logo u otro asset: mismo dir del script o raíz ReTo (Streamlit Cloud / distintos entrypoints)."""
+    for base in (_AUTO_DIR, _RETO_ROOT):
+        p = base.joinpath(*parts)
+        if p.is_file():
+            return p
+    return None
+
+
+def _require_role(*allowed_roles: str, section: str = "esta sección") -> bool:
+    """Guard de acceso: detiene el renderer si el rol no está autorizado.
+    Devuelve True si el acceso está permitido, False si no."""
+    role = st.session_state.get("user_role")
+    if role not in allowed_roles:
+        st.error(f"No tenés permisos para acceder a {section}.")
+        st.info("Si creés que es un error, iniciá sesión con las credenciales correctas.")
+        st.stop()
+        return False
+    return True
 
 
 def _render_section_header(title: str, subtitle_html: str = "") -> None:

@@ -36,12 +36,11 @@ import json
 import re
 import sys
 import unicodedata
-from io import BytesIO
 from collections import Counter
 from contextlib import contextmanager
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
 import plotly.express as px
@@ -50,8 +49,6 @@ import streamlit as st
 import streamlit.components.v1 as components
 from wordcloud import WordCloud
 import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
-from matplotlib.backends.backend_pdf import PdfPages
 
 try:
     import plotly.io as pio
@@ -78,15 +75,6 @@ _AUTO_DIR = Path(__file__).resolve().parent
 _RETO_ROOT = _AUTO_DIR.parent
 
 
-def _reto_asset_file(*parts: str) -> Optional[Path]:
-    """Resuelve logo u otro asset: mismo dir del script o raíz ReTo (Streamlit Cloud / distintos entrypoints)."""
-    for base in (_AUTO_DIR, _RETO_ROOT):
-        p = base.joinpath(*parts)
-        if p.is_file():
-            return p
-    return None
-
-
 def _reto_logos_directory() -> Optional[Path]:
     for base in (_AUTO_DIR, _RETO_ROOT):
         d = base / "logos"
@@ -96,14 +84,12 @@ def _reto_logos_directory() -> Optional[Path]:
 
 
 sys.path.insert(0, str(_AUTO_DIR))
-from db_utils import get_conn, get_connection_params, postgres_configured
+from db_utils import get_conn, postgres_configured
 
 # ── Módulos refactorizados (Fase 1) ────────────────
 from components.constants import (
     _expand_platforms,
     LABEL_SOURCE_LABELS,
-    CATEGORIAS_ART510,
-    CATEGORIA_TO_GRUPO_510,
 )
 from components.db_helpers import (
     load_filter_options,
@@ -121,6 +107,8 @@ from components.ui import (
     _apply_horizontal_bar_labels,
     _is_viewer,
     _render_section_header,
+    _reto_asset_file,
+    _require_role,
     _role_can_access_raw,
     _ui_label,
 )
@@ -143,7 +131,6 @@ from components.constants import (
     PLATFORM_COLORS,
     PLATFORM_DISPLAY,
     SEMANTIC_COLORS,
-    _PLATFORM_ALIASES,
     platform_label,
 )
 try:
@@ -1259,20 +1246,6 @@ def _register_plotly_theme() -> None:
 
 
 _register_plotly_theme()
-
-
-# ── Hashing de contraseñas ──────────────────────────────────────────────────
-# Las contraseñas en st.secrets pueden almacenarse como:
-#   • plain text (legado): se comparan directamente y se muestra aviso al admin.
-#   • hash pbkdf2: formato "pbkdf2:<iterations>:<hex_salt>:<hex_hash>"
-#     Generá el hash con: _hash_password("mi_contraseña")
-# ──────────────────────────────────────────────────────────────────────────────
-import hashlib as _hashlib
-import os as _os_auth
-import binascii as _binascii
-
-
-import time as _time
 
 
 def _nav_section_label(section: str) -> str:
@@ -3471,18 +3444,6 @@ def render_ranking_medios():
         ],
         fig_items=[],
     )
-
-
-def _require_role(*allowed_roles: str, section: str = "esta sección") -> bool:
-    """Guard de acceso: detiene el renderer si el rol no está autorizado.
-    Devuelve True si el acceso está permitido, False si no."""
-    role = st.session_state.get("user_role")
-    if role not in allowed_roles:
-        st.error(f"No tenés permisos para acceder a {section}.")
-        st.info("Si creés que es un error, iniciá sesión con las credenciales correctas.")
-        st.stop()
-        return False
-    return True
 
 
 def render_comparativa():
