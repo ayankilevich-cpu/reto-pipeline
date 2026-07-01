@@ -121,3 +121,17 @@ CATEGORIA_TO_GRUPO_510 = {
     "odio_condicion_social_economica_salud": "Aporofobia / Enfermedad / Discapacidad",
     "odio_ideologico_politico": "Ideología",
 }
+
+
+APARTADO_LABELS = {
+    "1a": "Art. 510.1a — Incitación",
+    "1b": "Art. 510.1b — Distribución material",
+    "1c": "Art. 510.1c — Negación/trivialización",
+}
+
+
+ART510_COLORS = {
+    "1a": "#E74C3C",
+    "1b": "#3498DB",
+    "1c": "#F39C12",
+}

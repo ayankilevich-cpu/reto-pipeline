@@ -1,5 +1,6 @@
 """Helpers de UI compartidos entre secciones del dashboard RETO."""
 import html
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -71,3 +72,11 @@ def _ui_label(text: str) -> str:
     if "Categorías de odio (LLM)" in text:
         text = text.replace("Categorías de odio (LLM)", "Categorías de odio por IA")
     return text.replace("LLM", "IA")
+
+
+def _anonimizar_texto_mensaje(texto: str) -> str:
+    """Elimina menciones (@usuario) y URLs del texto del mensaje."""
+    texto = re.sub(r'@\S+', '', texto)
+    texto = re.sub(r'http\S+', '', texto)
+    texto = re.sub(r'\s+', ' ', texto).strip()
+    return texto
