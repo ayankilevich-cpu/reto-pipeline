@@ -70,6 +70,8 @@ jobs:
           mkdir -p X_Mensajes/data/master
           mkdir -p X_Mensajes/Anon
           mkdir -p Medios/ML/etiquetado_llm/outputs
+          mkdir -p outputs/pipeline_unificado/x
+          mkdir -p outputs/pipeline_unificado/youtube
 
       - name: Restaurar caché de estado anterior
         id: cache-restore
@@ -87,6 +89,7 @@ jobs:
             Medios/x_manual_label_for_sheets_tagged.csv
             Etiquetado_Modelos/x_manual_label_scored.csv
             Etiquetado_Modelos/x_manual_label_scored_prioridad_alta.csv
+            outputs/pipeline_unificado
           key: reto-pipeline-data-${{ github.run_number }}
           restore-keys: |
             reto-pipeline-data-
@@ -147,6 +150,34 @@ jobs:
         run: python Etiquetado_Modelos/scored_prioridad_alta.py
         continue-on-error: true
 
+      # ── PIPELINE UNIFICADO (ejecución paralela — validación antes de reemplazo) ──
+      # Opción B: los steps legacy [5-8] siguen corriendo; el orquestador escribe
+      # en outputs/pipeline_unificado/ (directorio separado) para validar que no
+      # explota en CI. load_to_db.py sigue leyendo los CSVs legacy.
+      # Próximo paso: cuando ambos estén validados, reemplazar steps [5-8] por el
+      # orquestador y actualizar load_to_db.py para leer los outputs canónicos.
+      - name: "[P1] Orquestador X (validación paralela)"
+        id: orch_x
+        continue-on-error: true
+        run: |
+          python3 pipeline_unificado/orchestrator.py \
+            --platform x \
+            --input-file X_Mensajes/data/master/reto_x_master.csv \
+            --out-dir outputs/pipeline_unificado/x \
+            --terms-files Medios/hate_terms_clean.csv Medios/hate_general_terms.csv \
+            --vectorizer Etiquetado_Modelos/vectorizer.joblib \
+            --model-path Etiquetado_Modelos/model.joblib
+
+      - name: "[P2] Orquestador YouTube (validación paralela)"
+        id: orch_yt
+        continue-on-error: true
+        run: |
+          python3 pipeline_unificado/orchestrator.py \
+            --platform youtube \
+            --input-file Medios/youtube_hatemedia_comments_30d.csv \
+            --out-dir outputs/pipeline_unificado/youtube \
+            --terms-files Medios/hate_terms_clean.csv Medios/hate_general_terms.csv
+
       # ── Carga única a BD (después de YouTube + X) ───────────────────────────
       - name: "[9/9] Cargar a PostgreSQL (YouTube + X)"
         id: load_db
@@ -183,6 +214,7 @@ jobs:
             Medios/x_manual_label_for_sheets_tagged.csv
             Etiquetado_Modelos/x_manual_label_scored.csv
             Etiquetado_Modelos/x_manual_label_scored_prioridad_alta.csv
+            outputs/pipeline_unificado
           key: reto-pipeline-data-${{ github.run_number }}
 
       - name: Validar etapas críticas
@@ -199,6 +231,8 @@ jobs:
           echo "  x_terms=${{ steps.x_terms.outcome }}"
           echo "  scoring_baseline=${{ steps.scoring_baseline.outcome }}"
           echo "  scoring_priority=${{ steps.scoring_priority.outcome }}"
+          echo "  orch_x=${{ steps.orch_x.outcome }}"
+          echo "  orch_yt=${{ steps.orch_yt.outcome }}"
           echo "  load_db=${{ steps.load_db.outcome }}"
 
           critical_errors=0
@@ -209,6 +243,11 @@ jobs:
             || { echo "ERROR: x_consolidate falló"; critical_errors=$((critical_errors+1)); }
           [[ "${{ steps.yt_extract.outcome }}" == "success" || "${{ steps.yt_extract.outcome }}" == "skipped" ]] \
             || { echo "ERROR: yt_extract falló"; critical_errors=$((critical_errors+1)); }
+          # Orquestador en validación paralela — se reporta pero no es crítico aún
+          [[ "${{ steps.orch_x.outcome }}" == "success" ]] \
+            || echo "AVISO: orch_x (validación paralela) no completó — revisar logs"
+          [[ "${{ steps.orch_yt.outcome }}" == "success" ]] \
+            || echo "AVISO: orch_yt (validación paralela) no completó — revisar logs"
 
           if [[ "$critical_errors" -gt 0 ]]; then
             echo "Fallaron $critical_errors etapas críticas — el workflow se marca como fallido."
@@ -226,6 +265,8 @@ jobs:
           STAGE_YT_TAG:           ${{ steps.yt_tag.outcome }}
           STAGE_SCORING_BASELINE: ${{ steps.scoring_baseline.outcome }}
           STAGE_SCORING_PRIORITY: ${{ steps.scoring_priority.outcome }}
+          STAGE_ORCH_X:           ${{ steps.orch_x.outcome }}
+          STAGE_ORCH_YT:          ${{ steps.orch_yt.outcome }}
           STAGE_LOAD_DB:          ${{ steps.load_db.outcome }}
         run: |
           python automatizacion_diaria/healthcheck_pipeline.py \
@@ -252,5 +293,7 @@ jobs:
           echo "  [6] x_terms:          ${{ steps.x_terms.outcome }}"
           echo "  [7] scoring_baseline: ${{ steps.scoring_baseline.outcome }}"
           echo "  [8] scoring_priority: ${{ steps.scoring_priority.outcome }}"
+          echo "  [P1] orch_x (paralelo): ${{ steps.orch_x.outcome }}"
+          echo "  [P2] orch_yt (paralelo): ${{ steps.orch_yt.outcome }}"
           echo "  [9] load_db:          ${{ steps.load_db.outcome }}"
           echo "================================================"
