@@ -1,0 +1,32 @@
+name: ReTo CI — Tests básicos
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: automatizacion_diaria/requirements.txt
+
+      - name: Instalar dependencias
+        run: pip install -r automatizacion_diaria/requirements.txt pytest
+
+      - name: Test imports — components/ y secciones/
+        run: pytest automatizacion_diaria/tests/test_imports.py -v
+
+      - name: Test roles — viewer / editor / admin
+        run: pytest automatizacion_diaria/tests/test_roles.py -v
