@@ -43,13 +43,16 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 RETO_ROOT = Path(os.getenv("PROJECT_ROOT", str(SCRIPT_DIR.parent)))
 
 CSV_RAW_MASTER = Path(os.getenv("CSV_RAW_MASTER", str(RETO_ROOT / "X_Mensajes" / "data" / "master" / "reto_x_master.csv")))
-CSV_ANON = Path(os.getenv("CSV_ANON", str(RETO_ROOT / "X_Mensajes" / "Anon" / "reto_x_master_anon.csv")))
-CSV_SCORED = Path(os.getenv("CSV_SCORED", str(RETO_ROOT / "Etiquetado_Modelos" / "x_manual_label_scored.csv")))
+# Orquestador unificado: x_full_anon.csv reemplaza a reto_x_master_anon.csv
+CSV_ANON = Path(os.getenv("CSV_ANON", str(RETO_ROOT / "outputs" / "pipeline_unificado" / "x" / "x_full_anon.csv")))
+# Orquestador unificado: x_scored.csv reemplaza a x_manual_label_scored.csv
+CSV_SCORED = Path(os.getenv("CSV_SCORED", str(RETO_ROOT / "outputs" / "pipeline_unificado" / "x" / "x_scored.csv")))
 
 LLM_OUTPUT_GLOB = os.getenv("LLM_OUTPUT_GLOB", str(RETO_ROOT / "Medios" / "ML" / "etiquetado_llm" / "outputs" / "*" / "etiquetado_llm_completo.csv"))
 
 CSV_YT_RAW = Path(os.getenv("CSV_YT_RAW", str(RETO_ROOT / "Medios" / "youtube_hatemedia_comments_30d.csv")))
-CSV_YT_TAGGED = Path(os.getenv("CSV_YT_TAGGED", str(RETO_ROOT / "Medios" / "youtube_hatemedia_comments_30d_tagged_full.csv")))
+# Orquestador unificado: youtube_full_anon.csv reemplaza a youtube_hatemedia_comments_30d_tagged_full.csv
+CSV_YT_TAGGED = Path(os.getenv("CSV_YT_TAGGED", str(RETO_ROOT / "outputs" / "pipeline_unificado" / "youtube" / "youtube_full_anon.csv")))
 
 CSV_ART510 = Path(os.getenv("CSV_ART510", str(RETO_ROOT / "Medios" / "ML" / "etiquetado_llm" / "outputs" / "art510" / "evaluacion_art510.csv")))
 
@@ -213,7 +216,15 @@ def load_raw_mensajes(conn, logger: logging.Logger) -> int:
 
 
 def load_processed_mensajes(conn, logger: logging.Logger) -> int:
-    """Carga processed.mensajes desde el CSV anonimizado."""
+    """Carga processed.mensajes desde x_full_anon.csv del orquestador.
+
+    El orquestador produce columnas canónicas; se mapean aquí a los nombres
+    legacy de la BD para no romper las queries del dashboard:
+      published_at   → created_at
+      hate_candidate → has_hate_terms_match  (1/0 → bool)
+      hate_types     → candidate_reason      (motivos del match)
+      (sin equivalente) → strong_phrase = False
+    """
     if not CSV_ANON.exists():
         logger.warning("No existe %s — saltando processed.mensajes", CSV_ANON)
         return 0
@@ -246,17 +257,21 @@ def load_processed_mensajes(conn, logger: logging.Logger) -> int:
             _normalize_platform(r.get("platform")),
             safe_val(r.get("content_original")),
             resolve_source_media(r),
-            safe_val(r.get("created_at")),
+            # orquestador: published_at → BD: created_at
+            safe_val(r.get("published_at") or r.get("created_at")),
             safe_val(r.get("language")),
             safe_val(r.get("url")),
             safe_val(r.get("author_id_anon")),
             safe_val(r.get("author_username_anon")),
             safe_val(r.get("matched_terms")),
-            safe_val(r.get("has_hate_terms_match"), "bool"),
+            # orquestador: hate_candidate (0/1) → BD: has_hate_terms_match (bool)
+            safe_val(r.get("hate_candidate") or r.get("has_hate_terms_match"), "bool"),
             safe_val(r.get("match_count"), "int"),
-            safe_val(r.get("strong_phrase"), "bool"),
+            # sin equivalente en orquestador; mantener False para compatibilidad BD
+            False,
             safe_val(r.get("is_candidate"), "bool"),
-            safe_val(r.get("candidate_reason")),
+            # orquestador: hate_types → BD: candidate_reason
+            safe_val(r.get("hate_types") or r.get("candidate_reason")),
             safe_val(r.get("processed_at")),
             ingested_map.get(uuid_str),
         ))
@@ -280,7 +295,16 @@ def load_processed_mensajes(conn, logger: logging.Logger) -> int:
 
 
 def load_scores(conn, logger: logging.Logger) -> int:
-    """Carga processed.scores desde el CSV de scoring."""
+    """Carga processed.scores desde x_scored.csv del orquestador.
+
+    El orquestador produce columnas prefilter_*; se mapean a los nombres
+    legacy de la BD para no romper las queries del dashboard:
+      prefilter_score    → proba_odio
+      prefilter_pass     → pred_odio  (True→1, False→0)
+      prefilter_priority → priority
+      prefilter_date     → score_date
+      prefilter_method   → model_version
+    """
     if not CSV_SCORED.exists():
         logger.warning("No existe %s — saltando processed.scores", CSV_SCORED)
         return 0
@@ -298,14 +322,19 @@ def load_scores(conn, logger: logging.Logger) -> int:
         uuid = safe_val(r.get("message_uuid"))
         if uuid is None:
             continue
-        rows.append((
-            uuid,
-            safe_val(r.get("model_version")) or "baseline_tfidf_logreg_v1",
-            safe_val(r.get("proba_odio"), "float"),
-            safe_val(r.get("pred_odio"), "int"),
-            safe_val(r.get("priority")),
-            safe_val(r.get("score_date")),
-        ))
+        # Soporta tanto columnas del orquestador (prefilter_*) como legacy
+        model_v = (safe_val(r.get("prefilter_method"))
+                   or safe_val(r.get("model_version"))
+                   or "tfidf_logreg")
+        proba = safe_val(r.get("prefilter_score") or r.get("proba_odio"), "float")
+        # prefilter_pass es bool (True/False); pred_odio espera entero (1/0)
+        pass_raw = r.get("prefilter_pass") or r.get("pred_odio")
+        pred = 1 if safe_val(pass_raw, "bool") else 0
+        priority = (safe_val(r.get("prefilter_priority"))
+                    or safe_val(r.get("priority")))
+        score_dt = (safe_val(r.get("prefilter_date"))
+                    or safe_val(r.get("score_date")))
+        rows.append((uuid, model_v, proba, pred, priority, score_dt))
 
     n = upsert_rows(
         conn, "processed.scores", columns, rows,
@@ -462,7 +491,16 @@ def load_raw_youtube(conn, logger: logging.Logger) -> int:
 
 
 def load_processed_youtube(conn, logger: logging.Logger) -> int:
-    """Carga processed.mensajes desde el CSV tagged_full de YouTube (con anonimización)."""
+    """Carga processed.mensajes desde youtube_full_anon.csv del orquestador.
+
+    El orquestador ya produce el CSV con schema canónico + columnas de detección
+    y con autores anonimizados (author_id_anon, author_username_anon). Se mapean
+    los nombres canónicos a los nombres legacy de la BD:
+      published_at   → created_at
+      hate_candidate → has_hate_terms_match
+      hate_types     → candidate_reason
+      (sin equiv.)   → strong_phrase = False
+    """
     if not CSV_YT_TAGGED.exists():
         logger.warning("No existe %s — saltando processed YouTube", CSV_YT_TAGGED)
         return 0
@@ -490,38 +528,41 @@ def load_processed_youtube(conn, logger: logging.Logger) -> int:
     ]
 
     rows = []
-    now_str = datetime.now().isoformat()
     for _, r in df.iterrows():
-        comment_id = safe_val(r.get("comment_id"))
-        comment_text = safe_val(r.get("comment_text"))
-        if not comment_id or not comment_text:
+        uuid_str = safe_val(r.get("message_uuid"))
+        content = safe_val(r.get("content_original"))
+        if not uuid_str or not content:
             continue
 
-        hate_candidate = safe_val(r.get("hate_candidate_auto_final"), "bool")
-        matched = safe_val(r.get("matched_lemmas_auto")) or safe_val(r.get("hate_terms_matched"))
-        match_count = safe_val(r.get("match_count_auto"), "int")
-        has_hate = bool(matched and matched.strip())
-
-        uuid_str = yt_to_uuid(comment_id)
         rows.append((
-            uuid_str,                           # message_uuid
-            "youtube",                          # platform
-            comment_text,                       # content_original
-            safe_val(r.get("medio")) or safe_val(r.get("source_name")),  # source_media
-            safe_val(r.get("comment_published_at")),  # created_at
-            None,                               # language
-            safe_val(r.get("channel_url")),     # url
-            sha256_hash(r.get("author_channel_id")),  # author_id_anon
-            sha256_hash(r.get("author_display_name")),  # author_username_anon
-            matched,                            # matched_terms
-            has_hate,                           # has_hate_terms_match
-            match_count,                        # match_count
-            False,                              # strong_phrase
-            hate_candidate,                     # is_candidate
-            safe_val(r.get("qa_status")),       # candidate_reason
-            now_str,                            # processed_at
-            ingested_map.get(uuid_str),         # ingested_at (desde raw.mensajes)
+            uuid_str,
+            "youtube",
+            content,
+            resolve_source_media(r),
+            # orquestador: published_at → BD: created_at
+            safe_val(r.get("published_at") or r.get("created_at")),
+            safe_val(r.get("language")),
+            safe_val(r.get("url")),
+            safe_val(r.get("author_id_anon")),
+            safe_val(r.get("author_username_anon")),
+            safe_val(r.get("matched_terms")),
+            # orquestador: hate_candidate (0/1) → BD: has_hate_terms_match (bool)
+            safe_val(r.get("hate_candidate") or r.get("has_hate_terms_match"), "bool"),
+            safe_val(r.get("match_count"), "int"),
+            # sin equivalente en orquestador; mantener False para compatibilidad BD
+            False,
+            safe_val(r.get("is_candidate"), "bool"),
+            # orquestador: hate_types → BD: candidate_reason
+            safe_val(r.get("hate_types") or r.get("candidate_reason")),
+            safe_val(r.get("processed_at")),
+            ingested_map.get(uuid_str),
         ))
+
+    rows_before = len(rows)
+    rows = [r for r in rows if r[0] is not None and r[2] is not None]
+    skipped = rows_before - len(rows)
+    if skipped:
+        logger.warning("processed.mensajes (YouTube): %d filas descartadas", skipped)
 
     # processed_at e ingested_at son metadatos de ingesta: solo se escriben en
     # INSERT, nunca en UPDATE (evita pico falso de "nuevos hoy" tras reproceso).

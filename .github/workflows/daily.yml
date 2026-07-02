@@ -81,14 +81,9 @@ jobs:
             Medios/ML/etiquetado_llm/outputs
             Medios/youtube_extract_state.json
             Medios/youtube_hatemedia_comments_30d.csv
-            Medios/youtube_hatemedia_comments_30d_tagged_full.csv
             X_Mensajes/data/raw/.drive_sync_state.json
             X_Mensajes/data/raw/*.csv
             X_Mensajes/data/master/*.csv
-            X_Mensajes/Anon/reto_x_master_anon.csv
-            Medios/x_manual_label_for_sheets_tagged.csv
-            Etiquetado_Modelos/x_manual_label_scored.csv
-            Etiquetado_Modelos/x_manual_label_scored_prioridad_alta.csv
             outputs/pipeline_unificado
           key: reto-pipeline-data-${{ github.run_number }}
           restore-keys: |
@@ -104,8 +99,8 @@ jobs:
           [[ -n "${GOOGLE_DRIVE_FOLDER_ID}" ]]       || { echo "Falta GOOGLE_DRIVE_FOLDER_ID"; exit 1; }
           [[ -n "${YOUTUBE_API_KEY}" ]]               || { echo "Falta YOUTUBE_API_KEY"; exit 1; }
 
-      # ── YouTube (primero: extracción independiente del estado de X) ─────────
-      - name: "[1/9] YouTube — Extraer comentarios"
+      # ── INGESTA YouTube (extracción, sin procesamiento) ──────────────────────
+      - name: "[1/6] YouTube — Extraer comentarios"
         id: yt_extract
         if: ${{ env.YOUTUBE_API_KEY != '' }}
         env:
@@ -113,52 +108,23 @@ jobs:
         run: python Medios/youtube_extract_hate.py
         continue-on-error: true
 
-      - name: "[2/9] YouTube — Etiquetar (diccionario)"
-        id: yt_tag
-        run: python Medios/tag_youtube_hate_auto.py
-        continue-on-error: true
-
-      # ── X / Twitter ──────────────────────────────────────────────────────────
-      - name: "[3/9] X — Sincronizar Drive"
+      # ── INGESTA X (sincronización + consolidación) ────────────────────────────
+      - name: "[2/6] X — Sincronizar Drive"
         id: x_sync
         if: ${{ env.GOOGLE_DRIVE_CREDENTIALS != '' }}
         run: python X_Mensajes/sync_drive_csvs.py
         continue-on-error: true
 
-      - name: "[4/9] X — Consolidar CSVs"
+      - name: "[3/6] X — Consolidar CSVs"
         id: x_consolidate
         run: python X_Mensajes/consolidar_csv.py
         continue-on-error: true
 
-      - name: "[5/9] X — Filtrar y anonimizar"
-        id: x_anonymize
-        run: python X_Mensajes/Anon/filter_and_anonymize_x.py
-        continue-on-error: true
-
-      - name: "[6/9] X — Términos y medios"
-        id: x_terms
-        run: python Medios/X_terms_sheet.py
-        continue-on-error: true
-
-      - name: "[7/9] X — Scoring baseline"
-        id: scoring_baseline
-        run: python Etiquetado_Modelos/score_baseline.py
-        continue-on-error: true
-
-      - name: "[8/9] X — Scoring prioridad alta"
-        id: scoring_priority
-        run: python Etiquetado_Modelos/scored_prioridad_alta.py
-        continue-on-error: true
-
-      # ── PIPELINE UNIFICADO (ejecución paralela — validación antes de reemplazo) ──
-      # Opción B: los steps legacy [5-8] siguen corriendo; el orquestador escribe
-      # en outputs/pipeline_unificado/ (directorio separado) para validar que no
-      # explota en CI. load_to_db.py sigue leyendo los CSVs legacy.
-      # Próximo paso: cuando ambos estén validados, reemplazar steps [5-8] por el
-      # orquestador y actualizar load_to_db.py para leer los outputs canónicos.
-      - name: "[P1] Orquestador X (validación paralela)"
+      # ── PIPELINE UNIFICADO (orquestador reemplaza steps legacy de procesamiento) ──
+      # Reemplaza: filter_and_anonymize_x.py, X_terms_sheet.py, score_baseline.py,
+      #            scored_prioridad_alta.py, tag_youtube_hate_auto.py
+      - name: "[4/6] Pipeline unificado X"
         id: orch_x
-        continue-on-error: true
         run: |
           python3 pipeline_unificado/orchestrator.py \
             --platform x \
@@ -167,19 +133,20 @@ jobs:
             --terms-files Medios/hate_terms_clean.csv Medios/hate_general_terms.csv \
             --vectorizer Etiquetado_Modelos/vectorizer.joblib \
             --model-path Etiquetado_Modelos/model.joblib
-
-      - name: "[P2] Orquestador YouTube (validación paralela)"
-        id: orch_yt
         continue-on-error: true
+
+      - name: "[5/6] Pipeline unificado YouTube"
+        id: orch_yt
         run: |
           python3 pipeline_unificado/orchestrator.py \
             --platform youtube \
             --input-file Medios/youtube_hatemedia_comments_30d.csv \
             --out-dir outputs/pipeline_unificado/youtube \
             --terms-files Medios/hate_terms_clean.csv Medios/hate_general_terms.csv
+        continue-on-error: true
 
-      # ── Carga única a BD (después de YouTube + X) ───────────────────────────
-      - name: "[9/9] Cargar a PostgreSQL (YouTube + X)"
+      # ── Carga única a BD (lee outputs del orquestador) ───────────────────────
+      - name: "[6/6] Cargar a PostgreSQL (YouTube + X)"
         id: load_db
         run: python automatizacion_diaria/load_to_db.py
         continue-on-error: true
@@ -206,14 +173,9 @@ jobs:
             Medios/ML/etiquetado_llm/outputs
             Medios/youtube_extract_state.json
             Medios/youtube_hatemedia_comments_30d.csv
-            Medios/youtube_hatemedia_comments_30d_tagged_full.csv
             X_Mensajes/data/raw/.drive_sync_state.json
             X_Mensajes/data/raw/*.csv
             X_Mensajes/data/master/*.csv
-            X_Mensajes/Anon/reto_x_master_anon.csv
-            Medios/x_manual_label_for_sheets_tagged.csv
-            Etiquetado_Modelos/x_manual_label_scored.csv
-            Etiquetado_Modelos/x_manual_label_scored_prioridad_alta.csv
             outputs/pipeline_unificado
           key: reto-pipeline-data-${{ github.run_number }}
 
@@ -224,13 +186,8 @@ jobs:
           set -euo pipefail
           echo "Resultados por etapa:"
           echo "  yt_extract=${{ steps.yt_extract.outcome }}"
-          echo "  yt_tag=${{ steps.yt_tag.outcome }}"
           echo "  x_sync=${{ steps.x_sync.outcome }}"
           echo "  x_consolidate=${{ steps.x_consolidate.outcome }}"
-          echo "  x_anonymize=${{ steps.x_anonymize.outcome }}"
-          echo "  x_terms=${{ steps.x_terms.outcome }}"
-          echo "  scoring_baseline=${{ steps.scoring_baseline.outcome }}"
-          echo "  scoring_priority=${{ steps.scoring_priority.outcome }}"
           echo "  orch_x=${{ steps.orch_x.outcome }}"
           echo "  orch_yt=${{ steps.orch_yt.outcome }}"
           echo "  load_db=${{ steps.load_db.outcome }}"
@@ -243,11 +200,10 @@ jobs:
             || { echo "ERROR: x_consolidate falló"; critical_errors=$((critical_errors+1)); }
           [[ "${{ steps.yt_extract.outcome }}" == "success" || "${{ steps.yt_extract.outcome }}" == "skipped" ]] \
             || { echo "ERROR: yt_extract falló"; critical_errors=$((critical_errors+1)); }
-          # Orquestador en validación paralela — se reporta pero no es crítico aún
           [[ "${{ steps.orch_x.outcome }}" == "success" ]] \
-            || echo "AVISO: orch_x (validación paralela) no completó — revisar logs"
+            || { echo "ERROR: orch_x falló — X no procesada"; critical_errors=$((critical_errors+1)); }
           [[ "${{ steps.orch_yt.outcome }}" == "success" ]] \
-            || echo "AVISO: orch_yt (validación paralela) no completó — revisar logs"
+            || { echo "ERROR: orch_yt falló — YouTube no procesada"; critical_errors=$((critical_errors+1)); }
 
           if [[ "$critical_errors" -gt 0 ]]; then
             echo "Fallaron $critical_errors etapas críticas — el workflow se marca como fallido."
@@ -259,15 +215,12 @@ jobs:
       - name: Healthcheck operativo por plataforma
         if: always()
         env:
-          STAGE_X_SYNC:           ${{ steps.x_sync.outcome }}
-          STAGE_X_CONSOLIDATE:    ${{ steps.x_consolidate.outcome }}
-          STAGE_YT_EXTRACT:       ${{ steps.yt_extract.outcome }}
-          STAGE_YT_TAG:           ${{ steps.yt_tag.outcome }}
-          STAGE_SCORING_BASELINE: ${{ steps.scoring_baseline.outcome }}
-          STAGE_SCORING_PRIORITY: ${{ steps.scoring_priority.outcome }}
-          STAGE_ORCH_X:           ${{ steps.orch_x.outcome }}
-          STAGE_ORCH_YT:          ${{ steps.orch_yt.outcome }}
-          STAGE_LOAD_DB:          ${{ steps.load_db.outcome }}
+          STAGE_X_SYNC:        ${{ steps.x_sync.outcome }}
+          STAGE_X_CONSOLIDATE: ${{ steps.x_consolidate.outcome }}
+          STAGE_YT_EXTRACT:    ${{ steps.yt_extract.outcome }}
+          STAGE_ORCH_X:        ${{ steps.orch_x.outcome }}
+          STAGE_ORCH_YT:       ${{ steps.orch_yt.outcome }}
+          STAGE_LOAD_DB:       ${{ steps.load_db.outcome }}
         run: |
           python automatizacion_diaria/healthcheck_pipeline.py \
             --run-id "${{ github.run_id }}" \
@@ -285,15 +238,10 @@ jobs:
           echo "Estado final: ${{ job.status }}"
           echo ""
           echo "Etapas:"
-          echo "  [1] yt_extract:       ${{ steps.yt_extract.outcome }}"
-          echo "  [2] yt_tag:           ${{ steps.yt_tag.outcome }}"
-          echo "  [3] x_sync:           ${{ steps.x_sync.outcome }}"
-          echo "  [4] x_consolidate:    ${{ steps.x_consolidate.outcome }}"
-          echo "  [5] x_anonymize:      ${{ steps.x_anonymize.outcome }}"
-          echo "  [6] x_terms:          ${{ steps.x_terms.outcome }}"
-          echo "  [7] scoring_baseline: ${{ steps.scoring_baseline.outcome }}"
-          echo "  [8] scoring_priority: ${{ steps.scoring_priority.outcome }}"
-          echo "  [P1] orch_x (paralelo): ${{ steps.orch_x.outcome }}"
-          echo "  [P2] orch_yt (paralelo): ${{ steps.orch_yt.outcome }}"
-          echo "  [9] load_db:          ${{ steps.load_db.outcome }}"
+          echo "  [1] yt_extract:    ${{ steps.yt_extract.outcome }}"
+          echo "  [2] x_sync:        ${{ steps.x_sync.outcome }}"
+          echo "  [3] x_consolidate: ${{ steps.x_consolidate.outcome }}"
+          echo "  [4] orch_x:        ${{ steps.orch_x.outcome }}"
+          echo "  [5] orch_yt:       ${{ steps.orch_yt.outcome }}"
+          echo "  [6] load_db:       ${{ steps.load_db.outcome }}"
           echo "================================================"
