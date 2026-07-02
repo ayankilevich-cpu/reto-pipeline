@@ -64,7 +64,13 @@ CREATE TABLE IF NOT EXISTS processed.mensajes (
     strong_phrase       BOOLEAN     DEFAULT FALSE,
     is_candidate        BOOLEAN     DEFAULT FALSE,
     candidate_reason    TEXT,
-    processed_at        TIMESTAMPTZ DEFAULT NOW()
+    processed_at        TIMESTAMPTZ DEFAULT NOW(),
+    -- Relevancia LLM (solo YouTube; NULL = pendiente de clasificar)
+    -- Ver: Medios/ML/etiquetado_llm/filtrar_relevancia_youtube.py
+    -- Migración: automatizacion_diaria/migrations/20260702_relevancia_youtube.sql
+    relevante_llm       VARCHAR(5),          -- 'SI' | 'NO'
+    relevante_score     DOUBLE PRECISION,    -- score [0, 1] del LLM
+    relevante_motivo    TEXT                 -- motivo del LLM
 );
 
 CREATE INDEX IF NOT EXISTS idx_proc_mensajes_platform    ON processed.mensajes (platform);
