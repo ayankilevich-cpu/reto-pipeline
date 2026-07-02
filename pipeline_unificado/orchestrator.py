@@ -35,9 +35,10 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 _REPO_ROOT = Path(__file__).resolve().parent.parent  # Clases/RETO/
 
-# Añadir pipeline_unificado/ al path para importar sus módulos
-_PU_DIR = _REPO_ROOT / "pipeline_unificado"
-if str(_PU_DIR) not in sys.path:
+# Cuando se ejecuta como script (python3 pipeline_unificado/orchestrator.py),
+# Python agrega pipeline_unificado/ a sys.path[0] automáticamente, pero necesitamos
+# la RAÍZ del repo para que `from pipeline_unificado.xxx import` funcione.
+if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 # ---------------------------------------------------------------------------
