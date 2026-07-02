@@ -18,6 +18,7 @@ Uso:
   python filtrar_relevancia_youtube.py
   python filtrar_relevancia_youtube.py --max-rows 200   # limitar para pruebas
   python filtrar_relevancia_youtube.py --dry-run        # solo mostrar pendientes
+  python filtrar_relevancia_youtube.py --days 90        # solo últimos 90 días
 """
 from __future__ import annotations
 
@@ -72,6 +73,10 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--dry-run", action="store_true",
         help="Solo mostrar pendientes sin llamar al LLM",
+    )
+    p.add_argument(
+        "--days", type=int, default=0,
+        help="Solo mensajes con created_at en los últimos N días (0 = sin límite)",
     )
     return p.parse_args()
 
@@ -141,32 +146,41 @@ def _get_db_module():
         return None
 
 
-def fetch_pending_from_db() -> Optional[List[Dict[str, Any]]]:
+def fetch_pending_from_db(days: int = 0) -> Optional[List[Dict[str, Any]]]:
     """
     Trae de processed.mensajes los comentarios de YouTube sin relevante_llm.
     Retorna lista de dicts con message_uuid y content_original,
     o None si no hay BD disponible.
+
+    Si days > 0, filtra created_at >= NOW() - INTERVAL 'N days'.
     """
     get_conn = _get_db_module()
     if get_conn is None:
         return None
 
-    try:
-        with get_conn() as conn:
-            cur = conn.cursor()
-            cur.execute("""
+    sql = """
                 SELECT message_uuid::text, content_original
                 FROM processed.mensajes
                 WHERE platform = 'youtube'
                   AND relevante_llm IS NULL
                   AND content_original IS NOT NULL
                   AND content_original <> ''
-                ORDER BY created_at DESC NULLS LAST
-            """)
+    """
+    params: tuple = ()
+    if days and days > 0:
+        sql += "\n                  AND created_at >= NOW() - make_interval(days => %s)"
+        params = (days,)
+    sql += "\n                ORDER BY created_at DESC NULLS LAST"
+
+    try:
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, params)
             cols = [desc[0] for desc in cur.description]
             rows = [dict(zip(cols, row)) for row in cur.fetchall()]
             cur.close()
-        print(f"  ✓ BD consultada: {len(rows)} comentarios YouTube pendientes de clasificación")
+        suffix = f" (últimos {days} días)" if days and days > 0 else ""
+        print(f"  ✓ BD consultada: {len(rows)} comentarios YouTube pendientes de clasificación{suffix}")
         return rows
     except Exception as e:
         print(f"  ⚠ No se pudo conectar a la BD: {e}")
@@ -345,6 +359,8 @@ def main() -> None:
     print("RELEVANCIA YOUTUBE LLM — ReTo (con caché + BD)")
     print("=" * 70)
     print(f"Modelo: {MODEL} | Threshold: {RELEVANCE_THRESHOLD}")
+    if args.days and args.days > 0:
+        print(f"Filtro: últimos {args.days} días (created_at)")
     print(f"Caché:  {CACHE_FILE}")
     print(f"Output: {OUTPUT_FILE}")
     print()
@@ -358,7 +374,7 @@ def main() -> None:
     # 2. Pendientes desde BD; fallback a CSV
     # -------------------------------------------------------------------------
     source  = "BD"
-    db_rows = fetch_pending_from_db()
+    db_rows = fetch_pending_from_db(days=args.days)
 
     if db_rows is not None and len(db_rows) > 0:
         rows = db_rows
