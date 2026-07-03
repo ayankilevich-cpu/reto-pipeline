@@ -67,16 +67,16 @@ DB_UTILS_DIR = str(RETO_ROOT / "automatizacion_diaria")
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Clasificación de relevancia YouTube con LLM")
     p.add_argument(
-        "--max-rows", type=int, default=0,
-        help="Limitar número de mensajes a procesar (0 = todos)",
+        "--max-rows", type=int, default=1000,
+        help="Máximo de mensajes a procesar (default: 1000)",
     )
     p.add_argument(
         "--dry-run", action="store_true",
         help="Solo mostrar pendientes sin llamar al LLM",
     )
     p.add_argument(
-        "--days", type=int, default=0,
-        help="Solo mensajes con created_at en los últimos N días (0 = sin límite)",
+        "--days", type=int, default=2,
+        help="Solo mensajes de los últimos N días (default: 2 = ingesta reciente)",
     )
     return p.parse_args()
 
