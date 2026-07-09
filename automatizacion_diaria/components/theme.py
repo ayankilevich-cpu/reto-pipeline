@@ -340,7 +340,8 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
 }
 .pg-kpi-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    justify-content: start;
     gap: 0.85rem;
     margin: 0.35rem 0 1rem 0;
     width: 100%;

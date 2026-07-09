@@ -29,12 +29,12 @@ COLORS = {
 # Paleta fija por categoría de odio (orden estable, vinculada a las etiquetas visibles)
 # Mapea la LABEL visible (no la key interna) para funcionar con cualquier gráfico que use el label.
 CAT_COLOR_MAP = {
-    "Étnico / Cultural / Religioso": "#C0392B",
-    "Género / Identidad / Orientación": "#8E44AD",
-    "Condición Social / Económica / Salud": "#2E86AB",
-    "Ideológico / Político": "#D97706",
-    "Personal / Generacional": "#059669",
-    "Profesiones / Roles Públicos": "#6B7280",
+    "Étnico / Cultural / Religioso": "#1F4E79",
+    "Género / Identidad / Orientación": "#2E5F87",
+    "Condición Social / Económica / Salud": "#3D7199",
+    "Ideológico / Político": "#4F81BD",
+    "Personal / Generacional": "#6499C8",
+    "Profesiones / Roles Públicos": "#7DB0D6",
 }
 
 
