@@ -130,7 +130,7 @@ jobs:
             --platform x \
             --input-file X_Mensajes/data/master/reto_x_master.csv \
             --out-dir outputs/pipeline_unificado/x \
-            --terms-files Medios/hate_terms_clean.csv Medios/hate_general_terms.csv \
+            --terms-files Medios/hate_general_terms.csv Medios/hate_terms_clean.csv \
             --vectorizer Etiquetado_Modelos/vectorizer.joblib \
             --model-path Etiquetado_Modelos/model.joblib
         continue-on-error: true
@@ -142,7 +142,7 @@ jobs:
             --platform youtube \
             --input-file Medios/youtube_hatemedia_comments_30d.csv \
             --out-dir outputs/pipeline_unificado/youtube \
-            --terms-files Medios/hate_terms_clean.csv Medios/hate_general_terms.csv
+            --terms-files Medios/hate_general_terms.csv Medios/hate_terms_clean.csv
         continue-on-error: true
 
       # ── Carga única a BD (lee outputs del orquestador) ───────────────────────
