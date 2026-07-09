@@ -444,7 +444,8 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
 }
 .pg-kpi-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    justify-content: start;
     gap: 0.85rem;
     margin: 0.35rem 0 1rem 0;
     width: 100%;
@@ -522,6 +523,10 @@ div[data-baseweb="notification"] {
     border-color: #1F4E79 !important;
     box-shadow: 0 0 0 2px rgba(31,78,121,0.18) !important;
     outline: none !important;
+}
+div[data-testid="stDateInput"] input:focus {
+    border: 2px solid #1F4E79 !important;
+    outline: none;
 }
 [data-baseweb="select"]:focus-within > div:first-child,
 [data-baseweb="input"]:focus-within {
@@ -1184,8 +1189,20 @@ COLORS = {
 }
 
 
+def _apply_reto_chart_style(fig):
+    """Gridlines y ejes alineados al sistema de diseño (#EDF2F7)."""
+    fig.update_layout(
+        xaxis=dict(gridcolor="#EDF2F7"),
+        yaxis=dict(gridcolor="#EDF2F7"),
+    )
+    fig.update_xaxes(gridcolor="#EDF2F7")
+    fig.update_yaxes(gridcolor="#EDF2F7")
+    return fig
+
+
 def _apply_horizontal_bar_labels(fig):
     """Etiquetas fuera de barras cortas en gráficos horizontales."""
+    _apply_reto_chart_style(fig)
     fig.update_traces(
         textposition="outside",
         cliponaxis=False,
@@ -1197,13 +1214,14 @@ def _apply_horizontal_bar_labels(fig):
 
 # Paleta fija por categoría de odio (orden estable, vinculada a las etiquetas visibles)
 # Mapea la LABEL visible (no la key interna) para funcionar con cualquier gráfico que use el label.
+# 6 tonos navy institucional derivados de #1F4E79 (luminosidad creciente, contraste AA sobre blanco).
 CAT_COLOR_MAP = {
-    "Étnico / Cultural / Religioso": "#C0392B",
-    "Género / Identidad / Orientación": "#8E44AD",
-    "Condición Social / Económica / Salud": "#2E86AB",
-    "Ideológico / Político": "#D97706",
-    "Personal / Generacional": "#059669",
-    "Profesiones / Roles Públicos": "#6B7280",
+    "Étnico / Cultural / Religioso": "#1F4E79",
+    "Género / Identidad / Orientación": "#2E5F87",
+    "Condición Social / Económica / Salud": "#3D7199",
+    "Ideológico / Político": "#4F81BD",
+    "Personal / Generacional": "#6499C8",
+    "Profesiones / Roles Públicos": "#7DB0D6",
 }
 CAT_COLORS = list(CAT_COLOR_MAP.values())
 
@@ -1293,7 +1311,7 @@ def _register_plotly_theme() -> None:
         ),
     )
     pio.templates["reto"] = template
-    pio.templates.default = "plotly_white+reto"
+    pio.templates.default = "reto"
 
 
 _register_plotly_theme()
