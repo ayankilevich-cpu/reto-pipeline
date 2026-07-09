@@ -29,9 +29,8 @@ STAGE_KEYS: Tuple[str, ...] = (
     "x_sync",
     "x_consolidate",
     "yt_extract",
-    "yt_tag",
-    "scoring_baseline",
-    "scoring_priority",
+    "orch_x",
+    "orch_yt",
     "load_db",
 )
 
@@ -72,9 +71,8 @@ def stage_statuses_from_env() -> Dict[str, str]:
         "x_sync": os.getenv("STAGE_X_SYNC", "").strip() or "missing",
         "x_consolidate": os.getenv("STAGE_X_CONSOLIDATE", "").strip() or "missing",
         "yt_extract": os.getenv("STAGE_YT_EXTRACT", "").strip() or "missing",
-        "yt_tag": os.getenv("STAGE_YT_TAG", "").strip() or "missing",
-        "scoring_baseline": os.getenv("STAGE_SCORING_BASELINE", "").strip() or "missing",
-        "scoring_priority": os.getenv("STAGE_SCORING_PRIORITY", "").strip() or "missing",
+        "orch_x": os.getenv("STAGE_ORCH_X", "").strip() or "missing",
+        "orch_yt": os.getenv("STAGE_ORCH_YT", "").strip() or "missing",
         "load_db": os.getenv("STAGE_LOAD_DB", "").strip() or "missing",
     }
     return mapping
