@@ -99,3 +99,8 @@ con
 maduro
 castrista
 castro
+
+# Agregado 2026-07-09 — falsos positivos confirmados en processed.mensajes (YouTube y X)
+trabajo
+trabajos
+dificil
