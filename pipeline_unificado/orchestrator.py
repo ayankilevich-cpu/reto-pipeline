@@ -54,6 +54,8 @@ DEFAULT_TERMS_FILES: List[Path] = [
     _REPO_ROOT / "Medios" / "hate_general_terms.csv",
 ]
 
+DEFAULT_STOPWORDS_FILE = _REPO_ROOT / "Medios" / "stopwords_extras.txt"
+
 DEFAULT_OUT_DIR = _REPO_ROOT / "outputs" / "pipeline_unificado"
 
 # ---------------------------------------------------------------------------
@@ -129,6 +131,7 @@ def _load_terms_for_pipeline(
     texts: "pd.Series",
     skip_pruning: bool,
     logger: logging.Logger,
+    stopwords_file: Optional[Path] = None,
 ) -> Tuple[Set[str], List[str], Dict[str, str]]:
     """Carga términos desde los CSVs y aplica corpus pruning opcional."""
     existing = [p for p in terms_paths if p.exists()]
@@ -141,7 +144,9 @@ def _load_terms_for_pipeline(
             f"Ningún archivo de términos encontrado: {[str(p) for p in terms_paths]}"
         )
 
-    single_terms, multi_terms, term_to_type = load_terms(existing)
+    stopwords = load_stopwords(stopwords_file)
+    logger.info(f"  Stopwords cargadas: {len(stopwords)} (incluye {stopwords_file})")
+    single_terms, multi_terms, term_to_type = load_terms(existing, stopwords=stopwords)
     logger.info(
         f"  Términos cargados: {len(single_terms)} single-word, "
         f"{len(multi_terms)} multi-word"
@@ -177,6 +182,8 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p.add_argument("--terms-files", nargs="+",
                    default=[str(p) for p in DEFAULT_TERMS_FILES],
                    help="Archivos CSV/TXT de términos de odio")
+    p.add_argument("--stopwords-file", default=str(DEFAULT_STOPWORDS_FILE),
+                   help="TXT de stopwords adicionales (default: Medios/stopwords_extras.txt)")
     p.add_argument("--salt",        default=None,
                    help="Salt SHA-256 para anonimización (o env var RETO_SALT)")
     p.add_argument("--min-matches", type=int, default=1,
@@ -264,6 +271,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         single_terms, multi_terms, term_to_type = _load_terms_for_pipeline(
             terms_paths, df_canonical["content_original"],
             skip_pruning=args.skip_pruning, logger=logger,
+            stopwords_file=Path(args.stopwords_file) if args.stopwords_file else None,
         )
         df_full_anon, df_candidates = _run_step(
             "filter_and_anonymize",
