@@ -422,10 +422,14 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
 def main(argv: Optional[List[str]] = None) -> int:
     try:
         from dotenv import load_dotenv
+        _repo_root = Path(__file__).parent.parent
         load_dotenv()
-        db_env = Path(__file__).parent.parent / "automatizacion_diaria" / ".env"
+        db_env = _repo_root / "automatizacion_diaria" / ".env"
         if db_env.exists():
             load_dotenv(db_env)
+        llm_env = _repo_root / "Medios" / "ML" / "etiquetado_llm" / ".env"
+        if llm_env.exists():
+            load_dotenv(llm_env, override=True)
     except ImportError:
         pass
 
