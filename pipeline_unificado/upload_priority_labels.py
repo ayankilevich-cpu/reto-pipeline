@@ -12,39 +12,72 @@ importar load_to_db, porque ese módulo las resuelve como constantes en el impor
 
 Uso:
   python3 pipeline_unificado/upload_priority_labels.py
+  python3 pipeline_unificado/upload_priority_labels.py \\
+      --x-csv outputs/pipeline_unificado/audit_terminos/hidratado_v2_x_labeled.csv \\
+      --yt-csv outputs/pipeline_unificado/audit_terminos/hidratado_v2_youtube_labeled.csv
 """
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent  # Clases/RETO/
 _AUT_DIR = _REPO_ROOT / "automatizacion_diaria"
 
-# --- Inyección de rutas ANTES de importar load_to_db (constantes de módulo) ---
-# Absolutas para no depender del cwd desde donde se lance el script.
-_CSV_X = _REPO_ROOT / "outputs" / "pipeline_unificado" / "audit_terminos" / "hidratado_prioritario_x_muestra500_labeled.csv"
-_CSV_YT = _REPO_ROOT / "outputs" / "pipeline_unificado" / "audit_terminos" / "hidratado_prioritario_youtube_muestra500_labeled.csv"
+_DEFAULT_CSV_X = (
+    _REPO_ROOT / "outputs" / "pipeline_unificado" / "audit_terminos"
+    / "hidratado_prioritario_x_muestra500_labeled.csv"
+)
+_DEFAULT_CSV_YT = (
+    _REPO_ROOT / "outputs" / "pipeline_unificado" / "audit_terminos"
+    / "hidratado_prioritario_youtube_muestra500_labeled.csv"
+)
 
-# X: load_etiquetas_llm() usa glob(LLM_OUTPUT_GLOB) y toma el más reciente.
-#    Un path exacto (sin comodín) hace que glob devuelva solo este archivo.
-os.environ["LLM_OUTPUT_GLOB"] = str(_CSV_X)
-# YouTube: load_etiquetas_llm_youtube() lee Path(CSV_LLM_YOUTUBE) directamente.
-os.environ["CSV_LLM_YOUTUBE"] = str(_CSV_YT)
 
-# db_utils (dependencia de load_to_db) vive en automatizacion_diaria/.
-if str(_AUT_DIR) not in sys.path:
-    sys.path.insert(0, str(_AUT_DIR))
+def _parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument(
+        "--x-csv",
+        default=str(_DEFAULT_CSV_X),
+        help="CSV etiquetado X para load_etiquetas_llm (default: muestra500 X)",
+    )
+    p.add_argument(
+        "--yt-csv",
+        default=str(_DEFAULT_CSV_YT),
+        help="CSV etiquetado YouTube para load_etiquetas_llm_youtube (default: muestra500 YT)",
+    )
+    return p.parse_args()
 
-import load_to_db  # noqa: E402  (import tardío: depende de las env vars de arriba)
+
+def _import_load_to_db(csv_x: Path, csv_yt: Path) -> Any:
+    """
+    Inyecta rutas en el entorno e importa load_to_db (constantes de módulo).
+    X: load_etiquetas_llm() usa glob(LLM_OUTPUT_GLOB) y toma el más reciente.
+       Un path exacto (sin comodín) hace que glob devuelva solo este archivo.
+    YouTube: load_etiquetas_llm_youtube() lee Path(CSV_LLM_YOUTUBE) directamente.
+    """
+    os.environ["LLM_OUTPUT_GLOB"] = str(csv_x)
+    os.environ["CSV_LLM_YOUTUBE"] = str(csv_yt)
+    if str(_AUT_DIR) not in sys.path:
+        sys.path.insert(0, str(_AUT_DIR))
+    import load_to_db  # noqa: E402
+    return load_to_db
 
 
 def main() -> int:
+    args = _parse_args()
+    csv_x = Path(args.x_csv).expanduser().resolve()
+    csv_yt = Path(args.yt_csv).expanduser().resolve()
+
+    load_to_db = _import_load_to_db(csv_x, csv_yt)
+
     logger = load_to_db.setup_logging()
     logger.info("=== Subida puntual de etiquetas de muestra prioritaria ===")
 
-    for label, path in (("X", _CSV_X), ("YouTube", _CSV_YT)):
+    for label, path in (("X", csv_x), ("YouTube", csv_yt)):
         exists = path.exists()
         print(f"  {label}: {path} (existe={exists})")
         if not exists:
