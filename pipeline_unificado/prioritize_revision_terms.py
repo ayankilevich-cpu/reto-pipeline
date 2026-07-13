@@ -14,6 +14,7 @@ outputs/pipeline_unificado/audit_terminos/. No toca archivos de producción.
 
 Uso:
   python3 pipeline_unificado/prioritize_revision_terms.py [--top-n 150]
+  python3 pipeline_unificado/prioritize_revision_terms.py --no-exclude-stopwords
 """
 from __future__ import annotations
 
@@ -43,8 +44,44 @@ _REPO_ROOT = _SCRIPT_DIR.parent  # Clases/RETO/
 
 OUT_DIR = _REPO_ROOT / "outputs" / "pipeline_unificado" / "audit_terminos"
 REVISION_MANUAL_CSV = OUT_DIR / "hate_terms_clean_revision_manual.csv"
+STOPWORDS_EXTRAS_FILE = _REPO_ROOT / "Medios" / "stopwords_extras.txt"
 
 DEFAULT_TOP_N = 150
+
+
+# ---------------------------------------------------------------------------
+# Exclusión (stopwords + lista oficial)
+# ---------------------------------------------------------------------------
+
+def _load_stopwords_extras(path: Path) -> Set[str]:
+    """Lee stopwords_extras.txt (una palabra por línea; ignora líneas con #)."""
+    stops: Set[str] = set()
+    if not path.exists():
+        return stops
+    with open(path, encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            nt = _normalize_term_for_filter(line)
+            if nt:
+                stops.add(nt)
+    return stops
+
+
+def _load_exclusion_oficial() -> Set[str]:
+    """Lemas de terminos_exclusion_oficial.py, normalizados para matching consistente."""
+    _aut_dir = _REPO_ROOT / "automatizacion_diaria"
+    if str(_aut_dir) not in sys.path:
+        sys.path.insert(0, str(_aut_dir))
+    from terminos_exclusion_oficial import TERMINOS_EXCLUSION_LEMAS  # noqa: E402
+
+    return {n for t in TERMINOS_EXCLUSION_LEMAS for n in [_normalize_term_for_filter(t)] if n}
+
+
+def _build_exclusion_set() -> Set[str]:
+    """Unión de stopwords_extras.txt y exclusión oficial (ambas normalizadas)."""
+    return _load_stopwords_extras(STOPWORDS_EXTRAS_FILE) | _load_exclusion_oficial()
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +144,12 @@ def _parse_args() -> argparse.Namespace:
         "--top-n", type=int, default=DEFAULT_TOP_N,
         help=f"Cuántos términos priorizar por frecuencia total (default: {DEFAULT_TOP_N})",
     )
+    p.add_argument(
+        "--exclude-stopwords",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Excluir términos que coincidan con stopwords/exclusión oficial (default: True)",
+    )
     return p.parse_args()
 
 
@@ -131,6 +174,17 @@ def main() -> int:
             norm_to_raw[nt] = raw
     print(f"  Términos en revision_manual: {len(revision_raw):,} "
           f"({len(norm_to_raw):,} normalizados distintos)")
+
+    excluded_terms: List[str] = []
+    if args.exclude_stopwords:
+        exclusion_set = _build_exclusion_set()
+        excluded_norms = [nt for nt in norm_to_raw if nt in exclusion_set]
+        excluded_terms = [norm_to_raw[nt] for nt in excluded_norms]
+        norm_to_raw = {nt: raw for nt, raw in norm_to_raw.items() if nt not in exclusion_set}
+        print(f"  {len(excluded_terms):,} términos excluidos por stopwords/exclusión oficial "
+              f"({len(norm_to_raw):,} restantes para ranking)")
+    else:
+        print("  Filtro de exclusión desactivado (--no-exclude-stopwords)")
 
     conn = _get_db_conn()
     if conn is None:
@@ -177,7 +231,7 @@ def main() -> int:
         })
 
     _write_outputs(top_n, norm_to_raw, total_freq, pending_per_term, priority_messages)
-    _print_summary(top_n, pending_per_term, priority_messages)
+    _print_summary(top_n, pending_per_term, priority_messages, excluded_terms)
     return 0
 
 
@@ -223,6 +277,7 @@ def _print_summary(
     top_n: List[str],
     pending_per_term: Dict[str, int],
     priority_messages: List[Dict[str, str]],
+    excluded_terms: List[str],
 ) -> None:
     cubiertos = sum(1 for nt in top_n if pending_per_term.get(nt, 0) == 0)
     pendientes = len(top_n) - cubiertos
@@ -231,6 +286,11 @@ def _print_summary(
     print("=" * 70)
     print("RESUMEN")
     print("=" * 70)
+    if excluded_terms:
+        print(f"  {len(excluded_terms):,} términos excluidos por coincidir con "
+              f"stopwords/exclusión oficial")
+        preview = ", ".join(excluded_terms[:10])
+        print(f"  Primeros 10 excluidos: {preview}")
     print(f"  Términos top-N:                       {len(top_n):,}")
     print(f"  ├─ ya cubiertos (0 msgs sin etiquetar): {cubiertos:,}")
     print(f"  └─ con mensajes pendientes:             {pendientes:,}")
