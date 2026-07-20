@@ -175,10 +175,16 @@ def render_buscador_terminos() -> None:
         df = df[df["platform"] == "youtube"].copy()
     if categoria_filter:
         df = df[df["categoria_odio_pred"] == categoria_filter].copy()
-    if fecha_desde:
-        df = df[df["created_at"] >= pd.Timestamp(fecha_desde)].copy()
-    if fecha_hasta:
-        df = df[df["created_at"] < pd.Timestamp(fecha_hasta) + pd.Timedelta(days=1)].copy()
+    # created_at es tz-aware (timestamptz → datetime64[..., UTC]);
+    # st.date_input entrega date naive → Timestamp(fecha) naive rompe en pandas 2.x.
+    if fecha_desde or fecha_hasta:
+        tz = df["created_at"].dt.tz
+        if fecha_desde:
+            lim_desde = pd.Timestamp(fecha_desde, tz=tz)
+            df = df[df["created_at"].notna() & (df["created_at"] >= lim_desde)].copy()
+        if fecha_hasta:
+            lim_hasta = pd.Timestamp(fecha_hasta, tz=tz) + pd.Timedelta(days=1)
+            df = df[df["created_at"].notna() & (df["created_at"] < lim_hasta)].copy()
 
     if df.empty:
         st.info("No se encontraron mensajes para los filtros seleccionados.")
