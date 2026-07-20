@@ -4,7 +4,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from datetime import date, timedelta
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 import re
 from contextlib import contextmanager
 import pandas as pd
@@ -1513,15 +1513,42 @@ def _load_vllm_yt_kpis(
         }
 
 
-def _load_vllm_x_queue(clasif_filter: Optional[str] = None) -> pd.DataFrame:
+def _vllm_x_sql_filters(
+    clasif_filter: Optional[str] = None,
+    categoria_filter: Optional[str] = None,
+    fecha_desde: Optional[str] = None,
+    fecha_hasta: Optional[str] = None,
+) -> Tuple[str, list]:
+    """Fragmento SQL + params para filtros de cola/KPIs validación LLM X."""
+    parts: List[str] = []
+    params: list = []
+    if clasif_filter:
+        parts.append("AND e.clasificacion_principal = %s")
+        params.append(clasif_filter)
+    if categoria_filter:
+        parts.append("AND e.categoria_odio_pred = %s")
+        params.append(categoria_filter)
+    if fecha_desde:
+        parts.append("AND pm.created_at >= %s::date")
+        params.append(fecha_desde)
+    if fecha_hasta:
+        parts.append("AND pm.created_at < (%s::date + interval '1 day')")
+        params.append(fecha_hasta)
+    return " ".join(parts), params
+
+
+def _load_vllm_x_queue(
+    clasif_filter: Optional[str] = None,
+    categoria_filter: Optional[str] = None,
+    fecha_desde: Optional[str] = None,
+    fecha_hasta: Optional[str] = None,
+) -> pd.DataFrame:
     """Cola de mensajes X/Twitter con etiqueta LLM pendientes de validación humana."""
     try:
         with get_conn() as conn:
-            clasif_cond = ""
-            params: list = []
-            if clasif_filter:
-                clasif_cond = "AND e.clasificacion_principal = %s"
-                params.append(clasif_filter)
+            filter_sql, params = _vllm_x_sql_filters(
+                clasif_filter, categoria_filter, fecha_desde, fecha_hasta,
+            )
 
             df = pd.read_sql(f"""
                 SELECT DISTINCT ON (pm.content_original)
@@ -1535,7 +1562,7 @@ def _load_vllm_x_queue(clasif_filter: Optional[str] = None) -> pd.DataFrame:
                   AND pm.message_uuid NOT IN (
                       SELECT message_uuid FROM processed.validaciones_manuales
                   )
-                  {clasif_cond}
+                  {filter_sql}
                 ORDER BY pm.content_original, pm.created_at DESC
             """, conn, params=params)
     except Exception:
@@ -1553,19 +1580,20 @@ def _load_vllm_x_queue(clasif_filter: Optional[str] = None) -> pd.DataFrame:
 def _load_vllm_x_kpis(
     annotator_id: str,
     clasif_filter: Optional[str] = None,
+    categoria_filter: Optional[str] = None,
+    fecha_desde: Optional[str] = None,
+    fecha_hasta: Optional[str] = None,
     period: str = "day",
 ) -> dict:
     """KPIs de validación de etiquetado LLM en X."""
-    fecha_desde = _period_to_sql_date(period)
+    fecha_desde_periodo = _period_to_sql_date(period)
     try:
         with get_conn() as conn:
             cur = conn.cursor()
 
-            clasif_cond = ""
-            params_pending: list = []
-            if clasif_filter:
-                clasif_cond = "AND e.clasificacion_principal = %s"
-                params_pending.append(clasif_filter)
+            filter_sql, params_pending = _vllm_x_sql_filters(
+                clasif_filter, categoria_filter, fecha_desde, fecha_hasta,
+            )
 
             cur.execute(f"""
                 SELECT COUNT(*) FROM processed.etiquetas_llm e
@@ -1574,7 +1602,7 @@ def _load_vllm_x_kpis(
                   AND pm.message_uuid NOT IN (
                       SELECT message_uuid FROM processed.validaciones_manuales
                   )
-                  {clasif_cond}
+                  {filter_sql}
             """, params_pending)
             pendientes = cur.fetchone()[0]
 
@@ -1599,7 +1627,7 @@ def _load_vllm_x_kpis(
                 JOIN processed.etiquetas_llm e USING (message_uuid)
                 WHERE pm.platform IN ('x', 'twitter')
                   AND vm.annotation_date >= %s
-            """, (fecha_desde,))
+            """, (fecha_desde_periodo,))
             validados_periodo = cur.fetchone()[0]
 
             cur.execute("""
@@ -2063,21 +2091,76 @@ def _render_validacion_llm_x(annotator: str):
             st.error("Error al guardar la validación.")
 
     clasif_options = ["Todos", "ODIO", "NO_ODIO", "DUDOSO"]
-    clasif_sel = st.selectbox(
-        "Filtrar por predicción LLM",
-        options=clasif_options,
-        index=0,
-        key="vllm_x_clasif_filter",
-    )
+    categoria_options = ["Todas", *list(CATEGORIAS_LABELS.keys())]
+
+    col_clasif, col_cat = st.columns(2)
+    with col_clasif:
+        clasif_sel = st.selectbox(
+            "Filtrar por predicción LLM",
+            options=clasif_options,
+            index=0,
+            key="vllm_x_clasif_filter",
+        )
+    with col_cat:
+        categoria_sel = st.selectbox(
+            "Filtrar por categoría LLM",
+            options=categoria_options,
+            format_func=lambda x: (
+                "Todas"
+                if x == "Todas"
+                else CATEGORIAS_LABELS.get(x, x)
+            ),
+            index=0,
+            key="vllm_x_categoria_filter",
+        )
+
+    col_fd, col_fh = st.columns(2)
+    with col_fd:
+        fecha_desde = st.date_input(
+            "Fecha desde",
+            value=None,
+            key="vllm_x_fecha_desde",
+        )
+    with col_fh:
+        fecha_hasta = st.date_input(
+            "Fecha hasta",
+            value=None,
+            key="vllm_x_fecha_hasta",
+        )
+
     clasif_filter = clasif_sel if clasif_sel != "Todos" else None
+    categoria_filter = categoria_sel if categoria_sel != "Todas" else None
+    fd_str = fecha_desde.isoformat() if fecha_desde else None
+    fh_str = fecha_hasta.isoformat() if fecha_hasta else None
+
+    if fd_str and fh_str and fd_str > fh_str:
+        st.warning("La fecha **desde** no puede ser posterior a la fecha **hasta**.")
+        st.divider()
+        return
+
+    filter_parts: List[str] = []
+    if clasif_filter:
+        filter_parts.append(clasif_filter)
+    if categoria_filter:
+        filter_parts.append(CATEGORIAS_LABELS.get(categoria_filter, categoria_filter))
+    if fd_str or fh_str:
+        rango = f"{fd_str or '…'} → {fh_str or '…'}"
+        filter_parts.append(rango)
+    filter_suffix = f" ({', '.join(filter_parts)})" if filter_parts else ""
 
     _kpi_period = st.session_state.get("supervision_period", "day")
-    kpis = _load_vllm_x_kpis(annotator, clasif_filter, _kpi_period)
+    kpis = _load_vllm_x_kpis(
+        annotator,
+        clasif_filter,
+        categoria_filter,
+        fd_str,
+        fh_str,
+        _kpi_period,
+    )
     k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("Etiquetados LLM (X)", f"{kpis['total_etiquetados_llm']:,}")
     k2.metric("Validados", f"{kpis['total_validados']:,}")
-    k3.metric("Pendientes" + (f" ({clasif_sel})" if clasif_filter else ""),
-              f"{kpis['pendientes']:,}")
+    k3.metric("Pendientes" + filter_suffix, f"{kpis['pendientes']:,}")
     k4.metric("Validados en el periodo", f"{kpis['validados_periodo']:,}")
     k5.metric(f"Por {annotator}", f"{kpis['por_anotador']:,}")
     st.progress(kpis["pct_avance"] / 100, text=f"Avance validación: {kpis['pct_avance']:.1f}%")
@@ -2093,7 +2176,7 @@ def _render_validacion_llm_x(annotator: str):
     queue = _ann_get_or_load_queue(
         "_vllm_x_queue_cache",
         _load_vllm_x_queue,
-        (clasif_filter,),
+        (clasif_filter, categoria_filter, fd_str, fh_str),
     )
 
     if queue.empty:
@@ -2105,7 +2188,7 @@ def _render_validacion_llm_x(annotator: str):
                 "Ejecutá el pipeline de etiquetado LLM para X primero."
             )
         else:
-            st.info("No hay mensajes pendientes con el filtro seleccionado.")
+            st.info("No hay mensajes pendientes con los filtros seleccionados.")
         if st.button("Limpiar saltos y recargar", key="vllm_x_clear"):
             st.session_state["vllm_x_skipped"] = set()
             st.session_state.pop("_vllm_x_queue_cache", None)
