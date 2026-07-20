@@ -120,6 +120,32 @@ def render_buscador_terminos() -> None:
         key="buscador_plataforma",
     )
 
+    categoria_options = ["Todas", *list(CATEGORIAS_LABELS.keys())]
+    col_cat, col_fd, col_fh = st.columns([2, 1, 1])
+    with col_cat:
+        categoria_sel = st.selectbox(
+            _ui_label("Filtrar por categoría LLM"),
+            options=categoria_options,
+            format_func=lambda x: (
+                "Todas" if x == "Todas" else CATEGORIAS_LABELS.get(x, x)
+            ),
+            index=0,
+            key="buscador_categoria_filter",
+        )
+    with col_fd:
+        fecha_desde = st.date_input(
+            "Fecha desde", value=None, key="buscador_fecha_desde",
+        )
+    with col_fh:
+        fecha_hasta = st.date_input(
+            "Fecha hasta", value=None, key="buscador_fecha_hasta",
+        )
+    categoria_filter = categoria_sel if categoria_sel != "Todas" else None
+
+    if fecha_desde and fecha_hasta and fecha_desde > fecha_hasta:
+        st.warning("La fecha **desde** no puede ser posterior a la fecha **hasta**.")
+        return
+
     if not termino:
         st.info("Ingresá un término para comenzar.")
         return
@@ -147,6 +173,12 @@ def render_buscador_terminos() -> None:
         df = df[df["platform"] == "x"].copy()
     elif plataforma == "YouTube":
         df = df[df["platform"] == "youtube"].copy()
+    if categoria_filter:
+        df = df[df["categoria_odio_pred"] == categoria_filter].copy()
+    if fecha_desde:
+        df = df[df["created_at"] >= pd.Timestamp(fecha_desde)].copy()
+    if fecha_hasta:
+        df = df[df["created_at"] < pd.Timestamp(fecha_hasta) + pd.Timedelta(days=1)].copy()
 
     if df.empty:
         st.info("No se encontraron mensajes para los filtros seleccionados.")
