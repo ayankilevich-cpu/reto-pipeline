@@ -346,6 +346,15 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
     margin: 0.35rem 0 1rem 0;
     width: 100%;
 }
+/* Forzar Inter en KPI cards y headers de sección (Streamlit resolvía
+   "Source Sans" por defecto en estos contenedores de markdown) */
+.pg-kpi-grid,
+.pg-kpi-card,
+.pg-kpi-label,
+.pg-kpi-value,
+.reto-section-header {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+}
 .pg-kpi-section-label {
     font-size: 0.72rem;
     font-weight: 600;
@@ -543,7 +552,7 @@ div[data-baseweb="notification"] {
 section[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
 section[data-testid="stSidebar"] .stCaption {
     font-size: 0.72rem !important;
-    color: #718096 !important;
+    color: #5A6B82 !important; /* antes #718096: 3.71:1 sobre #F4F6F8, bajo WCAG AA. Ahora ~5:1 */
     line-height: 1.5;
 }
 /* Separador antes del logo EU */
