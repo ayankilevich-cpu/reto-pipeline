@@ -129,6 +129,38 @@ except ImportError:
 # ============================================================
 # CONFIG
 # ============================================================
+GA_MEASUREMENT_ID = "G-8XCSPETH2L"
+_GA_MARKER = "<!-- ga4-injected -->"
+
+
+def _patch_streamlit_index_with_ga() -> None:
+    """Inserta el script de GA4 directamente en el index.html que sirve Streamlit,
+    evitando el iframe anidado de components.html (que bloquean Safari/ad-blockers)."""
+    try:
+        index_path = Path(st.__file__).parent / "static" / "index.html"
+        html = index_path.read_text(encoding="utf-8")
+
+        if _GA_MARKER in html:
+            return  # ya parchado, no duplicar
+
+        ga_snippet = f"""{_GA_MARKER}
+<script async src="https://www.googletagmanager.com/gtag/js?id={GA_MEASUREMENT_ID}"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){{dataLayer.push(arguments);}}
+  gtag('js', new Date());
+  gtag('config', '{GA_MEASUREMENT_ID}');
+</script>
+"""
+        patched = html.replace("</head>", ga_snippet + "</head>")
+        index_path.write_text(patched, encoding="utf-8")
+    except Exception as e:
+        # No debe romper el arranque de la app si algo falla acá
+        print(f"[GA4] No se pudo parchar index.html: {e}")
+
+
+_patch_streamlit_index_with_ga()
+
 st.set_page_config(
     page_title="RETO — Dashboard",
     page_icon="🛡️",
@@ -453,6 +485,15 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
     margin: 0.35rem 0 1rem 0;
     width: 100%;
 }
+/* Forzar Inter en KPI cards y headers de sección (Streamlit resolvía
+   "Source Sans" por defecto en estos contenedores de markdown) */
+.pg-kpi-grid,
+.pg-kpi-card,
+.pg-kpi-label,
+.pg-kpi-value,
+.reto-section-header {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+}
 .pg-kpi-section-label {
     font-size: 0.72rem;
     font-weight: 600;
@@ -654,7 +695,7 @@ div[data-testid="stDateInput"] input:focus {
 section[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
 section[data-testid="stSidebar"] .stCaption {
     font-size: 0.72rem !important;
-    color: #718096 !important;
+    color: #5A6B82 !important; /* antes #718096: 3.71:1 sobre #F4F6F8, bajo WCAG AA. Ahora ~5:1 */
     line-height: 1.5;
 }
 /* Separador antes del logo EU */
