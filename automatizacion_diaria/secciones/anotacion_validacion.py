@@ -34,19 +34,11 @@ from components.validacion_shared import (
     _render_vllm_yt_error_analysis,
 )
 
-try:
-    from streamlit_extras.stylable_container import stylable_container as _stylable_container  # type: ignore
-    _HAS_EXTRAS = True
-except Exception:  # pragma: no cover
-    _stylable_container = None  # type: ignore[assignment]
-    _HAS_EXTRAS = False
-
-
 # ============================================================
 # CSS específico de los formularios de anotación / validación
 # (4 subsecciones: odio · categoría · intensidad · humor)
 # Inyección 1 vez por sesión; los selectores están scopeados con clases
-# propias y con stylable_container para no afectar otros widgets.
+# propias y con _ann_styled_box para no afectar otros widgets.
 # ============================================================
 _ANN_FORM_CSS = """
 <style>
@@ -99,7 +91,7 @@ _ANN_FORM_CSS = """
     font-size: 0.82rem;
     font-weight: 500;
 }
-/* Encabezado de paso justo encima del bloque gris (fuera del stylable_container) */
+/* Encabezado de paso justo encima del bloque gris (fuera del container scopeado) */
 .ann-step-header--standalone {
     margin: 0.35rem 0 0.65rem 0;
 }
@@ -112,7 +104,7 @@ _ANN_FORM_CSS = """
 """
 
 
-# CSS scopeado (vía stylable_container) para los 3 sub-bloques visuales
+# CSS scopeado (vía _ann_styled_box) para los 3 sub-bloques visuales
 _ANN_CHIPS_CSS = """
 div[role="radiogroup"] {
     display: grid;
@@ -357,15 +349,20 @@ def _inject_anotacion_form_css() -> None:
 def _ann_styled_box(key: str, css: str):
     """Context manager para scopear CSS a un bloque del form.
 
-    Usa streamlit-extras.stylable_container si está disponible; si no, hace
-    fallback transparente a st.container() para no romper la app.
+    `st.container(key=...)` etiqueta el bloque con la clase `st-key-<key>`, que
+    es el gancho al que apunta el CSS inyectado acá. El margen negativo
+    compensa el espacio que agrega el propio bloque de estilos.
     """
-    if _stylable_container is not None:
-        with _stylable_container(key=key, css_styles=css):
-            yield
-    else:
-        with st.container():
-            yield
+    class_name = re.sub(r"[^a-zA-Z0-9_-]", "-", key.strip())
+    container = st.container(key=class_name)
+    container.html(
+        "<style>\n"
+        f".st-key-{class_name} {css}\n"
+        f".st-key-{class_name} > div:first-child {{ margin-bottom: -1rem; }}\n"
+        "</style>"
+    )
+    with container:
+        yield
 
 
 CATEGORIA_NO_ODIO = "no_odio"
