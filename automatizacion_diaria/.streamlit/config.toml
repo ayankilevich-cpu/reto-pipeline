@@ -1,0 +1,14 @@
+# Copia del config de la raíz del repo. Streamlit resuelve .streamlit/ contra el
+# directorio desde el que se lanza, y en local el dashboard se corre desde acá
+# (es donde vive secrets.toml), así que sin este archivo el tema queda librado
+# al modo claro/oscuro del sistema operativo.
+[runner]
+magicEnabled = false
+
+[theme]
+base = "light"
+primaryColor = "#1F4E79"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F4F6F8"
+textColor = "#1A202C"
+font = "sans serif"
