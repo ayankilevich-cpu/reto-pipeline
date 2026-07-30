@@ -958,23 +958,6 @@ def _render_anotacion_youtube(annotator: str):
         else:
             st.error("Error al guardar la anotación.")
 
-    # --- KPIs de progreso ---
-    _kpi_period = st.session_state.get("supervision_period", "day")
-    kpis = _load_annotation_kpis(annotator, _kpi_period)
-    k1, k2, k3, k4, k5 = st.columns(5)
-    k1.metric("Total relevantes (YT)", f"{kpis['total_relevantes']:,}")
-    k2.metric("Anotados", f"{kpis['total_anotados']:,}")
-    k3.metric("Pendientes", f"{kpis['pendientes']:,}")
-    k4.metric("Anotados en el periodo", f"{kpis['anotados_periodo']:,}")
-    k5.metric(f"Por {annotator}", f"{kpis['por_anotador']:,}")
-    st.progress(kpis["pct_avance"] / 100, text=f"Avance: {kpis['pct_avance']:.1f}%")
-
-    st.divider()
-
-    # --- Cola de mensajes ---
-    if "ann_skipped" not in st.session_state:
-        st.session_state["ann_skipped"] = set()
-
     col_fd, col_fh = st.columns(2)
     with col_fd:
         fecha_desde = st.date_input(
@@ -994,7 +977,25 @@ def _render_anotacion_youtube(annotator: str):
 
     if fd_str and fh_str and fd_str > fh_str:
         st.warning("La fecha **desde** no puede ser posterior a la fecha **hasta**.")
+        st.divider()
         return
+
+    # --- KPIs de progreso ---
+    _kpi_period = st.session_state.get("supervision_period", "day")
+    kpis = _load_annotation_kpis(annotator, _kpi_period)
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k1.metric("Total relevantes (YT)", f"{kpis['total_relevantes']:,}")
+    k2.metric("Anotados", f"{kpis['total_anotados']:,}")
+    k3.metric("Pendientes", f"{kpis['pendientes']:,}")
+    k4.metric("Anotados en el periodo", f"{kpis['anotados_periodo']:,}")
+    k5.metric(f"Por {annotator}", f"{kpis['por_anotador']:,}")
+    st.progress(kpis["pct_avance"] / 100, text=f"Avance: {kpis['pct_avance']:.1f}%")
+
+    st.divider()
+
+    # --- Cola de mensajes ---
+    if "ann_skipped" not in st.session_state:
+        st.session_state["ann_skipped"] = set()
 
     queue = _ann_get_or_load_queue(
         "_ann_yt_queue_cache",
