@@ -567,12 +567,32 @@ def _load_admin_annotation_supervision(period: str) -> dict:
         }
 
 
-def _load_annotation_queue() -> pd.DataFrame:
+def _ann_yt_sql_filters(
+    fecha_desde: Optional[str] = None,
+    fecha_hasta: Optional[str] = None,
+) -> Tuple[str, list]:
+    """Fragmento SQL + params para el filtro de fechas de la cola de anotación YT."""
+    parts: List[str] = []
+    params: list = []
+    if fecha_desde:
+        parts.append("AND pm.created_at >= %s::date")
+        params.append(fecha_desde)
+    if fecha_hasta:
+        parts.append("AND pm.created_at < (%s::date + interval '1 day')")
+        params.append(fecha_hasta)
+    return " ".join(parts), params
+
+
+def _load_annotation_queue(
+    fecha_desde: Optional[str] = None,
+    fecha_hasta: Optional[str] = None,
+) -> pd.DataFrame:
     """Carga mensajes YouTube pendientes de anotación (sin cache)."""
     skipped = st.session_state.get("ann_skipped", set())
+    filter_sql, params = _ann_yt_sql_filters(fecha_desde, fecha_hasta)
 
     with get_conn() as conn:
-        df = pd.read_sql("""
+        df = pd.read_sql(f"""
             SELECT DISTINCT ON (pm.content_original)
                    pm.message_uuid, pm.content_original, pm.source_media,
                    pm.matched_terms, pm.relevante_score, pm.relevante_motivo,
@@ -584,8 +604,9 @@ def _load_annotation_queue() -> pd.DataFrame:
               AND pm.message_uuid NOT IN (
                   SELECT message_uuid FROM processed.validaciones_manuales
               )
+              {filter_sql}
             ORDER BY pm.content_original, pm.relevante_score DESC NULLS LAST
-        """, conn)
+        """, conn, params=params)
         df = df.sort_values("relevante_score", ascending=False).head(100)
 
     if skipped and not df.empty:
@@ -934,6 +955,28 @@ def _render_anotacion_youtube(annotator: str):
         else:
             st.error("Error al guardar la anotación.")
 
+    col_fd, col_fh = st.columns(2)
+    with col_fd:
+        fecha_desde = st.date_input(
+            "Fecha desde",
+            value=None,
+            key="ann_yt_fecha_desde",
+        )
+    with col_fh:
+        fecha_hasta = st.date_input(
+            "Fecha hasta",
+            value=None,
+            key="ann_yt_fecha_hasta",
+        )
+
+    fd_str = fecha_desde.isoformat() if fecha_desde else None
+    fh_str = fecha_hasta.isoformat() if fecha_hasta else None
+
+    if fd_str and fh_str and fd_str > fh_str:
+        st.warning("La fecha **desde** no puede ser posterior a la fecha **hasta**.")
+        st.divider()
+        return
+
     # --- KPIs de progreso ---
     _kpi_period = st.session_state.get("supervision_period", "day")
     kpis = _load_annotation_kpis(annotator, _kpi_period)
@@ -951,15 +994,23 @@ def _render_anotacion_youtube(annotator: str):
     if "ann_skipped" not in st.session_state:
         st.session_state["ann_skipped"] = set()
 
-    queue = _ann_get_or_load_queue("_ann_yt_queue_cache", _load_annotation_queue)
+    queue = _ann_get_or_load_queue(
+        "_ann_yt_queue_cache",
+        _load_annotation_queue,
+        (fd_str, fh_str),
+    )
 
     if queue.empty:
-        st.success("No hay mensajes pendientes de anotación.")
-        st.caption(
-            "Si esperabas mensajes, verifica que se haya ejecutado "
-            "`filtrar_relevancia_youtube.py` para generar la cola de "
-            "anotación (marca `relevante_llm = 'SI'` en los candidatos)."
-        )
+        if fd_str or fh_str:
+            st.success("No hay mensajes pendientes de anotación en el rango de fechas seleccionado.")
+            st.caption("Ampliá o quitá el filtro de fechas para ver el resto de la cola.")
+        else:
+            st.success("No hay mensajes pendientes de anotación.")
+            st.caption(
+                "Si esperabas mensajes, verifica que se haya ejecutado "
+                "`filtrar_relevancia_youtube.py` para generar la cola de "
+                "anotación (marca `relevante_llm = 'SI'` en los candidatos)."
+            )
         if st.button("Limpiar saltos y recargar"):
             st.session_state["ann_skipped"] = set()
             st.session_state.pop("_ann_yt_queue_cache", None)
