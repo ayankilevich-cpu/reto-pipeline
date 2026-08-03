@@ -495,10 +495,13 @@ div[data-baseweb="notification"] {
     border-color: #163D61 !important;
 }
 
-/* --- Selectbox / multiselect borde más definido --- */
+/* --- Selectbox / multiselect: mismo radio 8px que botones/headers --- */
+[data-baseweb="select"] > div {
+    border-radius: 8px !important;
+}
 [data-baseweb="select"] > div:first-child {
     border-color: #CBD5E0 !important;
-    border-radius: 6px !important;
+    border-radius: 8px !important;
     transition: border-color 0.15s ease !important;
 }
 [data-baseweb="select"]:hover > div:first-child {
@@ -714,9 +717,9 @@ def _register_plotly_theme() -> None:
         return
     template = go.layout.Template()
     template.layout = go.Layout(
-        font=dict(family="Inter, -apple-system, sans-serif", size=13, color="#1A202C"),
+        font=dict(family="Inter, -apple-system, sans-serif", size=12, color="#4A5568"),
         title=dict(
-            font=dict(size=15, color="#1A202C", family="Inter"),
+            font=dict(size=15, color="#1A202C", family="Inter, -apple-system, sans-serif"),
             x=0.0, xanchor="left", pad=dict(t=4, b=8),
         ),
         paper_bgcolor="#FFFFFF",
@@ -731,7 +734,7 @@ def _register_plotly_theme() -> None:
             tickcolor="#A0AEC0", tickfont=dict(size=12, color="#4A5568"),
         ),
         legend=dict(
-            font=dict(size=12, color="#2D3748"),
+            font=dict(size=12, color="#4A5568", family="Inter, -apple-system, sans-serif"),
             bgcolor="rgba(255,255,255,0)",
             bordercolor="rgba(0,0,0,0)",
         ),
