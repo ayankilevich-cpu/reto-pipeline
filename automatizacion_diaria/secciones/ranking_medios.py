@@ -368,7 +368,16 @@ def _render_explorar_medio():
         fig.for_each_trace(lambda t: t.update(
             name="Total" if "total" in t.name else "Odio"
         ))
-        st.plotly_chart(fig, use_container_width=True, key="explore_plat_chart")
+        st.plotly_chart(
+            fig,
+            use_container_width=True,
+            key="explore_plat_chart",
+            config={
+                "displayModeBar": "hover",
+                "displaylogo": False,
+                "modeBarButtonsToRemove": ["select2d", "lasso2d", "autoScale2d"],
+            },
+        )
 
 
 def render_ranking_medios():

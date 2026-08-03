@@ -782,11 +782,19 @@ def render_panel_general():
                     int_data, x="Intensidad", y="Cantidad",
                     color="Intensidad",
                     color_discrete_map=INTENSITY_COLORS,
-                    title="Distribución de intensidad (mensajes de odio)",
+                    title="Distribución de intensidad",
                     text_auto=True,
                 )
                 fig_int.update_layout(height=380, showlegend=False)
-                st.plotly_chart(fig_int, use_container_width=True)
+                st.plotly_chart(
+                    fig_int,
+                    use_container_width=True,
+                    config={
+                        "displayModeBar": "hover",
+                        "displaylogo": False,
+                        "modeBarButtonsToRemove": ["select2d", "lasso2d", "autoScale2d"],
+                    },
+                )
             else:
                 st.info("Sin datos de intensidad.")
 
