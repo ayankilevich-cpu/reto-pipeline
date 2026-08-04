@@ -73,7 +73,7 @@ def _public_medio_label(source_media: Any) -> Optional[str]:
 # ============================================================
 # DATA LOADING — filter-aware
 # ============================================================
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def load_filter_options(access_raw: bool) -> dict:
     """Load distinct values for all filter dropdowns."""
     platform_sql = (
@@ -122,7 +122,7 @@ def load_filter_options(access_raw: bool) -> dict:
     }
 
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=3600)
 def _load_vllm_yt_corrections() -> pd.DataFrame:
     """Carga todas las validaciones humanas de etiquetado LLM en YouTube."""
     try:
@@ -155,7 +155,7 @@ def _load_vllm_yt_corrections() -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def load_art510_summary() -> dict:
     """KPIs generales de Art. 510 (sin filtros)."""
     with get_conn() as conn:
@@ -212,7 +212,7 @@ def load_art510_summary() -> dict:
     }
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def load_art510_validaciones_humanas() -> pd.DataFrame:
     """Carga validaciones humanas de Art. 510 cruzadas con la evaluación LLM."""
     with get_conn() as conn:
@@ -245,7 +245,7 @@ def load_art510_validaciones_humanas() -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def load_art510_candidates(
     platforms: Optional[Tuple] = None,
     label_sources: Optional[Tuple] = None,
@@ -334,7 +334,7 @@ def load_art510_candidates(
     return df
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def load_gold_full() -> pd.DataFrame:
     """Carga el gold dataset unido con validaciones manuales y etiquetas LLM."""
     with get_conn() as conn:
