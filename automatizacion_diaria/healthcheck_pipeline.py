@@ -6,9 +6,12 @@ Healthcheck operativo del pipeline ReTo (cloud-first).
 
 Objetivos:
 1) Persistir estado mínimo por corrida en processed.pipeline_health.
-2) Detectar estancamiento por plataforma (X / YouTube).
-3) Detectar corridas consecutivas sin filas nuevas.
-4) Fallar el workflow cuando una etapa crítica falle.
+2) Marcar por plataforma si se cargaron mensajes nuevos o no.
+3) Si no se cargaron, distinguir "sin novedades" (ok) de "falló la
+   ejecución" (error) según si hubo un fallo real en las etapas que
+   alimentan a esa plataforma.
+4) Fallar el workflow solo cuando alguna plataforma no cargó mensajes
+   por un error real de ejecución.
 """
 
 from __future__ import annotations
@@ -25,14 +28,14 @@ from db_utils import get_conn
 
 
 PLATFORMS: Tuple[str, ...] = ("x", "youtube")
-STAGE_KEYS: Tuple[str, ...] = (
-    "x_sync",
-    "x_consolidate",
-    "yt_extract",
-    "orch_x",
-    "orch_yt",
-    "load_db",
-)
+
+# Etapas que pueden explicar que una plataforma NO haya recibido mensajes
+# nuevos. load_db es compartida: si falla, no llega nada a la BD para nadie.
+PLATFORM_STAGE_KEYS: Dict[str, Tuple[str, ...]] = {
+    "x": ("x_sync", "x_consolidate", "orch_x"),
+    "youtube": ("yt_extract", "orch_yt"),
+}
+SHARED_STAGE_KEY = "load_db"
 
 
 @dataclass
@@ -42,6 +45,7 @@ class PlatformHealth:
     hours_since_last_ingest: Optional[float]
     rows_new_window: int
     stagnated: bool
+    critical_stage_ok: bool
     warnings: List[str]
     errors: List[str]
 
@@ -78,12 +82,22 @@ def stage_statuses_from_env() -> Dict[str, str]:
     return mapping
 
 
-def stage_errors(statuses: Dict[str, str]) -> List[str]:
+def platform_stage_errors(statuses: Dict[str, str], platform: str) -> List[str]:
+    """
+    Etapas cuyo fallo puede explicar que `platform` no haya recibido
+    mensajes nuevos en esta corrida (no se usa si sí llegaron mensajes).
+    """
     errors: List[str] = []
-    for key in STAGE_KEYS:
-        st = statuses.get(key, "missing")
-        if st != "success":
-            errors.append(f"Etapa crítica {key} en estado '{st}'")
+    for key in PLATFORM_STAGE_KEYS[platform]:
+        status = statuses.get(key, "missing")
+        if key == "yt_extract" and status == "skipped":
+            continue
+        if status != "success":
+            errors.append(f"Etapa {key} en estado '{status}'")
+
+    load_db_status = statuses.get(SHARED_STAGE_KEY, "missing")
+    if load_db_status != "success":
+        errors.append(f"Etapa {SHARED_STAGE_KEY} en estado '{load_db_status}'")
     return errors
 
 
@@ -138,60 +152,50 @@ def load_last_ingest_and_window(conn, platform: str, run_at_utc: datetime) -> Tu
     return row[0], int(row[1] or 0)
 
 
-def previous_zero_streak(conn, platform: str) -> bool:
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT rows_new_window
-            FROM processed.pipeline_health
-            WHERE platform = %s
-            ORDER BY run_at DESC
-            LIMIT 1;
-            """,
-            (platform,),
-        )
-        row = cur.fetchone()
-    if not row:
-        return False
-    return int(row[0] or 0) == 0
-
-
 def build_platform_health(
     conn,
     platform: str,
     run_at_utc: datetime,
     stale_hours: int,
-    critical_errors: List[str],
+    stage_errors_list: List[str],
 ) -> PlatformHealth:
+    """
+    Criterio único: lo que importa es si `platform` cargó mensajes nuevos.
+
+    - rows_new_window > 0            -> cargó mensajes. OK, sin importar
+                                         ruido en etapas no esenciales.
+    - rows_new_window == 0 y hubo
+      fallo en una etapa relevante   -> no cargó POR ERROR (critical_stage_ok=False).
+    - rows_new_window == 0 sin fallos-> no había mensajes nuevos. Está bien.
+    """
     last_ingested_at, rows_new_window = load_last_ingest_and_window(conn, platform, run_at_utc)
+
+    cargo_mensajes = rows_new_window > 0
+    no_cargo_por_error = (not cargo_mensajes) and bool(stage_errors_list)
 
     warnings: List[str] = []
     errors: List[str] = []
-    if critical_errors:
-        errors.extend(critical_errors)
+    if no_cargo_por_error:
+        errors.extend(stage_errors_list)
 
     hours_since_last_ingest: Optional[float] = None
     stagnated = False
     if last_ingested_at is None:
         stagnated = True
-        errors.append(f"Sin datos en raw.mensajes para plataforma {platform}")
+        if not no_cargo_por_error:
+            warnings.append(f"Nunca se registraron mensajes en raw.mensajes para {platform}")
     else:
         delta = run_at_utc - last_ingested_at.astimezone(timezone.utc)
         hours_since_last_ingest = round(delta.total_seconds() / 3600.0, 2)
         if delta > timedelta(hours=stale_hours):
             stagnated = True
-            errors.append(
-                f"Plataforma {platform} estancada: {hours_since_last_ingest}h "
-                f"sin ingesta nueva (umbral={stale_hours}h)"
+            warnings.append(
+                f"Plataforma {platform} sin ingesta nueva hace {hours_since_last_ingest}h "
+                f"(umbral={stale_hours}h)"
             )
 
-    prev_zero = previous_zero_streak(conn, platform)
-    if rows_new_window == 0 and prev_zero:
-        errors.append(
-            f"Plataforma {platform} con rows_new_window=0 en corridas consecutivas"
-        )
-    elif rows_new_window == 0:
-        warnings.append(f"Plataforma {platform} con rows_new_window=0 en esta corrida")
+    if not cargo_mensajes and not no_cargo_por_error:
+        warnings.append(f"Plataforma {platform}: sin mensajes nuevos en esta corrida (sin errores de ejecución)")
 
     return PlatformHealth(
         platform=platform,
@@ -199,6 +203,7 @@ def build_platform_health(
         hours_since_last_ingest=hours_since_last_ingest,
         rows_new_window=rows_new_window,
         stagnated=stagnated,
+        critical_stage_ok=not no_cargo_por_error,
         warnings=warnings,
         errors=errors,
     )
@@ -208,11 +213,9 @@ def persist_health(
     conn,
     run_id: str,
     run_at_utc: datetime,
-    stage_errors_list: List[str],
     data: PlatformHealth,
 ) -> None:
-    critical_stage_ok = len(stage_errors_list) == 0
-    failed_stages = "; ".join(stage_errors_list) if stage_errors_list else None
+    failed_stages = "; ".join(data.errors) if data.errors else None
     warnings_txt = "; ".join(data.warnings) if data.warnings else None
     errors_txt = "; ".join(data.errors) if data.errors else None
 
@@ -241,7 +244,7 @@ def persist_health(
                 data.hours_since_last_ingest,
                 data.rows_new_window,
                 data.stagnated,
-                critical_stage_ok,
+                data.critical_stage_ok,
                 failed_stages,
                 warnings_txt,
                 errors_txt,
@@ -276,7 +279,6 @@ def main() -> int:
     fail_on_alert = args.fail_on_alert and (not args.no_fail_on_alert)
     run_at_utc = now_utc_from_args(args.run_at_utc)
     statuses = stage_statuses_from_env()
-    critical_errors = stage_errors(statuses)
 
     stale_by_platform = {
         "x": args.x_stale_hours,
@@ -292,20 +294,21 @@ def main() -> int:
                 platform=platform,
                 run_at_utc=run_at_utc,
                 stale_hours=stale_by_platform[platform],
-                critical_errors=critical_errors,
+                stage_errors_list=platform_stage_errors(statuses, platform),
             )
             persist_health(
                 conn=conn,
                 run_id=args.run_id,
                 run_at_utc=run_at_utc,
-                stage_errors_list=critical_errors,
                 data=row,
             )
             rows.append(row)
 
     print_summary(args.run_id, run_at_utc, statuses, rows)
-    has_errors = any(r.errors for r in rows)
-    if has_errors and fail_on_alert:
+    # El workflow solo se marca en rojo si alguna plataforma NO cargó
+    # mensajes por un fallo real de ejecución (no por falta de novedades).
+    has_load_failure = any(not r.critical_stage_ok for r in rows)
+    if has_load_failure and fail_on_alert:
         return 1
     return 0
 

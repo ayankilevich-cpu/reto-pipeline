@@ -381,19 +381,19 @@ def resolve_pipeline_banner_state(
 
         has_critical_error = bool(health.get("has_critical_error"))
         any_stagnated = bool(health.get("any_stagnated"))
-        has_errors_text = bool(health.get("has_errors_text"))
-        has_warnings_text = bool(health.get("has_warnings_text"))
+        total_rows_loaded = sum(int(p.get("rows_new_window") or 0) for p in platforms.values())
 
+        # Criterio único: ¿se cargaron mensajes o no?
+        # - has_critical_error: alguna plataforma NO cargó mensajes por un
+        #   fallo real de ejecución (ver healthcheck_pipeline.py).
+        # - Si no hubo error y se cargó al menos un mensaje -> éxito.
+        # - Si no hubo error y no se cargó nada -> informativo (sin novedades).
         if has_critical_error:
             severity = "error"
-        elif any_stagnated or has_platform_gap:
-            severity = "warning"
-        elif has_errors_text:
-            severity = "warning"
-        elif has_warnings_text:
-            severity = "info"
-        else:
+        elif total_rows_loaded > 0:
             severity = "success"
+        else:
+            severity = "info"
 
         issues = []
         for p in sorted(platforms.keys()):
@@ -433,6 +433,7 @@ def resolve_pipeline_banner_state(
             "platforms": platforms,
             "issues": issues,
             "has_critical_error": has_critical_error,
+            "total_rows_loaded": total_rows_loaded,
             "any_stagnated": any_stagnated,
             "has_platform_gap": has_platform_gap,
             "missing_platforms": missing_platforms,
@@ -461,6 +462,7 @@ def resolve_pipeline_banner_state(
             "platforms": {},
             "issues": [],
             "has_critical_error": status == "error",
+            "total_rows_loaded": None,
             "any_stagnated": False,
             "has_platform_gap": False,
             "missing_platforms": [],
@@ -516,12 +518,23 @@ def render_pipeline_status_banner(
     severity = state.get("severity", "info")
     source = state.get("source")
     source_lbl = "GitHub Actions" if source == "pipeline_health" else "fallback legacy"
-    icon = "✅" if severity == "success" else ("❌" if severity == "error" else "⚠️")
-    msg = f"{icon} Última actualización: {fecha_txt} ({source_lbl})"
+    icon = {"success": "✅", "error": "❌", "warning": "⚠️"}.get(severity, "ℹ️")
+
+    total_rows_loaded = state.get("total_rows_loaded")
+    if source == "pipeline_health" and total_rows_loaded is not None:
+        if severity == "error":
+            detalle = "no se pudieron cargar mensajes (falló la ejecución)"
+        elif total_rows_loaded > 0:
+            detalle = f"{total_rows_loaded:,} mensajes nuevos cargados"
+        else:
+            detalle = "sin mensajes nuevos (no había novedades)"
+        msg = f"{icon} Última actualización: {fecha_txt} ({source_lbl}) — {detalle}"
+    else:
+        msg = f"{icon} Última actualización: {fecha_txt} ({source_lbl})"
 
     if severity == "error":
         st.error(msg)
-    elif severity in {"warning", "info"}:
+    elif severity == "warning":
         st.warning(msg)
     elif severity == "success":
         st.success(msg)
