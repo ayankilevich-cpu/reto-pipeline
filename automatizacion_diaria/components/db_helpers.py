@@ -7,17 +7,19 @@ from __future__ import annotations
 
 import json
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import pandas as pd
+import psycopg2.pool
 import streamlit as st
 
 _HERE = Path(__file__).resolve().parent.parent  # automatizacion_diaria/
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from db_utils import get_conn
+from db_utils import _connection_dsn, get_connection_params
 from components.constants import (
     CATEGORIAS_ART510,
     CATEGORIAS_LABELS,
@@ -30,6 +32,31 @@ from components.constants import (
 )
 
 _MEDIOS_JSON_PATH = _HERE / "medios_validos.json"
+
+
+@st.cache_resource
+def _get_connection_pool():
+    """Pool de conexiones reutilizado entre reruns de Streamlit."""
+    dsn = _connection_dsn()
+    if dsn:
+        return psycopg2.pool.ThreadedConnectionPool(1, 5, dsn)
+    return psycopg2.pool.ThreadedConnectionPool(1, 5, **get_connection_params())
+
+
+@contextmanager
+def _pooled_conn():
+    """Reemplazo de get_conn() para las funciones de este archivo: pide una
+    conexión prestada del pool en vez de abrir una nueva cada vez."""
+    pool = _get_connection_pool()
+    conn = pool.getconn()
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        pool.putconn(conn)
 
 
 @st.cache_data(ttl=3600)
@@ -81,7 +108,7 @@ def load_filter_options(access_raw: bool) -> dict:
         if access_raw
         else "SELECT DISTINCT platform FROM processed.mensajes WHERE platform IS NOT NULL ORDER BY platform"
     )
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         platforms_raw = pd.read_sql(platform_sql, conn)["platform"].tolist()
         platforms = sorted({PLATFORM_DISPLAY.get(p, p) for p in platforms_raw})
         platform_internal = sorted({
@@ -126,7 +153,7 @@ def load_filter_options(access_raw: bool) -> dict:
 def _load_vllm_yt_corrections() -> pd.DataFrame:
     """Carga todas las validaciones humanas de etiquetado LLM en YouTube."""
     try:
-        with get_conn() as conn:
+        with _pooled_conn() as conn:
             df = pd.read_sql("""
                 SELECT pm.message_uuid,
                        pm.content_original,
@@ -158,7 +185,7 @@ def _load_vllm_yt_corrections() -> pd.DataFrame:
 @st.cache_data(ttl=3600)
 def load_art510_summary() -> dict:
     """KPIs generales de Art. 510 (sin filtros)."""
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         cur = conn.cursor()
 
         try:
@@ -215,7 +242,7 @@ def load_art510_summary() -> dict:
 @st.cache_data(ttl=3600)
 def load_art510_validaciones_humanas() -> pd.DataFrame:
     """Carga validaciones humanas de Art. 510 cruzadas con la evaluación LLM."""
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         df = pd.read_sql("""
             SELECT
                 vh.message_uuid,
@@ -259,11 +286,11 @@ def load_art510_candidates(
     platforms = _expand_platforms(list(platforms) if platforms else None)
     dfs = []
 
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         # --- Fuente LLM ---
         if not label_sources or "llm" in label_sources:
             plat_cond = ""
-            params_llm: list = []
+            params_llm: list = [tuple(CATEGORIAS_ART510)]
             if platforms:
                 plat_cond = "AND pm.platform IN %s"
                 params_llm.append(tuple(platforms))
@@ -280,15 +307,16 @@ def load_art510_candidates(
                 FROM processed.mensajes pm
                 JOIN processed.etiquetas_llm e USING (message_uuid)
                 WHERE e.clasificacion_principal = 'ODIO'
+                  AND e.categoria_odio_pred IN %s
                   {plat_cond}
                 ORDER BY e.intensidad_pred DESC NULLS LAST
-            """, conn, params=params_llm if params_llm else None)
+            """, conn, params=params_llm)
             dfs.append(df_llm)
 
         # --- Fuente Humano (gold + validaciones) ---
         if not label_sources or "humano" in label_sources:
             plat_cond = ""
-            params_h: list = []
+            params_h: list = [tuple(CATEGORIAS_ART510)]
             if platforms:
                 plat_cond = "AND pm.platform IN %s"
                 params_h.append(tuple(platforms))
@@ -306,8 +334,9 @@ def load_art510_candidates(
                 LEFT JOIN processed.validaciones_manuales v USING (message_uuid)
                 LEFT JOIN processed.gold_dataset g USING (message_uuid)
                 WHERE (v.odio_flag = TRUE OR g.y_odio_bin = 1)
+                  AND COALESCE(g.y_categoria_final, v.categoria_odio) IN %s
                   {plat_cond}
-            """, conn, params=params_h if params_h else None)
+            """, conn, params=params_h)
             dfs.append(df_human)
 
     if not dfs:
@@ -337,7 +366,7 @@ def load_art510_candidates(
 @st.cache_data(ttl=3600)
 def load_gold_full() -> pd.DataFrame:
     """Carga el gold dataset unido con validaciones manuales y etiquetas LLM."""
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         df = pd.read_sql("""
             SELECT
                 g.message_uuid,
