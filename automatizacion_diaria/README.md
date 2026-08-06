@@ -39,7 +39,7 @@ Entry point: `dashboard.py` (config + auth + routing). Lógica repartida en:
 | `buscador_analisis.py` | Buscador y Análisis |
 | `gold_dataset.py` | Dataset Gold |
 | `analisis_510.py` | Análisis Art. 510 |
-| `anotacion_validacion.py` | Anotación y validación |
+| `anotacion_validacion.py` | Anotación y validación — el bloque de mensaje + formulario de cada pestaña está aislado en `@st.fragment`, con la cola de mensajes pendientes en `session_state` (no se reconsulta la base en cada Guardar/Saltar). Mejora deliberada de performance (06/08/2026) — no revertir a un `st.rerun()` de página completa sin volver a medir el impacto en velocidad. |
 | `delitos_odio.py` | Delitos de odio (oficial) |
 
 Deploy: Streamlit Cloud (`proyectoreto.streamlit.app`). Ejecutar desde la raíz del repo:
@@ -127,3 +127,10 @@ El último campo (`1`) es **solo lunes**; `0 10` = **10:00 hora España** con `C
 El workflow `.github/workflows/daily.yml` es la fuente oficial automática.
 Está programado en UTC (`0 8 * * *` ≈ 10:00 en España durante CEST; en CET será ~09:00).
 Incluye validación de etapas críticas y healthcheck por plataforma persistido en BD.
+
+El workflow `.github/workflows/keep_hf_space_warm.yml` mantiene despierto
+el Space de Hugging Face (`aleyanki13/proyectoreto`): hace un ping diario
+a las 02:00 UTC (~3am/4am hora de España peninsular según CET/CEST) para
+que no se duerma por inactividad y la primera persona que lo abre en el
+día no pague el costo de "despertarlo". Es independiente de `daily.yml`
+— no toca el pipeline de datos.
