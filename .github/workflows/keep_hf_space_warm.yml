@@ -1,0 +1,31 @@
+name: Keep HF Space warm
+
+on:
+  schedule:
+    - cron: "0 2 * * *"  # 02:00 UTC ~= 3am/4am España peninsular (CET/CEST)
+  workflow_dispatch: {}  # permite disparo manual para probar sin esperar al cron
+
+jobs:
+  ping-space:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pedido inicial para despertar el Space
+        run: |
+          curl -s -o /dev/null -w "Intento inicial: HTTP %{http_code}\n" \
+            --max-time 120 \
+            https://aleyanki13-proyectoreto.hf.space || true
+
+      - name: Esperar y confirmar que quedó arriba (reintentos)
+        run: |
+          for i in 1 2 3 4 5; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 \
+              https://aleyanki13-proyectoreto.hf.space || echo "000")
+            echo "Intento $i: HTTP $code"
+            if [ "$code" = "200" ]; then
+              echo "Space arriba."
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "El Space no respondió 200 tras varios intentos — revisar manualmente."
+          exit 1
