@@ -300,13 +300,17 @@ def _ann_get_or_load_queue(
     loader: Callable[..., pd.DataFrame],
     cache_args: Tuple = (),
 ) -> pd.DataFrame:
-    """Cachea la cola de mensajes en session_state hasta el próximo Guardar/Saltar.
+    """Cachea la cola de mensajes en session_state.
 
     Sin esta caché, las queries con `df.sample(frac=1)` reordenan la cola en
     cada rerun (por ejemplo al cambiar el radio del paso 1 fuera del
     st.form) y el mensaje mostrado puede cambiar antes de que el anotador
     pulse Guardar. `cache_args` invalida la caché si cambia (p. ej. al
     cambiar el filtro de clasificación LLM).
+
+    Tras Guardar/Saltar la fila se elimina en memoria con `_ann_queue_drop`
+    (sin reconsultar la base). La cola se vuelve a pedir a Postgres solo
+    cuando cambian los filtros (`cache_args`) o se limpia la caché a mano.
     """
     cached = st.session_state.get(cache_key)
     if cached is not None:
@@ -316,6 +320,30 @@ def _ann_get_or_load_queue(
     df = loader(*cache_args)
     st.session_state[cache_key] = (cache_args, df)
     return df
+
+
+def _ann_queue_drop(
+    cache_key: str,
+    id_value: str,
+    id_col: str = "message_uuid",
+) -> None:
+    """Quita un mensaje de la cola en session_state sin reconsultar la base."""
+    cached = st.session_state.get(cache_key)
+    if cached is None:
+        return
+    saved_args, df = cached
+    if df is None or getattr(df, "empty", True) or id_col not in df.columns:
+        return
+    mask = df[id_col].astype(str) != str(id_value)
+    st.session_state[cache_key] = (saved_args, df.loc[mask].copy())
+
+
+def _ann_rerun_fragment() -> None:
+    """Re-ejecuta solo el fragmento activo (fallback a rerun de página)."""
+    try:
+        st.rerun(scope="fragment")
+    except TypeError:
+        st.rerun()
 
 
 _ANN_FOOTER_CSS = """
@@ -927,27 +955,9 @@ def _save_v510_validation(
         return False
 
 
-def _render_anotacion_youtube(annotator: str):
-    """Contenido del tab de anotación YouTube (flujo original sin cambios)."""
-
-    # === PASO 0: procesar guardado pendiente (antes de renderizar) ===
-    pending_save = st.session_state.pop("_ann_pending_save", None)
-    if pending_save is not None:
-        ok = _save_annotation(**pending_save)
-        if ok:
-            st.session_state["ann_skipped"] = st.session_state.get(
-                "ann_skipped", set()
-            )
-            st.session_state["ann_skipped"].discard(
-                pending_save["message_uuid"]
-            )
-            st.session_state["_ann_last_status"] = (
-                "ok", pending_save["message_uuid"][:8]
-            )
-        else:
-            st.session_state["_ann_last_status"] = ("error", "")
-
-    # Mostrar resultado de la última operación
+@st.fragment
+def _fragment_anotacion_youtube(annotator: str, fd_str: Optional[str], fh_str: Optional[str]) -> None:
+    """Bloque mensaje + formulario: aislado del rerun de filtros/KPIs/sidebar."""
     last_status = st.session_state.pop("_ann_last_status", None)
     if last_status:
         if last_status[0] == "ok":
@@ -955,42 +965,6 @@ def _render_anotacion_youtube(annotator: str):
         else:
             st.error("Error al guardar la anotación.")
 
-    col_fd, col_fh = st.columns(2)
-    with col_fd:
-        fecha_desde = st.date_input(
-            "Fecha desde",
-            value=None,
-            key="ann_yt_fecha_desde",
-        )
-    with col_fh:
-        fecha_hasta = st.date_input(
-            "Fecha hasta",
-            value=None,
-            key="ann_yt_fecha_hasta",
-        )
-
-    fd_str = fecha_desde.isoformat() if fecha_desde else None
-    fh_str = fecha_hasta.isoformat() if fecha_hasta else None
-
-    if fd_str and fh_str and fd_str > fh_str:
-        st.warning("La fecha **desde** no puede ser posterior a la fecha **hasta**.")
-        st.divider()
-        return
-
-    # --- KPIs de progreso ---
-    _kpi_period = st.session_state.get("supervision_period", "day")
-    kpis = _load_annotation_kpis(annotator, _kpi_period)
-    k1, k2, k3, k4, k5 = st.columns(5)
-    k1.metric("Total relevantes (YT)", f"{kpis['total_relevantes']:,}")
-    k2.metric("Anotados", f"{kpis['total_anotados']:,}")
-    k3.metric("Pendientes", f"{kpis['pendientes']:,}")
-    k4.metric("Anotados en el periodo", f"{kpis['anotados_periodo']:,}")
-    k5.metric(f"Por {annotator}", f"{kpis['por_anotador']:,}")
-    st.progress(kpis["pct_avance"] / 100, text=f"Avance: {kpis['pct_avance']:.1f}%")
-
-    st.divider()
-
-    # --- Cola de mensajes ---
     if "ann_skipped" not in st.session_state:
         st.session_state["ann_skipped"] = set()
 
@@ -1011,24 +985,22 @@ def _render_anotacion_youtube(annotator: str):
                 "`filtrar_relevancia_youtube.py` para generar la cola de "
                 "anotación (marca `relevante_llm = 'SI'` en los candidatos)."
             )
-        if st.button("Limpiar saltos y recargar"):
+        if st.button("Limpiar saltos y recargar", key="ann_yt_limpiar_saltos"):
             st.session_state["ann_skipped"] = set()
             st.session_state.pop("_ann_yt_queue_cache", None)
             st.session_state.pop("_ann_yt_current_uuid", None)
-            st.rerun()
+            st.rerun()  # full: hay que volver a pedir la cola a la base
         st.caption(
             "**Limpiar saltos:** borra la memoria de mensajes que pasaste con **Saltar**; "
             "esos comentarios pueden volver a salir en la cola (muestra aleatoria)."
         )
         return
 
-    # Mantener el mismo mensaje activo entre reruns hasta Guardar/Saltar.
     msg = _ann_pick_sticky_row(queue, state_key="_ann_yt_current_uuid")
     msg_uuid = str(msg["message_uuid"])
 
     st.subheader(f"Mensaje a anotar  ({queue.shape[0]} en cola)")
 
-    # --- Mostrar contenido y metadata ---
     col_msg, col_meta = st.columns([3, 1])
     with col_msg:
         st.markdown("**Texto del comentario:**")
@@ -1059,8 +1031,6 @@ def _render_anotacion_youtube(annotator: str):
 
     st.divider()
 
-    # --- Formulario (paso 1 fuera del st.form para poder deshabilitar 2–4 hasta elegir Odio) ---
-    # fk incluye message_uuid: cada mensaje nuevo = claves nuevas en session_state (sin arrastre de la última selección).
     _inject_anotacion_form_css()
     fk = f"ann_yt_{msg_uuid}"
 
@@ -1166,14 +1136,12 @@ def _render_anotacion_youtube(annotator: str):
                 "Saltar", use_container_width=True,
             )
 
-    # --- Procesar acciones del formulario ---
     if submitted:
         if odio_choice is None:
             st.error("Selecciona una clasificación (Odio / No Odio / Dudoso).")
             return
 
         es_odio = odio_choice == "Odio"
-
         if es_odio and not categoria:
             st.error("Si marcas **Odio**, selecciona una categoría.")
             return
@@ -1182,44 +1150,72 @@ def _render_anotacion_youtube(annotator: str):
             True if odio_choice == "Odio"
             else (False if odio_choice == "No Odio" else None)
         )
-
-        st.session_state["_ann_pending_save"] = {
-            "message_uuid": msg_uuid,
-            "odio_flag": odio_flag,
-            "categoria_odio": _categoria_odio_for_save(odio_flag, categoria if es_odio else None),
-            "intensidad": intensidad if es_odio else None,
-            "humor_flag": humor if es_odio else False,
-            "annotator_id": annotator,
-        }
-        st.session_state.pop("_ann_yt_current_uuid", None)
-        st.session_state.pop("_ann_yt_queue_cache", None)
-        st.rerun()
+        ok = _save_annotation(
+            message_uuid=msg_uuid,
+            odio_flag=odio_flag,
+            categoria_odio=_categoria_odio_for_save(odio_flag, categoria if es_odio else None),
+            intensidad=intensidad if es_odio else None,
+            humor_flag=humor if es_odio else False,
+            annotator_id=annotator,
+        )
+        if ok:
+            st.session_state.get("ann_skipped", set()).discard(msg_uuid)
+            _ann_queue_drop("_ann_yt_queue_cache", msg_uuid)
+            st.session_state.pop("_ann_yt_current_uuid", None)
+            st.session_state["_ann_last_status"] = ("ok", msg_uuid[:8])
+        else:
+            st.session_state["_ann_last_status"] = ("error", "")
+        _ann_rerun_fragment()
 
     if skipped:
-        st.session_state["ann_skipped"].add(msg_uuid)
+        st.session_state.setdefault("ann_skipped", set()).add(msg_uuid)
+        _ann_queue_drop("_ann_yt_queue_cache", msg_uuid)
         st.session_state.pop("_ann_yt_current_uuid", None)
-        st.session_state.pop("_ann_yt_queue_cache", None)
-        st.rerun()
+        _ann_rerun_fragment()
 
 
-def _render_validacion_art510(annotator: str):
-    """Contenido del tab de validación Art. 510 (X + YouTube)."""
+def _render_anotacion_youtube(annotator: str):
+    """Contenido del tab de anotación YouTube (filtros/KPIs fuera del fragment)."""
 
-    # === Procesar guardado pendiente ===
-    pending = st.session_state.pop("_v510_pending_save", None)
-    if pending is not None:
-        ok = _save_v510_validation(**pending)
-        if ok:
-            skipped_set = st.session_state.get("v510_skipped", set())
-            key = f"{pending['message_uuid']}|{pending['label_source']}"
-            skipped_set.discard(key)
-            st.session_state["v510_skipped"] = skipped_set
-            st.session_state["_v510_last_status"] = (
-                "ok", pending["message_uuid"][:8]
-            )
-        else:
-            st.session_state["_v510_last_status"] = ("error", "")
+    col_fd, col_fh = st.columns(2)
+    with col_fd:
+        fecha_desde = st.date_input(
+            "Fecha desde",
+            value=None,
+            key="ann_yt_fecha_desde",
+        )
+    with col_fh:
+        fecha_hasta = st.date_input(
+            "Fecha hasta",
+            value=None,
+            key="ann_yt_fecha_hasta",
+        )
 
+    fd_str = fecha_desde.isoformat() if fecha_desde else None
+    fh_str = fecha_hasta.isoformat() if fecha_hasta else None
+
+    if fd_str and fh_str and fd_str > fh_str:
+        st.warning("La fecha **desde** no puede ser posterior a la fecha **hasta**.")
+        st.divider()
+        return
+
+    _kpi_period = st.session_state.get("supervision_period", "day")
+    kpis = _load_annotation_kpis(annotator, _kpi_period)
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k1.metric("Total relevantes (YT)", f"{kpis['total_relevantes']:,}")
+    k2.metric("Anotados", f"{kpis['total_anotados']:,}")
+    k3.metric("Pendientes", f"{kpis['pendientes']:,}")
+    k4.metric("Anotados en el periodo", f"{kpis['anotados_periodo']:,}")
+    k5.metric(f"Por {annotator}", f"{kpis['por_anotador']:,}")
+    st.progress(kpis["pct_avance"] / 100, text=f"Avance: {kpis['pct_avance']:.1f}%")
+
+    st.divider()
+    _fragment_anotacion_youtube(annotator, fd_str, fh_str)
+
+
+@st.fragment
+def _fragment_validacion_art510(annotator: str) -> None:
+    """Bloque mensaje + formulario Art. 510 (aislado de KPIs/sidebar)."""
     last_status = st.session_state.pop("_v510_last_status", None)
     if last_status:
         if last_status[0] == "ok":
@@ -1227,18 +1223,6 @@ def _render_validacion_art510(annotator: str):
         else:
             st.error("Error al guardar la validación Art. 510.")
 
-    # --- KPIs ---
-    _kpi_period = st.session_state.get("supervision_period", "day")
-    kpis = _load_v510_kpis(annotator, _kpi_period)
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Pendientes Art. 510", f"{kpis['pendientes']:,}")
-    k2.metric("Total validados", f"{kpis['total_validados']:,}")
-    k3.metric("Validados en el periodo", f"{kpis['validados_periodo']:,}")
-    k4.metric(f"Por {annotator}", f"{kpis['por_anotador']:,}")
-
-    st.divider()
-
-    # --- Cola ---
     if "v510_skipped" not in st.session_state:
         st.session_state["v510_skipped"] = set()
 
@@ -1252,7 +1236,6 @@ def _render_validacion_art510(annotator: str):
                 "Una vez que se evalúen los mensajes de odio bajo el criterio del "
                 "Art. 510.1, aparecerán aquí los que requieran validación humana."
             )
-            # Mostrar preview de cuántos candidatos hay
             df_preview = load_art510_candidates()
             if not df_preview.empty:
                 st.caption(
@@ -1278,6 +1261,11 @@ def _render_validacion_art510(annotator: str):
     queue["_v510_id"] = (
         queue["message_uuid"].astype(str) + "|" + queue["label_source"].astype(str)
     )
+    # Persistir _v510_id en la caché para poder dropear por ese id
+    cached = st.session_state.get("_v510_queue_cache")
+    if cached is not None:
+        st.session_state["_v510_queue_cache"] = (cached[0], queue)
+
     msg = _ann_pick_sticky_row(
         queue, state_key="_v510_current_id", id_col="_v510_id"
     )
@@ -1287,7 +1275,6 @@ def _render_validacion_art510(annotator: str):
 
     st.subheader(f"Mensaje a validar  ({queue.shape[0]} en cola)")
 
-    # --- Contenido y evaluación LLM ---
     col_msg, col_eval = st.columns([3, 2])
     with col_msg:
         st.markdown("**Texto del mensaje:**")
@@ -1318,7 +1305,6 @@ def _render_validacion_art510(annotator: str):
 
     st.divider()
 
-    # --- Formulario de validación (decisión principal fuera del form para habilitar/deshabilitar corrección) ---
     fk = "v510_" + re.sub(r"[^0-9a-zA-Z_-]", "_", msg_key)
 
     st.markdown("**Validación**")
@@ -1422,25 +1408,44 @@ def _render_validacion_art510(annotator: str):
             gp_final = None
             cd_final = None
 
-        st.session_state["_v510_pending_save"] = {
-            "message_uuid": msg_uuid,
-            "label_source": msg_label_source,
-            "validacion": validacion_map[validacion],
-            "apartado_final": ap_final,
-            "grupo_final": gp_final,
-            "conducta_final": cd_final,
-            "comentario": comentario.strip() or None,
-            "annotator_id": annotator,
-        }
-        st.session_state.pop("_v510_current_id", None)
-        st.session_state.pop("_v510_queue_cache", None)
-        st.rerun()
+        ok = _save_v510_validation(
+            message_uuid=msg_uuid,
+            label_source=msg_label_source,
+            validacion=validacion_map[validacion],
+            apartado_final=ap_final,
+            grupo_final=gp_final,
+            conducta_final=cd_final,
+            comentario=comentario.strip() or None,
+            annotator_id=annotator,
+        )
+        if ok:
+            st.session_state.get("v510_skipped", set()).discard(msg_key)
+            _ann_queue_drop("_v510_queue_cache", msg_key, id_col="_v510_id")
+            st.session_state.pop("_v510_current_id", None)
+            st.session_state["_v510_last_status"] = ("ok", msg_uuid[:8])
+        else:
+            st.session_state["_v510_last_status"] = ("error", "")
+        _ann_rerun_fragment()
 
     if skipped:
         st.session_state.setdefault("v510_skipped", set()).add(msg_key)
+        _ann_queue_drop("_v510_queue_cache", msg_key, id_col="_v510_id")
         st.session_state.pop("_v510_current_id", None)
-        st.session_state.pop("_v510_queue_cache", None)
-        st.rerun()
+        _ann_rerun_fragment()
+
+
+def _render_validacion_art510(annotator: str):
+    """Contenido del tab de validación Art. 510 (KPIs fuera del fragment)."""
+    _kpi_period = st.session_state.get("supervision_period", "day")
+    kpis = _load_v510_kpis(annotator, _kpi_period)
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Pendientes Art. 510", f"{kpis['pendientes']:,}")
+    k2.metric("Total validados", f"{kpis['total_validados']:,}")
+    k3.metric("Validados en el periodo", f"{kpis['validados_periodo']:,}")
+    k4.metric(f"Por {annotator}", f"{kpis['por_anotador']:,}")
+
+    st.divider()
+    _fragment_validacion_art510(annotator)
 
 
 def _load_vllm_yt_queue(clasif_filter: Optional[str] = None) -> pd.DataFrame:
@@ -1841,28 +1846,6 @@ def _render_vllm_x_error_analysis() -> None:
 def _render_validacion_llm_youtube(annotator: str):
     """Pestaña de validación del etiquetado LLM en YouTube."""
 
-    # === Procesar guardado pendiente ===
-    pending = st.session_state.pop("_vllm_yt_pending_save", None)
-    if pending is not None:
-        ok = _save_vllm_yt_validation(**pending)
-        if ok:
-            _load_vllm_yt_corrections.clear()
-            st.session_state.get("vllm_yt_skipped", set()).discard(
-                pending["message_uuid"]
-            )
-            st.session_state["_vllm_yt_last_status"] = (
-                "ok", pending["message_uuid"][:8]
-            )
-        else:
-            st.session_state["_vllm_yt_last_status"] = ("error", "")
-
-    last_status = st.session_state.pop("_vllm_yt_last_status", None)
-    if last_status:
-        if last_status[0] == "ok":
-            st.success(f"Validación LLM guardada ({last_status[1]}...)")
-        else:
-            st.error("Error al guardar la validación.")
-
     # --- Filtro por clasificación LLM ---
     clasif_options = ["Todos", "ODIO", "NO_ODIO", "DUDOSO"]
     clasif_sel = st.selectbox(
@@ -1890,6 +1873,18 @@ def _render_validacion_llm_youtube(annotator: str):
         _render_vllm_yt_error_analysis()
 
     st.divider()
+    _fragment_validacion_llm_youtube(annotator, clasif_filter, kpis)
+
+
+@st.fragment
+def _fragment_validacion_llm_youtube(annotator: str, clasif_filter: Optional[str], kpis: dict) -> None:
+    """Bloque cola + formulario de validación LLM YouTube."""
+    last_status = st.session_state.pop("_vllm_yt_last_status", None)
+    if last_status:
+        if last_status[0] == "ok":
+            st.success(f"Validación LLM guardada ({last_status[1]}...)")
+        else:
+            st.error("Error al guardar la validación.")
 
     # --- Cola ---
     if "vllm_yt_skipped" not in st.session_state:
@@ -2095,48 +2090,33 @@ def _render_validacion_llm_youtube(annotator: str):
             else (False if odio_choice == "No Odio" else None)
         )
 
-        st.session_state["_vllm_yt_pending_save"] = {
-            "message_uuid": msg_uuid,
-            "odio_flag": odio_flag,
-            "categoria_odio": _categoria_odio_for_save(odio_flag, categoria if es_odio else None),
-            "intensidad": intensidad if es_odio else None,
-            "humor_flag": humor if es_odio else False,
-            "annotator_id": annotator,
-        }
-        st.session_state.pop("_vllm_yt_current_uuid", None)
-        st.session_state.pop("_vllm_yt_queue_cache", None)
-        st.rerun()
+        ok = _save_vllm_yt_validation(
+            message_uuid=msg_uuid,
+            odio_flag=odio_flag,
+            categoria_odio=_categoria_odio_for_save(odio_flag, categoria if es_odio else None),
+            intensidad=intensidad if es_odio else None,
+            humor_flag=humor if es_odio else False,
+            annotator_id=annotator,
+        )
+        if ok:
+            _load_vllm_yt_corrections.clear()
+            st.session_state.get("vllm_yt_skipped", set()).discard(msg_uuid)
+            _ann_queue_drop("_vllm_yt_queue_cache", msg_uuid)
+            st.session_state.pop("_vllm_yt_current_uuid", None)
+            st.session_state["_vllm_yt_last_status"] = ("ok", msg_uuid[:8])
+        else:
+            st.session_state["_vllm_yt_last_status"] = ("error", "")
+        _ann_rerun_fragment()
 
     if skipped:
         st.session_state.setdefault("vllm_yt_skipped", set()).add(msg_uuid)
+        _ann_queue_drop("_vllm_yt_queue_cache", msg_uuid)
         st.session_state.pop("_vllm_yt_current_uuid", None)
-        st.session_state.pop("_vllm_yt_queue_cache", None)
-        st.rerun()
+        _ann_rerun_fragment()
 
 
 def _render_validacion_llm_x(annotator: str):
     """Pestaña de validación del etiquetado LLM en X (Twitter)."""
-
-    pending = st.session_state.pop("_vllm_x_pending_save", None)
-    if pending is not None:
-        ok = _save_vllm_yt_validation(**pending)
-        if ok:
-            _load_vllm_x_corrections.clear()
-            st.session_state.get("vllm_x_skipped", set()).discard(
-                pending["message_uuid"]
-            )
-            st.session_state["_vllm_x_last_status"] = (
-                "ok", pending["message_uuid"][:8]
-            )
-        else:
-            st.session_state["_vllm_x_last_status"] = ("error", "")
-
-    last_status = st.session_state.pop("_vllm_x_last_status", None)
-    if last_status:
-        if last_status[0] == "ok":
-            st.success(f"Validación LLM guardada ({last_status[1]}...)")
-        else:
-            st.error("Error al guardar la validación.")
 
     clasif_options = ["Todos", "ODIO", "NO_ODIO", "DUDOSO"]
     categoria_options = ["Todas", *list(CATEGORIAS_LABELS.keys())]
@@ -2217,6 +2197,27 @@ def _render_validacion_llm_x(annotator: str):
         _render_vllm_x_error_analysis()
 
     st.divider()
+    _fragment_validacion_llm_x(
+        annotator, clasif_filter, categoria_filter, fd_str, fh_str, kpis,
+    )
+
+
+@st.fragment
+def _fragment_validacion_llm_x(
+    annotator: str,
+    clasif_filter: Optional[str],
+    categoria_filter: Optional[str],
+    fd_str: Optional[str],
+    fh_str: Optional[str],
+    kpis: dict,
+) -> None:
+    """Bloque cola + formulario de validación LLM X."""
+    last_status = st.session_state.pop("_vllm_x_last_status", None)
+    if last_status:
+        if last_status[0] == "ok":
+            st.success(f"Validación LLM guardada ({last_status[1]}...)")
+        else:
+            st.error("Error al guardar la validación.")
 
     if "vllm_x_skipped" not in st.session_state:
         st.session_state["vllm_x_skipped"] = set()
@@ -2407,23 +2408,30 @@ def _render_validacion_llm_x(annotator: str):
             else (False if odio_choice == "No Odio" else None)
         )
 
-        st.session_state["_vllm_x_pending_save"] = {
-            "message_uuid": msg_uuid,
-            "odio_flag": odio_flag,
-            "categoria_odio": _categoria_odio_for_save(odio_flag, categoria if es_odio else None),
-            "intensidad": intensidad if es_odio else None,
-            "humor_flag": humor if es_odio else False,
-            "annotator_id": annotator,
-        }
-        st.session_state.pop("_vllm_x_current_uuid", None)
-        st.session_state.pop("_vllm_x_queue_cache", None)
-        st.rerun()
+        ok = _save_vllm_yt_validation(
+            message_uuid=msg_uuid,
+            odio_flag=odio_flag,
+            categoria_odio=_categoria_odio_for_save(odio_flag, categoria if es_odio else None),
+            intensidad=intensidad if es_odio else None,
+            humor_flag=humor if es_odio else False,
+            annotator_id=annotator,
+        )
+        if ok:
+            _load_vllm_x_corrections.clear()
+            st.session_state.get("vllm_x_skipped", set()).discard(msg_uuid)
+            _ann_queue_drop("_vllm_x_queue_cache", msg_uuid)
+            st.session_state.pop("_vllm_x_current_uuid", None)
+            st.session_state["_vllm_x_last_status"] = ("ok", msg_uuid[:8])
+        else:
+            st.session_state["_vllm_x_last_status"] = ("error", "")
+        _ann_rerun_fragment()
 
     if skipped:
         st.session_state.setdefault("vllm_x_skipped", set()).add(msg_uuid)
+        _ann_queue_drop("_vllm_x_queue_cache", msg_uuid)
         st.session_state.pop("_vllm_x_current_uuid", None)
-        st.session_state.pop("_vllm_x_queue_cache", None)
-        st.rerun()
+        _ann_rerun_fragment()
+
 
 
 def _render_supervision_panel(period: str) -> None:
