@@ -12,6 +12,7 @@ Uso:
 from __future__ import annotations
 
 import sys
+import threading
 from pathlib import Path
 from typing import Callable, Dict
 
@@ -59,6 +60,44 @@ st.set_page_config(
 _register_plotly_theme()
 
 # ============================================================
+# PRECALENTADO DE CACHÉ (una vez por proceso)
+# ============================================================
+def _precalentar_cache() -> None:
+    """Ejecuta load_* de secciones públicas para llenar @st.cache_data.
+
+    Corre en un hilo daemon: el primer render no espera. Best-effort —
+    un fallo no debe romper el arranque de la app.
+    """
+    try:
+        from components.db_helpers import _load_valid_media_map, load_filter_options
+        from secciones.categorias_odio import (
+            load_categorias,
+            load_intensidad_por_categoria,
+        )
+        from secciones.panel_general import load_gold_stats, load_kpis
+
+        _load_valid_media_map()
+        # Filtros compartidos (Panel, Categorías, Términos, Comparativa…)
+        load_filter_options(False)
+        # Panel general — defaults sin filtros de plataforma/medio
+        load_kpis(False)
+        load_gold_stats()
+        # Categorías de odio — defaults sin filtros
+        load_categorias()
+        load_intensidad_por_categoria()
+        print("[WARMUP] cache_data de secciones públicas precalentada")
+    except Exception as e:
+        print(f"[WARMUP] falló el precalentado: {e}")
+
+
+@st.cache_resource
+def _start_cache_warmup() -> bool:
+    """Dispara el precalentado una sola vez por proceso Streamlit (no por sesión)."""
+    threading.Thread(target=_precalentar_cache, daemon=True).start()
+    return True
+
+
+# ============================================================
 # ROUTING
 # ============================================================
 _SECTION_RENDERERS: Dict[str, Callable[[], None]] = {
@@ -82,6 +121,9 @@ _SECTION_RENDERERS: Dict[str, Callable[[], None]] = {
 # MAIN
 # ============================================================
 def main() -> None:
+    # Arranca en background; no bloquea el primer render.
+    _start_cache_warmup()
+
     _inject_global_css()
     _check_auth()
     if st.session_state.get("_show_login_form") and st.session_state.get(
