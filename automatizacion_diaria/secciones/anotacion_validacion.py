@@ -737,6 +737,7 @@ def _period_to_sql_date(period: str) -> str:
     return today.isoformat()
 
 
+@st.cache_data(ttl=3600)
 def _load_admin_annotation_supervision(period: str) -> dict:
     """Carga conteos de anotación por subsección y anotador para el panel admin/editor."""
     fecha_desde = _period_to_sql_date(period)
@@ -882,6 +883,7 @@ def _load_annotation_queue(
     return df
 
 
+@st.cache_data(ttl=3600)
 def _load_annotation_kpis(annotator_id: str, period: str = "day") -> dict:
     """Carga KPIs de progreso de anotación YouTube."""
     fecha_desde = _period_to_sql_date(period)
@@ -1104,6 +1106,7 @@ def _load_v510_queue() -> pd.DataFrame:
     return df
 
 
+@st.cache_data(ttl=3600)
 def _load_v510_kpis(annotator_id: str, period: str = "day") -> dict:
     """KPIs de progreso de validación Art. 510."""
     fecha_desde = _period_to_sql_date(period)
@@ -1723,6 +1726,7 @@ def _load_vllm_yt_queue(clasif_filter: Optional[str] = None) -> pd.DataFrame:
     return df
 
 
+@st.cache_data(ttl=3600)
 def _load_vllm_yt_kpis(
     annotator_id: str,
     clasif_filter: Optional[str] = None,
@@ -1867,6 +1871,7 @@ def _load_vllm_x_queue(
     return df
 
 
+@st.cache_data(ttl=3600)
 def _load_vllm_x_kpis(
     annotator_id: str,
     clasif_filter: Optional[str] = None,
