@@ -346,6 +346,245 @@ def _ann_rerun_fragment() -> None:
         st.rerun()
 
 
+# ---------------------------------------------------------------------------
+# KPIs en session_state (mismo patrón que _ann_queue_drop): se inicializan
+# desde la base al cambiar periodo/filtros / Limpiar saltos, y se incrementan
+# en memoria tras Guardar — sin load_* ni rerun de página en el camino crítico.
+# ---------------------------------------------------------------------------
+_KPI_ANN_YT = "_kpi_ann_yt"
+_KPI_V510 = "_kpi_v510"
+_KPI_VLLM_YT = "_kpi_vllm_yt"
+_KPI_VLLM_X = "_kpi_vllm_x"
+_KPI_SUPERVISION = "_kpi_supervision"
+_SUPERVISION_COLS = ("YT Odio", "Art.510", "LLM YT", "LLM X")
+
+
+def _ann_kpi_invalidate(*keys: str) -> None:
+    """Borra contadores en memoria para forzar recarga desde la base."""
+    for key in keys:
+        st.session_state.pop(key, None)
+        st.session_state.pop(f"{key}_sig", None)
+
+
+def _ann_kpi_ensure(key: str, sig: tuple, loader) -> dict:
+    """Devuelve KPIs cacheados si la firma coincide; si no, carga desde la base."""
+    if st.session_state.get(f"{key}_sig") == sig and key in st.session_state:
+        return st.session_state[key]
+    data = loader()
+    st.session_state[key] = data
+    st.session_state[f"{key}_sig"] = sig
+    return data
+
+
+def _ann_kpi_ensure_supervision(period: str) -> dict:
+    return _ann_kpi_ensure(
+        _KPI_SUPERVISION,
+        (period,),
+        lambda: _load_admin_annotation_supervision(period),
+    )
+
+
+def _ann_kpi_bump_supervision(subsection: str, annotator: str) -> None:
+    """Incrementa el resumen compartido YT Odio / Art.510 / LLM YT / LLM X."""
+    data = st.session_state.get(_KPI_SUPERVISION)
+    if not data or subsection not in _SUPERVISION_COLS:
+        return
+    summary = data.setdefault("summary", {})
+    summary[subsection] = int(summary.get(subsection, 0) or 0) + 1
+
+    df = data.get("by_annotator")
+    if df is None or not isinstance(df, pd.DataFrame):
+        df = pd.DataFrame(
+            columns=["Anotador", *_SUPERVISION_COLS, "Total"]
+        )
+    else:
+        df = df.copy()
+
+    ann = str(annotator)
+    if df.empty or "Anotador" not in df.columns:
+        row = {c: 0 for c in _SUPERVISION_COLS}
+        row["Anotador"] = ann
+        row[subsection] = 1
+        row["Total"] = 1
+        data["by_annotator"] = pd.DataFrame([row])
+        return
+
+    mask = df["Anotador"].astype(str) == ann
+    if not mask.any():
+        row = {c: 0 for c in _SUPERVISION_COLS}
+        row["Anotador"] = ann
+        row[subsection] = 1
+        row["Total"] = 1
+        data["by_annotator"] = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+    else:
+        idx = df.index[mask][0]
+        for col in (*_SUPERVISION_COLS, "Total"):
+            if col not in df.columns:
+                df[col] = 0
+        df.at[idx, subsection] = int(df.at[idx, subsection] or 0) + 1
+        df.at[idx, "Total"] = int(df.at[idx, "Total"] or 0) + 1
+        data["by_annotator"] = df.sort_values("Total", ascending=False)
+
+
+def _ann_kpi_bump_yt(annotator: str) -> None:
+    k = st.session_state.get(_KPI_ANN_YT)
+    if not k:
+        return
+    k["total_anotados"] = int(k.get("total_anotados", 0) or 0) + 1
+    k["pendientes"] = max(0, int(k.get("pendientes", 0) or 0) - 1)
+    k["anotados_periodo"] = int(k.get("anotados_periodo", 0) or 0) + 1
+    k["por_anotador"] = int(k.get("por_anotador", 0) or 0) + 1
+    tot = int(k.get("total_relevantes", 0) or 0)
+    k["pct_avance"] = (k["total_anotados"] / tot * 100) if tot else 0
+    _ann_kpi_bump_supervision("YT Odio", annotator)
+
+
+def _ann_kpi_bump_v510(annotator: str) -> None:
+    k = st.session_state.get(_KPI_V510)
+    if not k:
+        return
+    k["pendientes"] = max(0, int(k.get("pendientes", 0) or 0) - 1)
+    k["total_validados"] = int(k.get("total_validados", 0) or 0) + 1
+    k["validados_periodo"] = int(k.get("validados_periodo", 0) or 0) + 1
+    k["por_anotador"] = int(k.get("por_anotador", 0) or 0) + 1
+    _ann_kpi_bump_supervision("Art.510", annotator)
+
+
+def _ann_kpi_bump_vllm_yt(annotator: str) -> None:
+    k = st.session_state.get(_KPI_VLLM_YT)
+    if not k:
+        return
+    k["pendientes"] = max(0, int(k.get("pendientes", 0) or 0) - 1)
+    k["total_validados"] = int(k.get("total_validados", 0) or 0) + 1
+    k["validados_periodo"] = int(k.get("validados_periodo", 0) or 0) + 1
+    k["por_anotador"] = int(k.get("por_anotador", 0) or 0) + 1
+    tot = int(k.get("total_etiquetados_llm", 0) or 0)
+    k["pct_avance"] = (k["total_validados"] / tot * 100) if tot else 0
+    _ann_kpi_bump_supervision("LLM YT", annotator)
+
+
+def _ann_kpi_bump_vllm_x(annotator: str) -> None:
+    k = st.session_state.get(_KPI_VLLM_X)
+    if not k:
+        return
+    k["pendientes"] = max(0, int(k.get("pendientes", 0) or 0) - 1)
+    k["total_validados"] = int(k.get("total_validados", 0) or 0) + 1
+    k["validados_periodo"] = int(k.get("validados_periodo", 0) or 0) + 1
+    k["por_anotador"] = int(k.get("por_anotador", 0) or 0) + 1
+    tot = int(k.get("total_etiquetados_llm", 0) or 0)
+    k["pct_avance"] = (k["total_validados"] / tot * 100) if tot else 0
+    _ann_kpi_bump_supervision("LLM X", annotator)
+
+
+def _ann_render_supervision_from_state(period: str) -> None:
+    """Tarjetas YT Odio / Art.510 / LLM YT / LLM X + tabla por anotador (desde session_state)."""
+    data = _ann_kpi_ensure_supervision(period)
+    summary = data.get("summary", {})
+    by_annotator = data.get("by_annotator", pd.DataFrame())
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("YT Odio", f"{summary.get('YT Odio', 0):,}")
+    c2.metric("Art. 510", f"{summary.get('Art.510', 0):,}")
+    c3.metric("LLM YouTube", f"{summary.get('LLM YT', 0):,}")
+    c4.metric("LLM X", f"{summary.get('LLM X', 0):,}")
+
+    st.markdown("**Detalle por anotador**")
+    if by_annotator is not None and isinstance(by_annotator, pd.DataFrame) and not by_annotator.empty:
+        st.dataframe(by_annotator, use_container_width=True, hide_index=True)
+    else:
+        st.info("No hay anotaciones registradas en el periodo seleccionado.")
+    st.caption(
+        "Los conteos reflejan mensajes etiquetados o re-etiquetados en el periodo "
+        "(no necesariamente primera anotación). Se actualizan al Guardar en esta pestaña."
+    )
+
+
+def _ann_render_kpis_yt(annotator: str, period: str) -> dict:
+    kpis = _ann_kpi_ensure(
+        _KPI_ANN_YT,
+        (annotator, period),
+        lambda: _load_annotation_kpis(annotator, period),
+    )
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k1.metric("Total relevantes (YT)", f"{kpis['total_relevantes']:,}")
+    k2.metric("Anotados", f"{kpis['total_anotados']:,}")
+    k3.metric("Pendientes", f"{kpis['pendientes']:,}")
+    k4.metric("Anotados en el periodo", f"{kpis['anotados_periodo']:,}")
+    k5.metric(f"Por {annotator}", f"{kpis['por_anotador']:,}")
+    st.progress(kpis["pct_avance"] / 100, text=f"Avance: {kpis['pct_avance']:.1f}%")
+    return kpis
+
+
+def _ann_render_kpis_v510(annotator: str, period: str) -> dict:
+    kpis = _ann_kpi_ensure(
+        _KPI_V510,
+        (annotator, period),
+        lambda: _load_v510_kpis(annotator, period),
+    )
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Pendientes Art. 510", f"{kpis['pendientes']:,}")
+    k2.metric("Total validados", f"{kpis['total_validados']:,}")
+    k3.metric("Validados en el periodo", f"{kpis['validados_periodo']:,}")
+    k4.metric(f"Por {annotator}", f"{kpis['por_anotador']:,}")
+    return kpis
+
+
+def _ann_render_kpis_vllm_yt(
+    annotator: str,
+    clasif_filter: Optional[str],
+    period: str,
+    clasif_sel: str = "Todos",
+) -> dict:
+    kpis = _ann_kpi_ensure(
+        _KPI_VLLM_YT,
+        (annotator, clasif_filter, period),
+        lambda: _load_vllm_yt_kpis(annotator, clasif_filter, period),
+    )
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k1.metric("Etiquetados LLM (YT)", f"{kpis['total_etiquetados_llm']:,}")
+    k2.metric("Validados", f"{kpis['total_validados']:,}")
+    k3.metric(
+        "Pendientes" + (f" ({clasif_sel})" if clasif_filter else ""),
+        f"{kpis['pendientes']:,}",
+    )
+    k4.metric("Validados en el periodo", f"{kpis['validados_periodo']:,}")
+    k5.metric(f"Por {annotator}", f"{kpis['por_anotador']:,}")
+    st.progress(
+        kpis["pct_avance"] / 100,
+        text=f"Avance validación: {kpis['pct_avance']:.1f}%",
+    )
+    return kpis
+
+
+def _ann_render_kpis_vllm_x(
+    annotator: str,
+    clasif_filter: Optional[str],
+    categoria_filter: Optional[str],
+    fd_str: Optional[str],
+    fh_str: Optional[str],
+    period: str,
+    filter_suffix: str = "",
+) -> dict:
+    kpis = _ann_kpi_ensure(
+        _KPI_VLLM_X,
+        (annotator, clasif_filter, categoria_filter, fd_str, fh_str, period),
+        lambda: _load_vllm_x_kpis(
+            annotator, clasif_filter, categoria_filter, fd_str, fh_str, period,
+        ),
+    )
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k1.metric("Etiquetados LLM (X)", f"{kpis['total_etiquetados_llm']:,}")
+    k2.metric("Validados", f"{kpis['total_validados']:,}")
+    k3.metric("Pendientes" + filter_suffix, f"{kpis['pendientes']:,}")
+    k4.metric("Validados en el periodo", f"{kpis['validados_periodo']:,}")
+    k5.metric(f"Por {annotator}", f"{kpis['por_anotador']:,}")
+    st.progress(
+        kpis["pct_avance"] / 100,
+        text=f"Avance validación: {kpis['pct_avance']:.1f}%",
+    )
+    return kpis
+
+
 _ANN_FOOTER_CSS = """
 {
     background: #F7FAFC;
@@ -957,7 +1196,14 @@ def _save_v510_validation(
 
 @st.fragment
 def _fragment_anotacion_youtube(annotator: str, fd_str: Optional[str], fh_str: Optional[str]) -> None:
-    """Bloque mensaje + formulario: aislado del rerun de filtros/KPIs/sidebar."""
+    """KPIs + mensaje + formulario: rerun acotado al fragment tras Guardar/Saltar."""
+    _kpi_period = st.session_state.get("supervision_period", "day")
+    if st.session_state.get("user_role") in ("admin", "editor"):
+        _ann_render_supervision_from_state(_kpi_period)
+        st.divider()
+    _ann_render_kpis_yt(annotator, _kpi_period)
+    st.divider()
+
     last_status = st.session_state.pop("_ann_last_status", None)
     if last_status:
         if last_status[0] == "ok":
@@ -989,6 +1235,7 @@ def _fragment_anotacion_youtube(annotator: str, fd_str: Optional[str], fh_str: O
             st.session_state["ann_skipped"] = set()
             st.session_state.pop("_ann_yt_queue_cache", None)
             st.session_state.pop("_ann_yt_current_uuid", None)
+            _ann_kpi_invalidate(_KPI_ANN_YT, _KPI_SUPERVISION)
             st.rerun()  # full: hay que volver a pedir la cola a la base
         st.caption(
             "**Limpiar saltos:** borra la memoria de mensajes que pasaste con **Saltar**; "
@@ -1161,6 +1408,7 @@ def _fragment_anotacion_youtube(annotator: str, fd_str: Optional[str], fh_str: O
         if ok:
             st.session_state.get("ann_skipped", set()).discard(msg_uuid)
             _ann_queue_drop("_ann_yt_queue_cache", msg_uuid)
+            _ann_kpi_bump_yt(annotator)
             st.session_state.pop("_ann_yt_current_uuid", None)
             st.session_state["_ann_last_status"] = ("ok", msg_uuid[:8])
         else:
@@ -1175,7 +1423,7 @@ def _fragment_anotacion_youtube(annotator: str, fd_str: Optional[str], fh_str: O
 
 
 def _render_anotacion_youtube(annotator: str):
-    """Contenido del tab de anotación YouTube (filtros/KPIs fuera del fragment)."""
+    """Contenido del tab de anotación YouTube (filtros fuera del fragment; KPIs dentro)."""
 
     col_fd, col_fh = st.columns(2)
     with col_fd:
@@ -1199,23 +1447,19 @@ def _render_anotacion_youtube(annotator: str):
         st.divider()
         return
 
-    _kpi_period = st.session_state.get("supervision_period", "day")
-    kpis = _load_annotation_kpis(annotator, _kpi_period)
-    k1, k2, k3, k4, k5 = st.columns(5)
-    k1.metric("Total relevantes (YT)", f"{kpis['total_relevantes']:,}")
-    k2.metric("Anotados", f"{kpis['total_anotados']:,}")
-    k3.metric("Pendientes", f"{kpis['pendientes']:,}")
-    k4.metric("Anotados en el periodo", f"{kpis['anotados_periodo']:,}")
-    k5.metric(f"Por {annotator}", f"{kpis['por_anotador']:,}")
-    st.progress(kpis["pct_avance"] / 100, text=f"Avance: {kpis['pct_avance']:.1f}%")
-
-    st.divider()
     _fragment_anotacion_youtube(annotator, fd_str, fh_str)
 
 
 @st.fragment
 def _fragment_validacion_art510(annotator: str) -> None:
-    """Bloque mensaje + formulario Art. 510 (aislado de KPIs/sidebar)."""
+    """KPIs + mensaje + formulario Art. 510 (rerun acotado al fragment)."""
+    _kpi_period = st.session_state.get("supervision_period", "day")
+    if st.session_state.get("user_role") in ("admin", "editor"):
+        _ann_render_supervision_from_state(_kpi_period)
+        st.divider()
+    _ann_render_kpis_v510(annotator, _kpi_period)
+    st.divider()
+
     last_status = st.session_state.pop("_v510_last_status", None)
     if last_status:
         if last_status[0] == "ok":
@@ -1250,6 +1494,7 @@ def _fragment_validacion_art510(annotator: str) -> None:
             st.session_state["v510_skipped"] = set()
             st.session_state.pop("_v510_queue_cache", None)
             st.session_state.pop("_v510_current_id", None)
+            _ann_kpi_invalidate(_KPI_V510, _KPI_SUPERVISION)
             st.rerun()
         st.caption(
             "**Limpiar saltos:** borra los pares (mensaje + fuente de etiqueta) que pasaste con **Saltar**; "
@@ -1421,6 +1666,7 @@ def _fragment_validacion_art510(annotator: str) -> None:
         if ok:
             st.session_state.get("v510_skipped", set()).discard(msg_key)
             _ann_queue_drop("_v510_queue_cache", msg_key, id_col="_v510_id")
+            _ann_kpi_bump_v510(annotator)
             st.session_state.pop("_v510_current_id", None)
             st.session_state["_v510_last_status"] = ("ok", msg_uuid[:8])
         else:
@@ -1435,16 +1681,7 @@ def _fragment_validacion_art510(annotator: str) -> None:
 
 
 def _render_validacion_art510(annotator: str):
-    """Contenido del tab de validación Art. 510 (KPIs fuera del fragment)."""
-    _kpi_period = st.session_state.get("supervision_period", "day")
-    kpis = _load_v510_kpis(annotator, _kpi_period)
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Pendientes Art. 510", f"{kpis['pendientes']:,}")
-    k2.metric("Total validados", f"{kpis['total_validados']:,}")
-    k3.metric("Validados en el periodo", f"{kpis['validados_periodo']:,}")
-    k4.metric(f"Por {annotator}", f"{kpis['por_anotador']:,}")
-
-    st.divider()
+    """Contenido del tab de validación Art. 510 (KPIs dentro del fragment)."""
     _fragment_validacion_art510(annotator)
 
 
@@ -1856,29 +2093,28 @@ def _render_validacion_llm_youtube(annotator: str):
     )
     clasif_filter = clasif_sel if clasif_sel != "Todos" else None
 
-    # --- KPIs ---
-    _kpi_period = st.session_state.get("supervision_period", "day")
-    kpis = _load_vllm_yt_kpis(annotator, clasif_filter, _kpi_period)
-    k1, k2, k3, k4, k5 = st.columns(5)
-    k1.metric("Etiquetados LLM (YT)", f"{kpis['total_etiquetados_llm']:,}")
-    k2.metric("Validados", f"{kpis['total_validados']:,}")
-    k3.metric("Pendientes" + (f" ({clasif_sel})" if clasif_filter else ""),
-              f"{kpis['pendientes']:,}")
-    k4.metric("Validados en el periodo", f"{kpis['validados_periodo']:,}")
-    k5.metric(f"Por {annotator}", f"{kpis['por_anotador']:,}")
-    st.progress(kpis["pct_avance"] / 100, text=f"Avance validación: {kpis['pct_avance']:.1f}%")
-
     # --- Panel de análisis de errores ---
     with st.expander("📊 Análisis de concordancia LLM vs Humano (YouTube)", expanded=False):
         _render_vllm_yt_error_analysis()
 
     st.divider()
-    _fragment_validacion_llm_youtube(annotator, clasif_filter, kpis)
+    _fragment_validacion_llm_youtube(annotator, clasif_filter, clasif_sel)
 
 
 @st.fragment
-def _fragment_validacion_llm_youtube(annotator: str, clasif_filter: Optional[str], kpis: dict) -> None:
-    """Bloque cola + formulario de validación LLM YouTube."""
+def _fragment_validacion_llm_youtube(
+    annotator: str,
+    clasif_filter: Optional[str],
+    clasif_sel: str = "Todos",
+) -> None:
+    """KPIs + cola + formulario de validación LLM YouTube."""
+    _kpi_period = st.session_state.get("supervision_period", "day")
+    if st.session_state.get("user_role") in ("admin", "editor"):
+        _ann_render_supervision_from_state(_kpi_period)
+        st.divider()
+    kpis = _ann_render_kpis_vllm_yt(annotator, clasif_filter, _kpi_period, clasif_sel)
+    st.divider()
+
     last_status = st.session_state.pop("_vllm_yt_last_status", None)
     if last_status:
         if last_status[0] == "ok":
@@ -1910,6 +2146,7 @@ def _fragment_validacion_llm_youtube(annotator: str, clasif_filter: Optional[str
             st.session_state["vllm_yt_skipped"] = set()
             st.session_state.pop("_vllm_yt_queue_cache", None)
             st.session_state.pop("_vllm_yt_current_uuid", None)
+            _ann_kpi_invalidate(_KPI_VLLM_YT, _KPI_SUPERVISION)
             st.rerun()
         st.caption(
             "**Limpiar saltos:** borra la memoria de mensajes que pasaste con **Saltar**; "
@@ -2102,6 +2339,7 @@ def _fragment_validacion_llm_youtube(annotator: str, clasif_filter: Optional[str
             _load_vllm_yt_corrections.clear()
             st.session_state.get("vllm_yt_skipped", set()).discard(msg_uuid)
             _ann_queue_drop("_vllm_yt_queue_cache", msg_uuid)
+            _ann_kpi_bump_vllm_yt(annotator)
             st.session_state.pop("_vllm_yt_current_uuid", None)
             st.session_state["_vllm_yt_last_status"] = ("ok", msg_uuid[:8])
         else:
@@ -2176,29 +2414,12 @@ def _render_validacion_llm_x(annotator: str):
         filter_parts.append(rango)
     filter_suffix = f" ({', '.join(filter_parts)})" if filter_parts else ""
 
-    _kpi_period = st.session_state.get("supervision_period", "day")
-    kpis = _load_vllm_x_kpis(
-        annotator,
-        clasif_filter,
-        categoria_filter,
-        fd_str,
-        fh_str,
-        _kpi_period,
-    )
-    k1, k2, k3, k4, k5 = st.columns(5)
-    k1.metric("Etiquetados LLM (X)", f"{kpis['total_etiquetados_llm']:,}")
-    k2.metric("Validados", f"{kpis['total_validados']:,}")
-    k3.metric("Pendientes" + filter_suffix, f"{kpis['pendientes']:,}")
-    k4.metric("Validados en el periodo", f"{kpis['validados_periodo']:,}")
-    k5.metric(f"Por {annotator}", f"{kpis['por_anotador']:,}")
-    st.progress(kpis["pct_avance"] / 100, text=f"Avance validación: {kpis['pct_avance']:.1f}%")
-
     with st.expander("📊 Análisis de concordancia LLM vs Humano (X / Twitter)", expanded=False):
         _render_vllm_x_error_analysis()
 
     st.divider()
     _fragment_validacion_llm_x(
-        annotator, clasif_filter, categoria_filter, fd_str, fh_str, kpis,
+        annotator, clasif_filter, categoria_filter, fd_str, fh_str, filter_suffix,
     )
 
 
@@ -2209,9 +2430,24 @@ def _fragment_validacion_llm_x(
     categoria_filter: Optional[str],
     fd_str: Optional[str],
     fh_str: Optional[str],
-    kpis: dict,
+    filter_suffix: str = "",
 ) -> None:
-    """Bloque cola + formulario de validación LLM X."""
+    """KPIs + cola + formulario de validación LLM X."""
+    _kpi_period = st.session_state.get("supervision_period", "day")
+    if st.session_state.get("user_role") in ("admin", "editor"):
+        _ann_render_supervision_from_state(_kpi_period)
+        st.divider()
+    kpis = _ann_render_kpis_vllm_x(
+        annotator,
+        clasif_filter,
+        categoria_filter,
+        fd_str,
+        fh_str,
+        _kpi_period,
+        filter_suffix,
+    )
+    st.divider()
+
     last_status = st.session_state.pop("_vllm_x_last_status", None)
     if last_status:
         if last_status[0] == "ok":
@@ -2242,6 +2478,7 @@ def _fragment_validacion_llm_x(
             st.session_state["vllm_x_skipped"] = set()
             st.session_state.pop("_vllm_x_queue_cache", None)
             st.session_state.pop("_vllm_x_current_uuid", None)
+            _ann_kpi_invalidate(_KPI_VLLM_X, _KPI_SUPERVISION)
             st.rerun()
         st.caption(
             "**Limpiar saltos:** borra la memoria de mensajes que pasaste con **Saltar**; "
@@ -2420,6 +2657,7 @@ def _fragment_validacion_llm_x(
             _load_vllm_x_corrections.clear()
             st.session_state.get("vllm_x_skipped", set()).discard(msg_uuid)
             _ann_queue_drop("_vllm_x_queue_cache", msg_uuid)
+            _ann_kpi_bump_vllm_x(annotator)
             st.session_state.pop("_vllm_x_current_uuid", None)
             st.session_state["_vllm_x_last_status"] = ("ok", msg_uuid[:8])
         else:
@@ -2435,26 +2673,8 @@ def _fragment_validacion_llm_x(
 
 
 def _render_supervision_panel(period: str) -> None:
-    """Panel de supervisión: conteos por subsección y tabla anotador × subsección."""
-    data = _load_admin_annotation_supervision(period)
-    summary = data.get("summary", {})
-    by_annotator = data.get("by_annotator", pd.DataFrame())
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("YT Odio", f"{summary.get('YT Odio', 0):,}")
-    c2.metric("Art. 510", f"{summary.get('Art.510', 0):,}")
-    c3.metric("LLM YouTube", f"{summary.get('LLM YT', 0):,}")
-    c4.metric("LLM X", f"{summary.get('LLM X', 0):,}")
-
-    st.markdown("**Detalle por anotador**")
-    if by_annotator is not None and not by_annotator.empty:
-        st.dataframe(by_annotator, use_container_width=True, hide_index=True)
-    else:
-        st.info("No hay anotaciones registradas en el periodo seleccionado.")
-    st.caption(
-        "Los conteos reflejan mensajes etiquetados o re-etiquetados en el periodo "
-        "(no necesariamente primera anotación)."
-    )
+    """Compat: delega al render desde session_state (uso legacy)."""
+    _ann_render_supervision_from_state(period)
 
 
 def render_anotacion():
@@ -2480,7 +2700,17 @@ def render_anotacion():
             horizontal=True,
             key="supervision_period",
         )
-        _render_supervision_panel(period)
+        # Al cambiar el periodo, invalidar KPIs en memoria para recargar desde la base.
+        _prev_period = st.session_state.get("_kpi_supervision_period_applied")
+        if _prev_period != period:
+            _ann_kpi_invalidate(
+                _KPI_SUPERVISION, _KPI_ANN_YT, _KPI_V510, _KPI_VLLM_YT, _KPI_VLLM_X,
+            )
+            st.session_state["_kpi_supervision_period_applied"] = period
+        st.caption(
+            "Las tarjetas de supervisión y de cada pestaña se actualizan al Guardar. "
+            "Cambiá el periodo para refrescar los totales desde la base."
+        )
         st.divider()
 
     # --- Identificación del anotador (derivada del usuario autenticado) ---
