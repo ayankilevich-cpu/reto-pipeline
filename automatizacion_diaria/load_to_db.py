@@ -685,34 +685,34 @@ def main() -> int:
     ok = 0
     fail = 0
 
-    try:
-        with get_conn() as conn:
-            # Orden: primero raw, luego processed (por las FK)
-            loaders = [
-                ("raw.mensajes (X)", load_raw_mensajes),
-                ("processed.mensajes (X)", load_processed_mensajes),
-                ("raw.mensajes (YouTube)", load_raw_youtube),
-                ("processed.mensajes (YouTube)", load_processed_youtube),
-                ("processed.scores", load_scores),
-                ("processed.etiquetas_llm", load_etiquetas_llm),
-                ("processed.etiquetas_llm (YouTube)", load_etiquetas_llm_youtube),
-                ("processed.evaluacion_art510", load_evaluacion_art510),
-                ("processed.resumen_diario", load_resumen_diario),
-            ]
+    # Orden: primero raw, luego processed (por las FK)
+    loaders = [
+        ("raw.mensajes (X)", load_raw_mensajes),
+        ("processed.mensajes (X)", load_processed_mensajes),
+        ("raw.mensajes (YouTube)", load_raw_youtube),
+        ("processed.mensajes (YouTube)", load_processed_youtube),
+        ("processed.scores", load_scores),
+        ("processed.etiquetas_llm", load_etiquetas_llm),
+        ("processed.etiquetas_llm (YouTube)", load_etiquetas_llm_youtube),
+        ("processed.evaluacion_art510", load_evaluacion_art510),
+        ("processed.resumen_diario", load_resumen_diario),
+    ]
 
-            for name, loader_fn in loaders:
-                try:
-                    loader_fn(conn, logger)
-                    conn.commit()
-                    ok += 1
-                except Exception as e:
-                    conn.rollback()
-                    logger.error("Error cargando %s: %s", name, e, exc_info=True)
-                    fail += 1
-
-    except Exception as e:
-        logger.error("No se pudo conectar a PostgreSQL: %s", e)
-        return 1
+    for name, loader_fn in loaders:
+        try:
+            # Conexión nueva por loader: si esta etapa se cae, no arrastra
+            # a las siguientes (antes compartían una sola conexión para
+            # las 9 etapas del run).
+            with get_conn() as conn:
+                loader_fn(conn, logger)
+            ok += 1
+        except Exception as e:
+            # Loggear el error real ANTES de cualquier otra cosa. get_conn()
+            # ya hace su propio rollback/close internamente (db_utils.py) —
+            # no hace falta (ni conviene) repetirlo acá, para no arriesgarnos
+            # a tapar este mensaje con un segundo error de limpieza.
+            logger.error("Error cargando %s: %s", name, e, exc_info=True)
+            fail += 1
 
     logger.info("=== Fin carga === OK: %d, Fallos: %d", ok, fail)
     return 0 if fail == 0 else 1
