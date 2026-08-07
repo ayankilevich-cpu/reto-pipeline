@@ -1,0 +1,61 @@
+name: Despertar apps (Streamlit Cloud + HF Space)
+
+on:
+  schedule:
+    - cron: '30 4 * * *'   # 06:30 en Madrid durante CEST (UTC+2, verano)
+    - cron: '30 5 * * *'   # 06:30 en Madrid durante CET  (UTC+1, invierno)
+  workflow_dispatch: {}     # permite disparo manual para probar
+
+jobs:
+  wakeup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verificar hora real en Madrid (evita duplicar por DST)
+        id: check_time
+        run: |
+          # Disparo manual: siempre ejecutar (pruebas fuera de las 06:30).
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "workflow_dispatch — forzando ejecución."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          HOUR_MADRID=$(TZ="Europe/Madrid" date +%H)
+          if [ "$HOUR_MADRID" != "06" ]; then
+            echo "Hora en Madrid: ${HOUR_MADRID}h — no es la ventana correcta, salteando."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Hora en Madrid: ${HOUR_MADRID}h — ventana correcta."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout (script Playwright)
+        if: steps.check_time.outputs.run == 'true'
+        uses: actions/checkout@v4
+
+      - name: Despertar Hugging Face Space (ping simple)
+        if: steps.check_time.outputs.run == 'true'
+        run: |
+          # Subdominio directo del Space (proceso real); el wrapper de HF
+          # puede devolver 200 sin despertar Streamlit.
+          curl -sSL -o /dev/null -w "HF Space (.hf.space): %{http_code}\n" \
+            "https://aleyanki13-proyectoreto.hf.space" \
+            --max-time 60 --retry 2 --retry-delay 10 || true
+          curl -sSL -o /dev/null -w "HF Space (página HF): %{http_code}\n" \
+            "https://huggingface.co/spaces/aleyanki13/proyectoreto" \
+            --max-time 60 --retry 2 --retry-delay 10 || true
+
+      - name: Set up Python
+        if: steps.check_time.outputs.run == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar Playwright
+        if: steps.check_time.outputs.run == 'true'
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+
+      - name: Despertar Streamlit Cloud (click en botón si aparece)
+        if: steps.check_time.outputs.run == 'true'
+        run: python .github/scripts/wakeup_streamlit.py
