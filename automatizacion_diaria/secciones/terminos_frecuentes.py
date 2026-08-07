@@ -18,7 +18,6 @@ _HERE = Path(__file__).resolve().parent.parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from db_utils import get_conn
 from components.constants import CATEGORIAS_LABELS, _expand_platforms, platform_label
 from components.ui import (
     _apply_horizontal_bar_labels,
@@ -26,7 +25,7 @@ from components.ui import (
     _role_can_access_raw,
 )
 from components.exports import render_section_exports
-from components.db_helpers import load_filter_options
+from components.db_helpers import load_filter_options, _pooled_conn
 
 try:
     from terminos_exclusion_oficial import TERMINOS_EXCLUSION_LEMAS
@@ -79,7 +78,7 @@ def load_terminos(
     where = " AND ".join(conds)
     join_clause = "INNER JOIN processed.etiquetas_llm e USING (message_uuid)" if need_llm_join else ""
 
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         df = pd.read_sql(
             f"SELECT pm.matched_terms FROM processed.mensajes pm {join_clause} WHERE {where}",
             conn, params=params,
@@ -173,6 +172,64 @@ def _filter_counter_terminos_neutros(counter: Counter, exclude: frozenset) -> Co
     return out
 
 
+@st.cache_data(ttl=300)
+def compute_terminos_counter(
+    platforms: Optional[Tuple] = None,
+    medios: Optional[Tuple] = None,
+    categorias: Optional[Tuple] = None,
+    solo_candidatos: bool = True,
+    ultimas_horas: Optional[int] = None,
+    filtro_neutros: bool = True,
+) -> Tuple[Counter, int, int]:
+    """
+    Hace el trabajo pesado en Python (parseo/normalización de matched_terms +
+    conteo + filtro de exclusión) UNA sola vez por combinación de filtros,
+    en vez de repetirlo en cada rerun de Streamlit (p. ej. al mover el
+    slider "Cantidad de términos", que no cambia estos datos de entrada).
+
+    load_terminos() ya está cacheada (ttl=300) — llamarla acá adentro con
+    los mismos parámetros es un cache-hit barato, no una query nueva.
+
+    Devuelve: (counter_filtrado, n_terminos_distintos_antes_del_filtro,
+    n_lemas_en_lista_de_exclusion).
+    """
+    df = load_terminos(
+        platforms=platforms,
+        medios=medios,
+        categorias=categorias,
+        solo_candidatos=solo_candidatos,
+        ultimas_horas=ultimas_horas,
+    )
+
+    all_terms: List[str] = []
+    for terms_raw in df["matched_terms"]:
+        all_terms.extend(_parse_and_normalize_matched_terms(terms_raw))
+
+    counter = Counter(all_terms)
+    n_tokens_antes = len(counter)
+
+    exclude = load_terminos_exclusion_set() if filtro_neutros else frozenset()
+    if filtro_neutros:
+        counter = _filter_counter_terminos_neutros(counter, exclude)
+
+    return counter, n_tokens_antes, len(exclude)
+
+
+@st.cache_data(ttl=300)
+def generate_wordcloud_array(freqs: Tuple[Tuple[str, int], ...], max_words: int):
+    """
+    Genera la imagen de la wordcloud como array de numpy (picklable, apto
+    para @st.cache_data) a partir de una tupla de frecuencias ya ordenada
+    (hasheable). Evita recalcular el layout de la nube de palabras —
+    relativamente costoso — si counter y top_n no cambiaron entre reruns.
+    """
+    wc = WordCloud(
+        width=800, height=500, background_color="white",
+        colormap="Reds", max_words=max_words, min_font_size=10,
+    ).generate_from_frequencies(dict(freqs))
+    return wc.to_array()
+
+
 def render_terminos():
     _render_section_header(
         "Términos de odio más frecuentes",
@@ -235,19 +292,19 @@ def render_terminos():
         st.warning("No hay términos detectados con los filtros seleccionados.")
         return
 
-    all_terms: List[str] = []
-    for terms_raw in df["matched_terms"]:
-        all_terms.extend(_parse_and_normalize_matched_terms(terms_raw))
+    counter, n_tokens_antes, n_exclusion = compute_terminos_counter(
+        platforms=tuple(sel_platforms) if sel_platforms else None,
+        medios=tuple(sel_medios) if sel_medios else None,
+        categorias=tuple(sel_cats) if sel_cats else None,
+        solo_candidatos=solo_candidatos,
+        ultimas_horas=PERIODO_OPTIONS[sel_periodo],
+        filtro_neutros=filtro_neutros,
+    )
 
-    counter = Counter(all_terms)
-    n_tokens_antes = len(counter)
-    exclude = load_terminos_exclusion_set() if filtro_neutros else frozenset()
-    if filtro_neutros and len(exclude) == 0:
+    if filtro_neutros and n_exclusion == 0:
         st.warning(
             "La lista de exclusiones oficial está vacía. Revisa el despliegue de `terminos_exclusion_oficial.py`."
         )
-    if filtro_neutros:
-        counter = _filter_counter_terminos_neutros(counter, exclude)
     if not counter:
         st.warning(
             "No quedan términos tras aplicar el filtro. "
@@ -257,7 +314,7 @@ def render_terminos():
     if filtro_neutros and n_tokens_antes:
         st.caption(
             f"Términos distintos: {len(counter):,} tras filtro ({n_tokens_antes:,} antes; "
-            f"{len(exclude):,} lemas en lista oficial)."
+            f"{n_exclusion:,} lemas en lista oficial)."
         )
 
     _nc = len(counter)
@@ -288,13 +345,11 @@ def render_terminos():
 
     with col2:
         if counter:
-            wc = WordCloud(
-                width=800, height=500, background_color="white",
-                colormap="Reds", max_words=top_n, min_font_size=10,
-            ).generate_from_frequencies(dict(counter))
+            freqs = tuple(counter.most_common())  # tupla ordenada y hasheable, para la caché
+            wc_array = generate_wordcloud_array(freqs, top_n)
 
             fig_wc, ax = plt.subplots(figsize=(10, 6))
-            ax.imshow(wc, interpolation="bilinear")
+            ax.imshow(wc_array, interpolation="bilinear")
             ax.axis("off")
             st.pyplot(fig_wc)
 
