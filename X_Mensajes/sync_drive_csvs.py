@@ -41,6 +41,7 @@ import json
 import os
 import shutil
 import sys
+import time
 import traceback
 from collections import defaultdict
 from datetime import datetime
@@ -56,6 +57,25 @@ from googleapiclient.http import MediaIoBaseDownload
 DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 DEFAULT_PATTERN = "*.csv"
 STATE_FILENAME = ".drive_sync_state.json"
+
+
+def _retry_api_call(func, *args, max_retries: int = 3, backoff_seconds: float = 5.0, **kwargs):
+    """Reintenta una llamada a la API de Drive ante errores transitorios."""
+    last_exc = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            return func(*args, **kwargs)
+        except HttpError as e:
+            status = getattr(getattr(e, "resp", None), "status", None)
+            # 5xx y 429 son transitorios; 4xx (permisos, folder no encontrado, etc.) no vale reintentar
+            if status is not None and (status == 429 or 500 <= int(status) < 600) and attempt < max_retries:
+                wait = backoff_seconds * attempt
+                print(f"  ⚠️ Error transitorio de Drive (HTTP {status}, intento {attempt}/{max_retries}). Esperando {wait:.0f}s...")
+                time.sleep(wait)
+                last_exc = e
+                continue
+            raise
+    raise last_exc
 
 
 def build_drive_service(credentials_json: Path):
@@ -280,7 +300,7 @@ def main() -> int:
 
     print(f"Listando archivos en folder: {args.folder_id}")
     try:
-        files = list_files_in_folder(service, args.folder_id)
+        files = _retry_api_call(list_files_in_folder, service, args.folder_id)
     except HttpError as e:
         print(
             f"❌ Error HTTP de Google Drive (código {e.resp.status}): {e!s}\n"
@@ -385,7 +405,7 @@ def main() -> int:
 
         print(f"Descargando: {name} (id={meta['id']}) — {reason}")
         try:
-            download_file(service, meta["id"], dest)
+            _retry_api_call(download_file, service, meta["id"], dest)
         except HttpError as e:
             print(
                 f"❌ Error al descargar {name}: HTTP {e.resp.status} — {e!s}",

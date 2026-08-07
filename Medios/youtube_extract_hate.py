@@ -439,6 +439,30 @@ def is_quota_exceeded(error):
     return classify_quota_error(error) is not None
 
 
+def call_with_retry(func, *args, max_retries: int = 3, backoff_seconds: float = 5.0, **kwargs):
+    """
+    Ejecuta func(*args, **kwargs). Si falla con HttpError clasificado como
+    'rate_limit' (429 / userRateLimitExceeded), espera y reintenta hasta
+    max_retries veces con backoff creciente. Si es 'quota_exceeded' (cuota
+    diaria agotada) o se agotan los reintentos de rate_limit, relanza el
+    HttpError tal cual para que el llamador lo maneje como corte limpio.
+    """
+    last_exc = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            return func(*args, **kwargs)
+        except HttpError as e:
+            reason = classify_quota_error(e)
+            if reason == "rate_limit" and attempt < max_retries:
+                wait = backoff_seconds * attempt
+                print(f"⚠️ Rate limit (intento {attempt}/{max_retries}). Esperando {wait:.0f}s antes de reintentar...")
+                time.sleep(wait)
+                last_exc = e
+                continue
+            raise
+    raise last_exc  # no debería llegar acá, pero por completitud
+
+
 def load_state() -> dict:
     """Carga el estado de la última ejecución."""
     state_file = Path(STATE_FILE)
@@ -747,7 +771,7 @@ def main():
             print(f"URL YouTube: {yt_url}")
 
             try:
-                channel_id = extract_channel_id(yt_url, youtube)
+                channel_id = call_with_retry(extract_channel_id, yt_url, youtube)
                 if not channel_id:
                     print("❌ No se pudo resolver channelId")
                     continue
@@ -767,7 +791,7 @@ def main():
                 break
 
             try:
-                videos = get_recent_videos(channel_id, youtube, published_after_iso)
+                videos = call_with_retry(get_recent_videos, channel_id, youtube, published_after_iso)
                 print(f"Vídeos recientes: {len(videos)}")
             except HttpError as e:
                 reason = classify_quota_error(e)
@@ -786,7 +810,7 @@ def main():
                 print(f" → Vídeo {vid['video_id']}")
 
                 try:
-                    comments = get_comments(vid["video_id"], youtube)
+                    comments = call_with_retry(get_comments, vid["video_id"], youtube)
                 except HttpError as e:
                     reason = classify_quota_error(e)
                     if reason:
