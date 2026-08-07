@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import pandas as pd
+import psycopg2
 import psycopg2.pool
 import streamlit as st
 
@@ -46,17 +47,47 @@ def _get_connection_pool():
 @contextmanager
 def _pooled_conn():
     """Reemplazo de get_conn() para las funciones de este archivo: pide una
-    conexión prestada del pool en vez de abrir una nueva cada vez."""
+    conexión prestada del pool en vez de abrir una nueva cada vez.
+
+    Valida la conexión con un SELECT 1 antes de entregarla — si Neon la
+    cerró del lado del servidor mientras estaba inactiva en el pool (scale
+    to zero, timeout de idle, etc.), la descarta y pide una conexión nueva
+    en el momento, en vez de dejar que la primera query real falle.
+    """
     pool = _get_connection_pool()
     conn = pool.getconn()
+
+    # Health-check barato antes de entregarla
+    try:
+        if conn.closed:
+            raise psycopg2.InterfaceError("connection closed")
+        with conn.cursor() as _probe:
+            _probe.execute("SELECT 1")
+    except Exception:
+        # Conexión muerta: descartarla del pool (no reciclar) y pedir otra
+        try:
+            pool.putconn(conn, close=True)
+        except Exception:
+            pass
+        conn = pool.getconn()
+
     try:
         yield conn
         conn.commit()
     except Exception:
-        conn.rollback()
+        try:
+            conn.rollback()
+        except Exception:
+            pass  # no tapar el error real si el rollback también falla
         raise
     finally:
-        pool.putconn(conn)
+        # Si la conexión quedó rota durante el uso, no devolverla como
+        # reusable — que el pool la descarte y cree una nueva la próxima vez.
+        try:
+            broken = bool(conn.closed)
+        except Exception:
+            broken = True
+        pool.putconn(conn, close=broken)
 
 
 @st.cache_data(ttl=3600)
