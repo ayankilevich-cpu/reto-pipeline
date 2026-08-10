@@ -180,6 +180,7 @@ def _filter_ranking_explore_detail_df(detail_df: pd.DataFrame) -> pd.DataFrame:
     return detail_df[detail_df["Métrica"].isin(visibles)].reset_index(drop=True)
 
 
+@st.fragment
 def _render_explorar_medio():
     """Pestaña exploratoria: seleccionar un medio y plataforma para ver sus métricas."""
     st.markdown("Seleccioná un medio y una plataforma para ver sus métricas de odio.")
