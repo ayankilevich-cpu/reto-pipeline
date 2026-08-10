@@ -10,22 +10,28 @@ jobs:
   wakeup:
     runs-on: ubuntu-latest
     steps:
-      - name: Verificar hora real en Madrid (evita duplicar por DST)
+      - name: Verificar que el cron disparado corresponda a la temporada actual (evita duplicar por DST, inmune a demoras de GitHub Actions)
         id: check_time
         run: |
-          # Disparo manual: siempre ejecutar (pruebas fuera de las 06:30).
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "workflow_dispatch — forzando ejecución."
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          HOUR_MADRID=$(TZ="Europe/Madrid" date +%H)
-          if [ "$HOUR_MADRID" != "06" ]; then
-            echo "Hora en Madrid: ${HOUR_MADRID}h — no es la ventana correcta, salteando."
-            echo "run=false" >> "$GITHUB_OUTPUT"
+          # ¿Madrid está en horario de verano (CEST, UTC+2) ahora mismo?
+          # Esto NO depende de la hora exacta, solo de la temporada — así que
+          # sigue siendo correcto aunque GitHub haya demorado el disparo del cron.
+          OFFSET=$(TZ="Europe/Madrid" date +%z)
+          if [ "$OFFSET" = "+0200" ]; then
+            EXPECTED_CRON="30 4 * * *"
           else
-            echo "Hora en Madrid: ${HOUR_MADRID}h — ventana correcta."
+            EXPECTED_CRON="30 5 * * *"
+          fi
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Disparo manual — se ejecuta sin importar la temporada."
             echo "run=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "$EXPECTED_CRON" ]; then
+            echo "Cron '${{ github.event.schedule }}' coincide con la temporada actual (offset $OFFSET) — ejecutando."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Cron '${{ github.event.schedule }}' no corresponde a la temporada actual (offset $OFFSET, se esperaba '$EXPECTED_CRON') — salteando, es el duplicado de DST."
+            echo "run=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Checkout (script Playwright)
