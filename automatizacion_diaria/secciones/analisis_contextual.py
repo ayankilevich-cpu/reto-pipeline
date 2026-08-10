@@ -434,205 +434,210 @@ def render_analisis_contextual():
     # --- Week selector ---
     st.subheader("Detalle semanal")
 
-    df_selectable = df[df["total_mensajes"] >= MIN_MSGS_CHART].copy()
-    inicio_semana_actual = hoy - timedelta(days=hoy.weekday())
-    df_selectable = df_selectable[
-        df_selectable["semana_inicio"] < pd.Timestamp(inicio_semana_actual)
-    ]
-    if df_selectable.empty:
-        st.info("No hay semanas con suficientes datos para mostrar detalle.")
-        return
+    @st.fragment
+    def _render_detalle_semanal():
 
-    week_options = []
-    for _, row in df_selectable.sort_values("semana_inicio", ascending=False).iterrows():
-        spike_mark = " ⚠️ ALERTA" if _alerta_spike_segun_cierre(row) else ""
-        label = (
-            f"{row['semana_inicio'].strftime('%d/%m/%Y')} — "
-            f"{row['semana_fin'].strftime('%d/%m/%Y')}"
-            f" | {int(row['total_mensajes']):,} msgs"
-            f" | {row['pct_odio']}% odio{spike_mark}"
-        )
-        week_options.append((label, row["semana_inicio"]))
+        df_selectable = df[df["total_mensajes"] >= MIN_MSGS_CHART].copy()
+        inicio_semana_actual = hoy - timedelta(days=hoy.weekday())
+        df_selectable = df_selectable[
+            df_selectable["semana_inicio"] < pd.Timestamp(inicio_semana_actual)
+        ]
+        if df_selectable.empty:
+            st.info("No hay semanas con suficientes datos para mostrar detalle.")
+            return
 
-    selected_label = st.selectbox(
-        "Seleccionar semana",
-        [w[0] for w in week_options],
-        index=0,
-        key="ctx_week_sel",
-    )
-    selected_start = dict(week_options)[selected_label]
-    row = df[df["semana_inicio"] == selected_start].iloc[0]
-
-    # --- KPIs ---
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Total mensajes", f"{int(row['total_mensajes']):,}")
-    k2.metric("Mensajes de odio", f"{int(row['total_odio']):,}")
-    k3.metric("% Odio", f"{row['pct_odio']}%")
-    alerta_label = "Sí ⚠️" if bool(row.get("es_spike")) else "No"
-    k4.metric("Alerta", alerta_label)
-
-    st.markdown("---")
-
-    # --- Context summary ---
-    if row.get("resumen_contexto"):
-        st.subheader("Resumen contextual")
-        analisis_dt = row.get("analisis_date")
-        if analisis_dt is not None and not (isinstance(analisis_dt, float) and pd.isna(analisis_dt)):
-            analisis_s = pd.Timestamp(analisis_dt).strftime("%d/%m/%Y %H:%M")
-        else:
-            analisis_s = "—"
-        st.caption(
-            f"Texto generado por el pipeline semanal y guardado en la base de datos "
-            f"(última actualización: **{analisis_s}**). "
-            "Si regeneraste el análisis y no ves cambios, usá **Recargar resumen**."
-        )
-        rc1, _ = st.columns([1, 4])
-        with rc1:
-            if st.button("Recargar resumen", key="ctx_reload_resumen"):
-                load_analisis_semanal.clear()
-                st.rerun()
-        st.info(_resumen_contextual_para_ui(row))
-
-    ev_txt = _eventos_relacionados_para_ui(row) if row.get("eventos_relacionados") else ""
-    if ev_txt:
-        st.subheader("Eventos relacionados")
-        st.markdown(ev_txt)
-
-    st.markdown("---")
-
-    # --- Categories & Targets side by side ---
-    col_cat, col_tgt = st.columns(2)
-
-    with col_cat:
-        st.subheader("Categorías de odio (resumen de la semana)")
-        cats = _parse_json_col(row.get("categorias"))
-        if cats:
-            cat_df = pd.DataFrame([
-                {"Categoría": CATEGORIAS_DISPLAY.get(k, k), "Mensajes": v}
-                for k, v in cats.items()
-            ]).sort_values("Mensajes", ascending=False)
-            fig_cat = px.bar(
-                cat_df, x="Mensajes", y="Categoría", orientation="h",
-                color="Mensajes", color_continuous_scale="Reds",
+        week_options = []
+        for _, row in df_selectable.sort_values("semana_inicio", ascending=False).iterrows():
+            spike_mark = " ⚠️ ALERTA" if _alerta_spike_segun_cierre(row) else ""
+            label = (
+                f"{row['semana_inicio'].strftime('%d/%m/%Y')} — "
+                f"{row['semana_fin'].strftime('%d/%m/%Y')}"
+                f" | {int(row['total_mensajes']):,} msgs"
+                f" | {row['pct_odio']}% odio{spike_mark}"
             )
-            fig_cat.update_layout(height=300, showlegend=False, yaxis=dict(autorange="reversed"))
-            _apply_horizontal_bar_labels(fig_cat)
-            st.plotly_chart(fig_cat, use_container_width=True, key="ctx_cats")
-        else:
-            st.info("Sin datos de categorías.")
-        if not _is_viewer():
+            week_options.append((label, row["semana_inicio"]))
+
+        selected_label = st.selectbox(
+            "Seleccionar semana",
+            [w[0] for w in week_options],
+            index=0,
+            key="ctx_week_sel",
+        )
+        selected_start = dict(week_options)[selected_label]
+        row = df[df["semana_inicio"] == selected_start].iloc[0]
+
+        # --- KPIs ---
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Total mensajes", f"{int(row['total_mensajes']):,}")
+        k2.metric("Mensajes de odio", f"{int(row['total_odio']):,}")
+        k3.metric("% Odio", f"{row['pct_odio']}%")
+        alerta_label = "Sí ⚠️" if bool(row.get("es_spike")) else "No"
+        k4.metric("Alerta", alerta_label)
+
+        st.markdown("---")
+
+        # --- Context summary ---
+        if row.get("resumen_contexto"):
+            st.subheader("Resumen contextual")
+            analisis_dt = row.get("analisis_date")
+            if analisis_dt is not None and not (isinstance(analisis_dt, float) and pd.isna(analisis_dt)):
+                analisis_s = pd.Timestamp(analisis_dt).strftime("%d/%m/%Y %H:%M")
+            else:
+                analisis_s = "—"
             st.caption(
-                "Este bloque resume la **semana** elegida. Para ver **texto de mensajes** "
-                "anonimizados clasificados por el LLM (muestra aleatoria), usá el menú lateral "
-                "**Categorías de odio (LLM)**."
+                f"Texto generado por el pipeline semanal y guardado en la base de datos "
+                f"(última actualización: **{analisis_s}**). "
+                "Si regeneraste el análisis y no ves cambios, usá **Recargar resumen**."
             )
+            rc1, _ = st.columns([1, 4])
+            with rc1:
+                if st.button("Recargar resumen", key="ctx_reload_resumen"):
+                    load_analisis_semanal.clear()
+                    st.rerun()
+            st.info(_resumen_contextual_para_ui(row))
 
-    with col_tgt:
-        st.subheader("Colectivos atacados")
-        targets = _parse_json_col(row.get("targets"))
-        if targets:
-            top_targets = dict(list(targets.items())[:10])
-            tgt_df = pd.DataFrame([
-                {"Target": k, "Menciones": v}
-                for k, v in top_targets.items()
-            ]).sort_values("Menciones", ascending=False)
-            fig_tgt = px.bar(
-                tgt_df, x="Menciones", y="Target", orientation="h",
-                color="Menciones", color_continuous_scale="Oranges",
-            )
-            fig_tgt.update_layout(height=300, showlegend=False, yaxis=dict(autorange="reversed"))
-            _apply_horizontal_bar_labels(fig_tgt)
-            st.plotly_chart(fig_tgt, use_container_width=True, key="ctx_targets")
-        else:
-            st.info("Sin datos de targets.")
+        ev_txt = _eventos_relacionados_para_ui(row) if row.get("eventos_relacionados") else ""
+        if ev_txt:
+            st.subheader("Eventos relacionados")
+            st.markdown(ev_txt)
 
-    st.markdown("---")
+        st.markdown("---")
 
-    # --- Topics & Intensity ---
-    col_tem, col_int = st.columns(2)
+        # --- Categories & Targets side by side ---
+        col_cat, col_tgt = st.columns(2)
 
-    with col_tem:
-        st.subheader("Temas detectados")
-        temas = _parse_json_col(row.get("temas"))
-        if temas:
-            top_temas = dict(list(temas.items())[:10])
-            tema_df = pd.DataFrame([
-                {"Tema": k, "Menciones": v}
-                for k, v in top_temas.items()
-            ]).sort_values("Menciones", ascending=False)
-            fig_tema = px.bar(
-                tema_df, x="Menciones", y="Tema", orientation="h",
-                color="Menciones", color_continuous_scale="Blues",
-            )
-            fig_tema.update_layout(height=300, showlegend=False, yaxis=dict(autorange="reversed"))
-            _apply_horizontal_bar_labels(fig_tema)
-            st.plotly_chart(fig_tema, use_container_width=True, key="ctx_temas")
-        else:
-            st.info("Sin datos de temas.")
-
-    with col_int:
-        st.subheader("Intensidad del odio")
-        intensidad = _parse_json_col(row.get("intensidad"))
-        if intensidad:
-            int_labels = {"1": "Leve (ironía, burla)", "2": "Ofensivo (insultos)", "3": "Hostil (incitación)"}
-            int_df = pd.DataFrame([
-                {"Nivel": int_labels.get(k, k), "Mensajes": v}
-                for k, v in intensidad.items() if v > 0
-            ])
-            if not int_df.empty:
-                fig_int = px.pie(
-                    int_df, names="Nivel", values="Mensajes",
-                    color="Nivel",
-                    color_discrete_map={
-                        "Leve (ironía, burla)": "#F4D03F",
-                        "Ofensivo (insultos)": "#E67E22",
-                        "Hostil (incitación)": "#C0392B",
-                    },
+        with col_cat:
+            st.subheader("Categorías de odio (resumen de la semana)")
+            cats = _parse_json_col(row.get("categorias"))
+            if cats:
+                cat_df = pd.DataFrame([
+                    {"Categoría": CATEGORIAS_DISPLAY.get(k, k), "Mensajes": v}
+                    for k, v in cats.items()
+                ]).sort_values("Mensajes", ascending=False)
+                fig_cat = px.bar(
+                    cat_df, x="Mensajes", y="Categoría", orientation="h",
+                    color="Mensajes", color_continuous_scale="Reds",
                 )
-                fig_int.update_traces(
-                    textinfo="percent+label",
-                    textfont_size=12,
-                    marker=dict(line=dict(color="#FFFFFF", width=2)),
+                fig_cat.update_layout(height=300, showlegend=False, yaxis=dict(autorange="reversed"))
+                _apply_horizontal_bar_labels(fig_cat)
+                st.plotly_chart(fig_cat, use_container_width=True, key="ctx_cats")
+            else:
+                st.info("Sin datos de categorías.")
+            if not _is_viewer():
+                st.caption(
+                    "Este bloque resume la **semana** elegida. Para ver **texto de mensajes** "
+                    "anonimizados clasificados por el LLM (muestra aleatoria), usá el menú lateral "
+                    "**Categorías de odio (LLM)**."
                 )
-                fig_int.update_layout(height=300)
-                st.plotly_chart(fig_int, use_container_width=True, key="ctx_intensidad")
+
+        with col_tgt:
+            st.subheader("Colectivos atacados")
+            targets = _parse_json_col(row.get("targets"))
+            if targets:
+                top_targets = dict(list(targets.items())[:10])
+                tgt_df = pd.DataFrame([
+                    {"Target": k, "Menciones": v}
+                    for k, v in top_targets.items()
+                ]).sort_values("Menciones", ascending=False)
+                fig_tgt = px.bar(
+                    tgt_df, x="Menciones", y="Target", orientation="h",
+                    color="Menciones", color_continuous_scale="Oranges",
+                )
+                fig_tgt.update_layout(height=300, showlegend=False, yaxis=dict(autorange="reversed"))
+                _apply_horizontal_bar_labels(fig_tgt)
+                st.plotly_chart(fig_tgt, use_container_width=True, key="ctx_targets")
+            else:
+                st.info("Sin datos de targets.")
+
+        st.markdown("---")
+
+        # --- Topics & Intensity ---
+        col_tem, col_int = st.columns(2)
+
+        with col_tem:
+            st.subheader("Temas detectados")
+            temas = _parse_json_col(row.get("temas"))
+            if temas:
+                top_temas = dict(list(temas.items())[:10])
+                tema_df = pd.DataFrame([
+                    {"Tema": k, "Menciones": v}
+                    for k, v in top_temas.items()
+                ]).sort_values("Menciones", ascending=False)
+                fig_tema = px.bar(
+                    tema_df, x="Menciones", y="Tema", orientation="h",
+                    color="Menciones", color_continuous_scale="Blues",
+                )
+                fig_tema.update_layout(height=300, showlegend=False, yaxis=dict(autorange="reversed"))
+                _apply_horizontal_bar_labels(fig_tema)
+                st.plotly_chart(fig_tema, use_container_width=True, key="ctx_temas")
+            else:
+                st.info("Sin datos de temas.")
+
+        with col_int:
+            st.subheader("Intensidad del odio")
+            intensidad = _parse_json_col(row.get("intensidad"))
+            if intensidad:
+                int_labels = {"1": "Leve (ironía, burla)", "2": "Ofensivo (insultos)", "3": "Hostil (incitación)"}
+                int_df = pd.DataFrame([
+                    {"Nivel": int_labels.get(k, k), "Mensajes": v}
+                    for k, v in intensidad.items() if v > 0
+                ])
+                if not int_df.empty:
+                    fig_int = px.pie(
+                        int_df, names="Nivel", values="Mensajes",
+                        color="Nivel",
+                        color_discrete_map={
+                            "Leve (ironía, burla)": "#F4D03F",
+                            "Ofensivo (insultos)": "#E67E22",
+                            "Hostil (incitación)": "#C0392B",
+                        },
+                    )
+                    fig_int.update_traces(
+                        textinfo="percent+label",
+                        textfont_size=12,
+                        marker=dict(line=dict(color="#FFFFFF", width=2)),
+                    )
+                    fig_int.update_layout(height=300)
+                    st.plotly_chart(fig_int, use_container_width=True, key="ctx_intensidad")
+                else:
+                    st.info("Sin datos de intensidad.")
             else:
                 st.info("Sin datos de intensidad.")
-        else:
-            st.info("Sin datos de intensidad.")
 
-    if _is_viewer():
-        st.caption("📅 Monitorización activa: lunes y jueves.")
+        if _is_viewer():
+            st.caption("📅 Monitorización activa: lunes y jueves.")
 
-    # --- Peak day ---
-    if row.get("dia_pico"):
-        st.markdown("---")
-        st.caption(
-            f"📅 **Día pico de la semana**: {row['dia_pico']} — "
-            f"{int(row['dia_pico_odio'])} mensajes de odio ({row['dia_pico_pct']}%)"
+        # --- Peak day ---
+        if row.get("dia_pico"):
+            st.markdown("---")
+            st.caption(
+                f"📅 **Día pico de la semana**: {row['dia_pico']} — "
+                f"{int(row['dia_pico_odio'])} mensajes de odio ({row['dia_pico_pct']}%)"
+            )
+
+        csv_items = [
+            ("semanal_historico", df),
+        ]
+        if "cat_df" in locals() and isinstance(cat_df, pd.DataFrame):
+            csv_items.append(("detalle_categorias", cat_df))
+        if "tgt_df" in locals() and isinstance(tgt_df, pd.DataFrame):
+            csv_items.append(("detalle_targets", tgt_df))
+        if "tema_df" in locals() and isinstance(tema_df, pd.DataFrame):
+            csv_items.append(("detalle_temas", tema_df))
+        if "int_df" in locals() and isinstance(int_df, pd.DataFrame):
+            csv_items.append(("detalle_intensidad", int_df))
+
+        render_section_exports(
+            section_key="analisis_contextual",
+            section_title="Análisis contextual semanal",
+            csv_items=csv_items,
+            fig_items=[
+                {"title": "Evolución semanal % odio", "fig": fig_timeline, "kind": "plotly"},
+                {"title": "Categorías de odio", "fig": fig_cat if "fig_cat" in locals() else None, "kind": "plotly"},
+                {"title": "Colectivos atacados", "fig": fig_tgt if "fig_tgt" in locals() else None, "kind": "plotly"},
+                {"title": "Temas detectados", "fig": fig_tema if "fig_tema" in locals() else None, "kind": "plotly"},
+                {"title": "Intensidad del odio", "fig": fig_int if "fig_int" in locals() else None, "kind": "plotly"},
+            ],
         )
 
-    csv_items = [
-        ("semanal_historico", df),
-    ]
-    if "cat_df" in locals() and isinstance(cat_df, pd.DataFrame):
-        csv_items.append(("detalle_categorias", cat_df))
-    if "tgt_df" in locals() and isinstance(tgt_df, pd.DataFrame):
-        csv_items.append(("detalle_targets", tgt_df))
-    if "tema_df" in locals() and isinstance(tema_df, pd.DataFrame):
-        csv_items.append(("detalle_temas", tema_df))
-    if "int_df" in locals() and isinstance(int_df, pd.DataFrame):
-        csv_items.append(("detalle_intensidad", int_df))
-
-    render_section_exports(
-        section_key="analisis_contextual",
-        section_title="Análisis contextual semanal",
-        csv_items=csv_items,
-        fig_items=[
-            {"title": "Evolución semanal % odio", "fig": fig_timeline if "fig_timeline" in locals() else None, "kind": "plotly"},
-            {"title": "Categorías de odio", "fig": fig_cat if "fig_cat" in locals() else None, "kind": "plotly"},
-            {"title": "Colectivos atacados", "fig": fig_tgt if "fig_tgt" in locals() else None, "kind": "plotly"},
-            {"title": "Temas detectados", "fig": fig_tema if "fig_tema" in locals() else None, "kind": "plotly"},
-            {"title": "Intensidad del odio", "fig": fig_int if "fig_int" in locals() else None, "kind": "plotly"},
-        ],
-    )
+    _render_detalle_semanal()

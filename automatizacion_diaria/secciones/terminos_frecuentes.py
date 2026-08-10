@@ -317,56 +317,60 @@ def render_terminos():
             f"{n_exclusion:,} lemas en lista oficial)."
         )
 
-    _nc = len(counter)
-    _max_n = min(50, max(1, _nc))
-    _min_n = min(10, _max_n)
-    top_n = st.slider(
-        "Cantidad de términos",
-        _min_n,
-        _max_n,
-        min(25, _max_n),
-        key="term_topn",
-    )
-    top_terms = counter.most_common(top_n)
-
-    col1, col2 = st.columns([1, 1])
-
-    with col1:
-        df_terms = pd.DataFrame(top_terms, columns=["Término", "Frecuencia"])
-        fig = px.bar(
-            df_terms, x="Frecuencia", y="Término", orientation="h",
-            color="Frecuencia",
-            color_continuous_scale=[[0, "#FFF5F5"], [0.5, "#F56565"], [1, "#C0392B"]],
-            title=f"Top {top_n} términos más frecuentes",
+    @st.fragment
+    def _render_terminos_resultados():
+        _nc = len(counter)
+        _max_n = min(50, max(1, _nc))
+        _min_n = min(10, _max_n)
+        top_n = st.slider(
+            "Cantidad de términos",
+            _min_n,
+            _max_n,
+            min(25, _max_n),
+            key="term_topn",
         )
-        fig.update_layout(height=max(400, top_n * 22), yaxis=dict(autorange="reversed"), showlegend=False)
-        _apply_horizontal_bar_labels(fig)
-        st.plotly_chart(fig, use_container_width=True)
+        top_terms = counter.most_common(top_n)
 
-    with col2:
-        if counter:
-            freqs = tuple(counter.most_common())  # tupla ordenada y hasheable, para la caché
-            wc_array = generate_wordcloud_array(freqs, top_n)
+        col1, col2 = st.columns([1, 1])
 
-            fig_wc, ax = plt.subplots(figsize=(10, 6))
-            ax.imshow(wc_array, interpolation="bilinear")
-            ax.axis("off")
-            st.pyplot(fig_wc)
+        with col1:
+            df_terms = pd.DataFrame(top_terms, columns=["Término", "Frecuencia"])
+            fig = px.bar(
+                df_terms, x="Frecuencia", y="Término", orientation="h",
+                color="Frecuencia",
+                color_continuous_scale=[[0, "#FFF5F5"], [0.5, "#F56565"], [1, "#C0392B"]],
+                title=f"Top {top_n} términos más frecuentes",
+            )
+            fig.update_layout(height=max(400, top_n * 22), yaxis=dict(autorange="reversed"), showlegend=False)
+            _apply_horizontal_bar_labels(fig)
+            st.plotly_chart(fig, use_container_width=True)
 
-    st.markdown("### Detalle")
-    df_all = pd.DataFrame(counter.most_common(100), columns=["Término", "Frecuencia"])
-    st.dataframe(df_all, use_container_width=True, hide_index=True)
+        with col2:
+            if counter:
+                freqs = tuple(counter.most_common())  # tupla ordenada y hasheable, para la caché
+                wc_array = generate_wordcloud_array(freqs, top_n)
 
-    render_section_exports(
-        section_key="terminos_frecuentes",
-        section_title="Términos de odio más frecuentes",
-        csv_items=[
-            ("terminos_top", df_terms if "df_terms" in locals() else pd.DataFrame()),
-            ("terminos_detalle", df_all if "df_all" in locals() else pd.DataFrame()),
-            ("mensajes_filtrados", df),
-        ],
-        fig_items=[
-            {"title": "Top términos frecuentes", "fig": fig if "fig" in locals() else None, "kind": "plotly"},
-            {"title": "Nube de palabras", "fig": fig_wc if "fig_wc" in locals() else None, "kind": "matplotlib"},
-        ],
-    )
+                fig_wc, ax = plt.subplots(figsize=(10, 6))
+                ax.imshow(wc_array, interpolation="bilinear")
+                ax.axis("off")
+                st.pyplot(fig_wc)
+
+        st.markdown("### Detalle")
+        df_all = pd.DataFrame(counter.most_common(100), columns=["Término", "Frecuencia"])
+        st.dataframe(df_all, use_container_width=True, hide_index=True)
+
+        render_section_exports(
+            section_key="terminos_frecuentes",
+            section_title="Términos de odio más frecuentes",
+            csv_items=[
+                ("terminos_top", df_terms if "df_terms" in locals() else pd.DataFrame()),
+                ("terminos_detalle", df_all if "df_all" in locals() else pd.DataFrame()),
+                ("mensajes_filtrados", df),
+            ],
+            fig_items=[
+                {"title": "Top términos frecuentes", "fig": fig if "fig" in locals() else None, "kind": "plotly"},
+                {"title": "Nube de palabras", "fig": fig_wc if "fig_wc" in locals() else None, "kind": "matplotlib"},
+            ],
+        )
+
+    _render_terminos_resultados()
