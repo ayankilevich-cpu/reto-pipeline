@@ -281,10 +281,18 @@ def get_conn():
         yield conn
         conn.commit()
     except Exception:
-        conn.rollback()
+        # No dejar que un rollback fallido (conexión ya muerta) tape el
+        # error real que causó este except.
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         raise
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def upsert_rows(
