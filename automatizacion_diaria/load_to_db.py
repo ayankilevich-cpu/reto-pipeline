@@ -24,17 +24,28 @@ import hashlib
 import logging
 import os
 import sys
+import time
 import uuid as uuidlib
 from datetime import datetime
 from glob import glob
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
+import psycopg2
 
 # Añadir este directorio al path para importar db_utils
 sys.path.insert(0, str(Path(__file__).parent))
 from db_utils import get_conn, upsert_rows
+
+# Reintentos ante errores TRANSITORIOS de conexión durante un loader (p. ej.
+# "SSL connection has been closed unexpectedly" a mitad de un upsert grande).
+# OperationalError/InterfaceError son los tipos de psycopg2 para problemas de
+# conexión — NO cubren errores de datos/esquema (FK, NOT NULL, tipo…), que no
+# tiene sentido reintentar porque fallarían igual.
+LOAD_DB_MAX_RETRIES = int(os.getenv("LOAD_DB_MAX_RETRIES", "3"))
+LOAD_DB_RETRY_BACKOFF_SEC = float(os.getenv("LOAD_DB_RETRY_BACKOFF_SEC", "5"))
+_TRANSIENT_DB_ERRORS = (psycopg2.OperationalError, psycopg2.InterfaceError)
 
 # ============================================================
 # CONFIGURACIÓN DE RUTAS
@@ -678,43 +689,109 @@ def load_evaluacion_art510(conn, logger: logging.Logger) -> int:
 # MAIN
 # ============================================================
 
+def _run_loader_with_retry(
+    name: str,
+    loader_fn,
+    logger: logging.Logger,
+    max_retries: int = LOAD_DB_MAX_RETRIES,
+    backoff_seconds: float = LOAD_DB_RETRY_BACKOFF_SEC,
+) -> bool:
+    """Ejecuta un loader con una conexión propia; reintenta con una conexión
+    NUEVA si el fallo es transitorio (p. ej. "SSL connection has been closed
+    unexpectedly" a mitad de un upsert grande — visto en producción con
+    raw.mensajes(X), ~143k filas). Un upsert es idempotente (ON CONFLICT), así
+    que reintentar el loader completo desde cero es seguro.
+
+    Errores de datos/esquema (FK, NOT NULL, tipo…) NO se reintentan: son
+    deterministas y volverían a fallar igual, así que se registran y se
+    devuelve False de inmediato.
+    """
+    last_exc: Optional[Exception] = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            # Conexión nueva por loader (y por intento): si esta etapa se
+            # cae, no arrastra a las siguientes ni reintenta con una
+            # conexión que ya sabemos rota.
+            with get_conn() as conn:
+                loader_fn(conn, logger)
+            return True
+        except _TRANSIENT_DB_ERRORS as e:
+            last_exc = e
+            if attempt < max_retries:
+                wait = backoff_seconds * attempt
+                logger.warning(
+                    "Error transitorio de conexión cargando %s (intento %d/%d): %s. "
+                    "Reintentando en %.0fs con una conexión nueva...",
+                    name, attempt, max_retries, e, wait,
+                )
+                time.sleep(wait)
+                continue
+            logger.error(
+                "Error cargando %s tras %d intentos (fallo transitorio persistente): %s",
+                name, max_retries, e, exc_info=True,
+            )
+            return False
+        except Exception as e:
+            # Error no transitorio (datos/esquema): no tiene sentido
+            # reintentar. get_conn() ya hace su propio rollback/close
+            # internamente (db_utils.py) — no hace falta repetirlo acá,
+            # para no arriesgarnos a tapar este mensaje con un segundo
+            # error de limpieza.
+            logger.error("Error cargando %s: %s", name, e, exc_info=True)
+            return False
+    logger.error("Error cargando %s: %s", name, last_exc, exc_info=True)
+    return False
+
+
 def main() -> int:
     logger = setup_logging()
     logger.info("=== Inicio carga a PostgreSQL ===")
 
     ok = 0
     fail = 0
+    skipped = 0
+    # Éxito/fracaso de las etapas raw por plataforma, para poder saltar con
+    # criterio las etapas processed/scores que dependen de ellas (mismo lote
+    # de message_uuid — si raw no se comprometió, processed/scores fallarían
+    # igual por FK, solo que 20-50s más tarde y con un traceback confuso).
+    raw_ok: Dict[str, bool] = {}
 
-    # Orden: primero raw, luego processed (por las FK)
+    # Orden: primero raw, luego processed (por las FK). depends_on indica de
+    # qué etapa raw depende cada loader (None = no depende de ninguna raw de
+    # esta corrida, p. ej. porque opera sobre backlog histórico ya cargado).
     loaders = [
-        ("raw.mensajes (X)", load_raw_mensajes),
-        ("processed.mensajes (X)", load_processed_mensajes),
-        ("raw.mensajes (YouTube)", load_raw_youtube),
-        ("processed.mensajes (YouTube)", load_processed_youtube),
-        ("processed.scores", load_scores),
-        ("processed.etiquetas_llm", load_etiquetas_llm),
-        ("processed.etiquetas_llm (YouTube)", load_etiquetas_llm_youtube),
-        ("processed.evaluacion_art510", load_evaluacion_art510),
-        ("processed.resumen_diario", load_resumen_diario),
+        ("raw.mensajes (X)", load_raw_mensajes, None, "x"),
+        ("processed.mensajes (X)", load_processed_mensajes, "x", None),
+        ("raw.mensajes (YouTube)", load_raw_youtube, None, "youtube"),
+        ("processed.mensajes (YouTube)", load_processed_youtube, "youtube", None),
+        ("processed.scores", load_scores, "x", None),
+        ("processed.etiquetas_llm", load_etiquetas_llm, None, None),
+        ("processed.etiquetas_llm (YouTube)", load_etiquetas_llm_youtube, None, None),
+        ("processed.evaluacion_art510", load_evaluacion_art510, None, None),
+        ("processed.resumen_diario", load_resumen_diario, None, None),
     ]
 
-    for name, loader_fn in loaders:
-        try:
-            # Conexión nueva por loader: si esta etapa se cae, no arrastra
-            # a las siguientes (antes compartían una sola conexión para
-            # las 9 etapas del run).
-            with get_conn() as conn:
-                loader_fn(conn, logger)
+    for name, loader_fn, depends_on, provides in loaders:
+        if depends_on is not None and raw_ok.get(depends_on) is False:
+            logger.warning(
+                "Saltando %s — la etapa raw de la que depende (%s) falló en "
+                "esta corrida; reintentarla habría fallado igual por "
+                "integridad referencial (los message_uuid de hoy no llegaron "
+                "a comprometerse).",
+                name, depends_on,
+            )
+            skipped += 1
+            continue
+
+        success = _run_loader_with_retry(name, loader_fn, logger)
+        if provides is not None:
+            raw_ok[provides] = success
+        if success:
             ok += 1
-        except Exception as e:
-            # Loggear el error real ANTES de cualquier otra cosa. get_conn()
-            # ya hace su propio rollback/close internamente (db_utils.py) —
-            # no hace falta (ni conviene) repetirlo acá, para no arriesgarnos
-            # a tapar este mensaje con un segundo error de limpieza.
-            logger.error("Error cargando %s: %s", name, e, exc_info=True)
+        else:
             fail += 1
 
-    logger.info("=== Fin carga === OK: %d, Fallos: %d", ok, fail)
+    logger.info("=== Fin carga === OK: %d, Fallos: %d, Saltados: %d", ok, fail, skipped)
     return 0 if fail == 0 else 1
 
 
