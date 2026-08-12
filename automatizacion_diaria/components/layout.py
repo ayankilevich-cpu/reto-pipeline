@@ -69,6 +69,19 @@ def load_last_pipeline_run(pipeline_name: str = "reto_x_diario") -> dict:
     return load_last_pipeline_run_legacy(pipeline_name=pipeline_name)
 
 
+def _clear_kpi_session_state() -> None:
+    """Borra los KPIs de anotación cacheados en `session_state`.
+
+    `secciones/anotacion_validacion.py` los guarda ahí (claves `_kpi_*` y su
+    `_sig`) para incrementarlos en memoria tras cada Guardar sin reconsultar la
+    base. Al vivir fuera de `@st.cache_data`, `st.cache_data.clear()` no los
+    alcanza: sin esto, "Refrescar datos" dejaba KPIs como "Total relevantes"
+    congelados con el valor de la primera carga de la sesión.
+    """
+    for key in [k for k in st.session_state if str(k).startswith("_kpi_")]:
+        st.session_state.pop(key, None)
+
+
 # ============================================================
 # SIDEBAR
 # ============================================================
@@ -155,6 +168,7 @@ def render_sidebar():
 
     if st.sidebar.button("Refrescar datos"):
         st.cache_data.clear()
+        _clear_kpi_session_state()
         st.rerun()
 
     # Información técnica: solo visible para admin y plegada por defecto
