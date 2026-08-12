@@ -33,3 +33,6 @@ jobs:
 
       - name: Test load_to_db — reintentos y salto por dependencia
         run: pytest automatizacion_diaria/tests/test_load_to_db_resiliencia.py -v
+
+      - name: Test layout — "Refrescar datos" invalida KPIs de session_state
+        run: pytest automatizacion_diaria/tests/test_layout_refrescar_datos.py -v
