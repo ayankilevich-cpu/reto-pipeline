@@ -282,7 +282,7 @@ def render_buscador_terminos() -> None:
         legend=dict(orientation="h", y=-0.2),
         margin=dict(t=30, b=40),
     )
-    st.plotly_chart(fig_evol, use_container_width=True)
+    st.plotly_chart(fig_evol, use_container_width=True, theme=None)
 
     # 6) Comparativa por medio
     st.markdown("### Reacción de audiencia por medio")
@@ -338,7 +338,7 @@ def render_buscador_terminos() -> None:
         )
     fig_medios.update_layout(height=520, margin=dict(l=160, t=20))
     _apply_horizontal_bar_labels(fig_medios)
-    st.plotly_chart(fig_medios, use_container_width=True)
+    st.plotly_chart(fig_medios, use_container_width=True, theme=None)
 
     # 7) Distribución de categorías por medio (solo si filtro IA/LLM activo)
     if solo_llm:
@@ -376,7 +376,7 @@ def render_buscador_terminos() -> None:
                 },
             )
             fig_cat.update_layout(height=500, xaxis_tickangle=-30, margin=dict(t=20))
-            st.plotly_chart(fig_cat, use_container_width=True)
+            st.plotly_chart(fig_cat, use_container_width=True, theme=None)
 
     # 8) Muestra de mensajes
     st.markdown("### Muestra de mensajes")

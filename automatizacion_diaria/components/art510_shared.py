@@ -135,7 +135,7 @@ def _render_art510_validacion_humana(summary: dict):
             },
         )
         fig_d.update_layout(height=360)
-        st.plotly_chart(fig_d, use_container_width=True, key="art510_vh_pie_decisiones")
+        st.plotly_chart(fig_d, use_container_width=True, theme=None, key="art510_vh_pie_decisiones")
     with g2:
         df_ap = df_vh[df_vh["validacion_humana"].isin(["confirmado", "corregido"])].copy()
         df_ap = df_ap[df_ap["apartado_510_final"].notna() & (df_ap["apartado_510_final"].astype(str) != "")]
@@ -158,7 +158,7 @@ def _render_art510_validacion_humana(summary: dict):
                 },
             )
             fig_ap.update_layout(height=360, showlegend=False)
-            st.plotly_chart(fig_ap, use_container_width=True, key="art510_vh_bar_apartado")
+            st.plotly_chart(fig_ap, use_container_width=True, theme=None, key="art510_vh_bar_apartado")
 
     st.markdown("---")
     tab_conf, tab_rech, tab_all = st.tabs([

@@ -762,7 +762,7 @@ def render_panel_general():
                 showlegend=True,
                 legend=dict(orientation="h", yanchor="bottom", y=-0.15, x=0.5, xanchor="center"),
             )
-            st.plotly_chart(fig_pie, use_container_width=True)
+            st.plotly_chart(fig_pie, use_container_width=True, theme=None)
 
         # 2. Barras: Odio por plataforma (semánticos + coherente con donut)
         with col_g2:
@@ -777,7 +777,7 @@ def render_panel_general():
                 title="Distribución de odio por plataforma",
             )
             fig_plat.update_layout(height=380)
-            st.plotly_chart(fig_plat, use_container_width=True)
+            st.plotly_chart(fig_plat, use_container_width=True, theme=None)
 
         df_odio = df_comb[df_comb["odio_label"] == "Odio"].copy()
 
@@ -802,6 +802,7 @@ def render_panel_general():
                 st.plotly_chart(
                     fig_int,
                     use_container_width=True,
+                    theme=None,
                     config={
                         "displayModeBar": "hover",
                         "displaylogo": False,
@@ -836,7 +837,7 @@ def render_panel_general():
                     yaxis=dict(autorange="reversed"),
                 )
                 _apply_horizontal_bar_labels(fig_cat)
-                st.plotly_chart(fig_cat, use_container_width=True)
+                st.plotly_chart(fig_cat, use_container_width=True, theme=None)
             else:
                 st.info("Sin datos de categoría.")
 
@@ -867,7 +868,7 @@ def render_panel_general():
                 coloraxis_colorbar=dict(title="Intensidad"),
             )
             _apply_horizontal_bar_labels(fig_avg)
-            st.plotly_chart(fig_avg, use_container_width=True)
+            st.plotly_chart(fig_avg, use_container_width=True, theme=None)
 
         render_section_exports(
             section_key="panel_general",

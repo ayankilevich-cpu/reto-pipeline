@@ -124,7 +124,7 @@ def _render_ranking_simple(df: pd.DataFrame, top_n: int, key_suffix: str):
             showlegend=False, coloraxis_showscale=False,
         )
         _apply_horizontal_bar_labels(fig1)
-        st.plotly_chart(fig1, use_container_width=True, key=f"rm_vol_{key_suffix}")
+        st.plotly_chart(fig1, use_container_width=True, theme=None, key=f"rm_vol_{key_suffix}")
 
     with col2:
         fig2 = px.bar(
@@ -139,7 +139,7 @@ def _render_ranking_simple(df: pd.DataFrame, top_n: int, key_suffix: str):
             showlegend=False, coloraxis_showscale=False,
         )
         _apply_horizontal_bar_labels(fig2)
-        st.plotly_chart(fig2, use_container_width=True, key=f"rm_pct_{key_suffix}")
+        st.plotly_chart(fig2, use_container_width=True, theme=None, key=f"rm_pct_{key_suffix}")
 
     detail_cols = {
         "source_media": "Medio",
@@ -298,7 +298,7 @@ def _render_explorar_medio():
             )
             fig.update_layout(height=500, yaxis=dict(autorange="reversed"))
             _apply_horizontal_bar_labels(fig)
-            st.plotly_chart(fig, use_container_width=True, key="explore_todos_chart")
+            st.plotly_chart(fig, use_container_width=True, theme=None, key="explore_todos_chart")
         return
 
     row = df_full[
@@ -372,6 +372,7 @@ def _render_explorar_medio():
         st.plotly_chart(
             fig,
             use_container_width=True,
+            theme=None,
             key="explore_plat_chart",
             config={
                 "displayModeBar": "hover",

@@ -434,7 +434,7 @@ def render_categorias():
         )
         fig.update_layout(showlegend=False, height=400, yaxis=dict(autorange="reversed"))
         _apply_horizontal_bar_labels(fig)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, theme=None)
 
     with col2:
         fig2 = px.pie(
@@ -449,7 +449,7 @@ def render_categorias():
             marker=dict(line=dict(color="#FFFFFF", width=2)),
         )
         fig2.update_layout(height=400)
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, use_container_width=True, theme=None)
 
     st.markdown("### Intensidad por categoría")
 
@@ -477,7 +477,7 @@ def render_categorias():
             title="Distribución de intensidad (1=baja, 2=media, 3=alta)",
         )
         fig3.update_layout(height=400, xaxis_tickangle=-30)
-        st.plotly_chart(fig3, use_container_width=True)
+        st.plotly_chart(fig3, use_container_width=True, theme=None)
 
     render_section_exports(
         section_key="categorias_odio",

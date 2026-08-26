@@ -193,7 +193,7 @@ def render_gold_dataset():
                 text="total",
             )
             fig_plat.update_layout(height=300, showlegend=False, xaxis_title="")
-            st.plotly_chart(fig_plat, use_container_width=True)
+            st.plotly_chart(fig_plat, use_container_width=True, theme=None)
 
         with col_p2:
             fig_plat_odio = px.bar(
@@ -207,7 +207,7 @@ def render_gold_dataset():
                 text="% Odio",
             )
             fig_plat_odio.update_layout(height=300, showlegend=False, xaxis_title="")
-            st.plotly_chart(fig_plat_odio, use_container_width=True)
+            st.plotly_chart(fig_plat_odio, use_container_width=True, theme=None)
 
     # ── 2. Distribución del label final ──
     st.markdown("---")
@@ -225,7 +225,7 @@ def render_gold_dataset():
             title="Distribución de Odio / No Odio / Dudusos sobre LLM",
         )
         fig_odio.update_layout(height=350)
-        st.plotly_chart(fig_odio, use_container_width=True)
+        st.plotly_chart(fig_odio, use_container_width=True, theme=None)
 
     with col_pie2:
         cat_counts = df_f["y_categoria_final"].dropna().value_counts().reset_index()
@@ -245,7 +245,7 @@ def render_gold_dataset():
             showlegend=False, height=400, yaxis=dict(autorange="reversed"),
         )
         _apply_horizontal_bar_labels(fig_cat)
-        st.plotly_chart(fig_cat, use_container_width=True)
+        st.plotly_chart(fig_cat, use_container_width=True, theme=None)
 
     # ── 3. Distribución de intensidad ──
     st.markdown("---")
@@ -273,7 +273,7 @@ def render_gold_dataset():
                 title="Intensidad del odio",
             )
             fig_int.update_layout(height=350, showlegend=False)
-            st.plotly_chart(fig_int, use_container_width=True)
+            st.plotly_chart(fig_int, use_container_width=True, theme=None)
 
         with col_int2:
             # Intensidad por categoría
@@ -300,7 +300,7 @@ def render_gold_dataset():
                 title="Intensidad por categoría",
             )
             fig_int_cat.update_layout(height=350, xaxis_tickangle=-30)
-            st.plotly_chart(fig_int_cat, use_container_width=True)
+            st.plotly_chart(fig_int_cat, use_container_width=True, theme=None)
 
         df_cat_int = df_odio.dropna(
             subset=["y_categoria_final", "y_intensidad_final"]
@@ -328,7 +328,7 @@ def render_gold_dataset():
                 coloraxis_colorbar=dict(title="Intensidad"),
             )
             _apply_horizontal_bar_labels(fig_avg_gold)
-            st.plotly_chart(fig_avg_gold, use_container_width=True)
+            st.plotly_chart(fig_avg_gold, use_container_width=True, theme=None)
     else:
         st.info("No hay casos de odio en la selección actual.")
 
@@ -364,7 +364,7 @@ def render_gold_dataset():
             yaxis_title="%", height=380,
             legend=dict(orientation="h", yanchor="bottom", y=-0.25),
         )
-        st.plotly_chart(fig_corr, use_container_width=True)
+        st.plotly_chart(fig_corr, use_container_width=True, theme=None)
 
     with col_c2:
         # Matriz de confusión: LLM vs Humano (clasificación principal)
@@ -395,7 +395,7 @@ def render_gold_dataset():
                 yaxis_title="LLM (predicción)",
                 height=380,
             )
-            st.plotly_chart(fig_cm, use_container_width=True)
+            st.plotly_chart(fig_cm, use_container_width=True, theme=None)
         else:
             st.info("No hay datos para la matriz de confusión.")
 
@@ -435,7 +435,7 @@ def render_gold_dataset():
             title="% de correcciones humanas por categoría",
         )
         fig_corr_cat.update_layout(height=420, xaxis_tickangle=-25)
-        st.plotly_chart(fig_corr_cat, use_container_width=True)
+        st.plotly_chart(fig_corr_cat, use_container_width=True, theme=None)
 
     # ── 6. Análisis por anotador ──
     st.markdown("---")
@@ -453,7 +453,7 @@ def render_gold_dataset():
             title="Mensajes por anotador",
         )
         fig_annot.update_layout(height=350, showlegend=False)
-        st.plotly_chart(fig_annot, use_container_width=True)
+        st.plotly_chart(fig_annot, use_container_width=True, theme=None)
 
     with col_a2:
         # Tasa de corrección por anotador
@@ -474,7 +474,7 @@ def render_gold_dataset():
             title="% de veces que corrigió al LLM (clasif. odio)",
         )
         fig_corr_annot.update_layout(height=350, showlegend=False, xaxis_title="Anotador")
-        st.plotly_chart(fig_corr_annot, use_container_width=True)
+        st.plotly_chart(fig_corr_annot, use_container_width=True, theme=None)
 
     # ── 7. Label source & Split ──
     st.markdown("---")
@@ -495,7 +495,7 @@ def render_gold_dataset():
             title="Origen del label final",
         )
         fig_source.update_layout(height=350)
-        st.plotly_chart(fig_source, use_container_width=True)
+        st.plotly_chart(fig_source, use_container_width=True, theme=None)
 
     with col_s2:
         split_counts = df_f["split"].value_counts().reset_index()
@@ -506,7 +506,7 @@ def render_gold_dataset():
             title="Distribución Train / Test",
         )
         fig_split.update_layout(height=350)
-        st.plotly_chart(fig_split, use_container_width=True)
+        st.plotly_chart(fig_split, use_container_width=True, theme=None)
 
     # ── 8. Tabla detalle ──
     st.markdown("---")
@@ -699,7 +699,7 @@ def render_dataset_validado_guest() -> None:
     )
     fig_dist.update_traces(textinfo="label+percent")
     fig_dist.update_layout(height=380, showlegend=True)
-    st.plotly_chart(fig_dist, use_container_width=True)
+    st.plotly_chart(fig_dist, use_container_width=True, theme=None)
 
     st.markdown("---")
 
@@ -731,7 +731,7 @@ def render_dataset_validado_guest() -> None:
             xaxis_title="Mensajes", yaxis_title="",
         )
         _apply_horizontal_bar_labels(fig_cat)
-        st.plotly_chart(fig_cat, use_container_width=True)
+        st.plotly_chart(fig_cat, use_container_width=True, theme=None)
 
     st.markdown("---")
 
@@ -763,7 +763,7 @@ def render_dataset_validado_guest() -> None:
             text_auto=True,
         )
         fig_int.update_layout(height=360, showlegend=False, xaxis_title="", yaxis_title="Mensajes")
-        st.plotly_chart(fig_int, use_container_width=True)
+        st.plotly_chart(fig_int, use_container_width=True, theme=None)
 
         # D) Intensidad por categoría de odio
         st.markdown("### Intensidad por categoría de odio")
@@ -802,7 +802,7 @@ def render_dataset_validado_guest() -> None:
             fig_int_cat.update_layout(
                 height=420, xaxis_tickangle=-25, xaxis_title="", yaxis_title="Mensajes",
             )
-            st.plotly_chart(fig_int_cat, use_container_width=True)
+            st.plotly_chart(fig_int_cat, use_container_width=True, theme=None)
             st.caption(
                 "No todos los mensajes tienen la misma gravedad: la intensidad permite "
                 "diferenciar tonos leves de incitaciones hostiles."
@@ -828,7 +828,7 @@ def render_dataset_validado_guest() -> None:
             text_auto=True,
         )
         fig_plat.update_layout(height=340, showlegend=False, xaxis_title="", yaxis_title="Mensajes")
-        st.plotly_chart(fig_plat, use_container_width=True)
+        st.plotly_chart(fig_plat, use_container_width=True, theme=None)
 
     # F) Porcentaje de mensajes de odio por plataforma
     st.markdown("### Porcentaje de mensajes de odio por plataforma")
@@ -856,7 +856,7 @@ def render_dataset_validado_guest() -> None:
             yaxis_title="% mensajes de odio",
             yaxis_range=[0, max(100, float(plat_pct["% Odio"].max()) * 1.1) if not plat_pct.empty else 100],
         )
-        st.plotly_chart(fig_pct, use_container_width=True)
+        st.plotly_chart(fig_pct, use_container_width=True, theme=None)
 
 
 def render_gold_dataset_router() -> None:

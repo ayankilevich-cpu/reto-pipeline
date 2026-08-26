@@ -91,7 +91,7 @@ def _render_vllm_label_error_analysis(
             xaxis_title="Humano (gold)", yaxis_title="LLM (predicción)",
             height=340, margin=dict(t=10),
         )
-        st.plotly_chart(fig_cm, use_container_width=True)
+        st.plotly_chart(fig_cm, use_container_width=True, theme=None)
 
     with col_cm2:
         st.markdown("##### Tasa de corrección por dimensión")
@@ -119,7 +119,7 @@ def _render_vllm_label_error_analysis(
             margin=dict(t=10),
             legend=dict(orientation="h", yanchor="bottom", y=-0.3),
         )
-        st.plotly_chart(fig_corr, use_container_width=True)
+        st.plotly_chart(fig_corr, use_container_width=True, theme=None)
 
     # ── Matriz de confusión: categoría (solo casos donde ambos = ODIO) ──
     if not df_ambos_odio.empty and corrigio_cat > 0:
@@ -152,7 +152,7 @@ def _render_vllm_label_error_analysis(
                 height=380, margin=dict(t=10),
                 xaxis_tickangle=-25,
             )
-            st.plotly_chart(fig_cat, use_container_width=True)
+            st.plotly_chart(fig_cat, use_container_width=True, theme=None)
 
     # ── Sesgo de intensidad ──
     if not df_ambos_odio.empty:
@@ -190,7 +190,7 @@ def _render_vllm_label_error_analysis(
                 xaxis_title="Humano", yaxis_title="LLM",
                 height=300, margin=dict(t=10),
             )
-            st.plotly_chart(fig_int, use_container_width=True)
+            st.plotly_chart(fig_int, use_container_width=True, theme=None)
 
     # ── Tabla de correcciones ──
     st.markdown("---")

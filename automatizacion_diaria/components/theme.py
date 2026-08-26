@@ -262,6 +262,12 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
     border-radius: 8px !important;
     overflow: hidden !important;
 }
+/* El contenedor externo traía border-radius 0: sin esto las esquinas
+   redondeadas del resizable quedaban recortadas por el padre. */
+[data-testid="stDataFrame"] {
+    border-radius: 8px;
+    overflow: hidden;
+}
 
 /* --- Section header con barra de acento --- */
 .reto-section-header {
@@ -482,7 +488,7 @@ div[data-baseweb="notification"] {
     font-weight: 500 !important;
     font-size: 0.85rem !important;
     padding: 6px 14px !important;
-    border-radius: 6px !important;
+    border-radius: 8px !important;
     transition: background 0.15s ease, color 0.15s ease !important;
 }
 [data-testid="stDownloadButton"] > button *,
@@ -711,13 +717,16 @@ def _inject_global_css() -> None:
     st.markdown(_GLOBAL_CSS, unsafe_allow_html=True)
 
 
+_PLOTLY_FONT_FAMILY = "Inter, -apple-system, 'Segoe UI', Roboto, sans-serif"
+
+
 def _register_plotly_theme() -> None:
     """Registra el template Plotly 'reto' con paleta y estilo unificados."""
     if pio is None:
         return
     template = go.layout.Template()
     template.layout = go.Layout(
-        font=dict(family="Inter, -apple-system, sans-serif", size=12, color="#4A5568"),
+        font=dict(family=_PLOTLY_FONT_FAMILY, size=12, color="#1A202C"),
         title=dict(
             font=dict(size=15, color="#1A202C", family="Inter, -apple-system, sans-serif"),
             x=0.0, xanchor="left", pad=dict(t=4, b=8),
@@ -743,7 +752,7 @@ def _register_plotly_theme() -> None:
         bargroupgap=0.1,
         hoverlabel=dict(
             bgcolor="#1F4E79", bordercolor="#1F4E79",
-            font=dict(color="white", family="Inter", size=12),
+            font=dict(color="#FFFFFF", family=_PLOTLY_FONT_FAMILY, size=12),
         ),
     )
     pio.templates["reto"] = template

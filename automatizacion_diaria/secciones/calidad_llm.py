@@ -302,7 +302,7 @@ def render_calidad_llm():
             )
             fig.update_layout(height=400, yaxis=dict(autorange="reversed"))
             _apply_horizontal_bar_labels(fig)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, theme=None)
         else:
             st.info("No hay casos odio ∩ odio para calcular accuracy por categoría.")
     else:
@@ -317,7 +317,7 @@ def render_calidad_llm():
             )
             fig.update_layout(height=350, yaxis=dict(autorange="reversed"))
             _apply_horizontal_bar_labels(fig)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, theme=None)
 
     if show_yt_errors:
         with st.expander("Análisis de errores — YouTube", expanded=False):

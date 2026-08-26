@@ -145,7 +145,7 @@ def render_comparativa():
         showscale=False,
     ))
     fig.update_layout(title="Baseline vs LLM", height=350, xaxis_title="LLM", yaxis_title="Baseline")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, theme=None)
 
     st.markdown("### Discrepancias")
     col1, col2 = st.columns(2)
@@ -178,7 +178,7 @@ def render_comparativa():
             )
             fig_cat.update_layout(height=350, yaxis=dict(autorange="reversed"))
             _apply_horizontal_bar_labels(fig_cat)
-            st.plotly_chart(fig_cat, use_container_width=True)
+            st.plotly_chart(fig_cat, use_container_width=True, theme=None)
 
     render_section_exports(
         section_key="comparativa_modelos",

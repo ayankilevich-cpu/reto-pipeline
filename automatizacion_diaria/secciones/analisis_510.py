@@ -505,7 +505,7 @@ def _render_art510_preview(sel_platforms, sel_sources):
             color_discrete_sequence=CAT_COLORS,
         )
         fig_cat.update_layout(height=400)
-        st.plotly_chart(fig_cat, use_container_width=True)
+        st.plotly_chart(fig_cat, use_container_width=True, theme=None)
 
     with col_g2:
         if len(df["platform_label"].unique()) > 0 and len(df["source_label"].unique()) > 0:
@@ -526,7 +526,7 @@ def _render_art510_preview(sel_platforms, sel_sources):
                 },
             )
             fig_gr.update_layout(height=400)
-            st.plotly_chart(fig_gr, use_container_width=True)
+            st.plotly_chart(fig_gr, use_container_width=True, theme=None)
 
     # ── Tabla pivot ──
     st.markdown("---")
@@ -561,7 +561,7 @@ def _render_art510_preview(sel_platforms, sel_sources):
         title="Distribución por intensidad (los de intensidad 3 son los más relevantes para Art. 510)",
     )
     fig_int.update_layout(height=350, showlegend=False)
-    st.plotly_chart(fig_int, use_container_width=True)
+    st.plotly_chart(fig_int, use_container_width=True, theme=None)
 
     # ── Tabla detalle ──
     st.markdown("---")
@@ -910,7 +910,7 @@ def _render_art510_full(summary, sel_platforms, sel_sources, solo_delitos):
                 hole=0.4,
             )
             fig_ap.update_layout(height=400)
-            st.plotly_chart(fig_ap, use_container_width=True)
+            st.plotly_chart(fig_ap, use_container_width=True, theme=None)
 
         with col_g2:
             gp_counts = (
@@ -931,7 +931,7 @@ def _render_art510_full(summary, sel_platforms, sel_sources, solo_delitos):
             )
             fig_gp.update_layout(height=400, yaxis=dict(autorange="reversed"))
             _apply_horizontal_bar_labels(fig_gp)
-            st.plotly_chart(fig_gp, use_container_width=True)
+            st.plotly_chart(fig_gp, use_container_width=True, theme=None)
 
     # ── Vista agrupada: Plataforma x Fuente ──
     st.markdown("---")
@@ -969,7 +969,7 @@ def _render_art510_full(summary, sel_platforms, sel_sources, solo_delitos):
                     },
                 )
                 fig_grouped.update_layout(height=400)
-                st.plotly_chart(fig_grouped, use_container_width=True)
+                st.plotly_chart(fig_grouped, use_container_width=True, theme=None)
 
         with tab_conf:
             conf_order = ["alta", "media", "baja"]
@@ -988,7 +988,7 @@ def _render_art510_full(summary, sel_platforms, sel_sources, solo_delitos):
                 title="Distribución por nivel de confianza del LLM",
             )
             fig_conf.update_layout(height=350, showlegend=False)
-            st.plotly_chart(fig_conf, use_container_width=True)
+            st.plotly_chart(fig_conf, use_container_width=True, theme=None)
 
         with tab_detail:
             display_cols = [

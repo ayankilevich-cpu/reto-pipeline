@@ -363,7 +363,7 @@ def render_analisis_contextual():
             borderwidth=1,
             font=dict(size=11, color="#1a1a1a"),
         )
-    st.plotly_chart(fig_timeline, use_container_width=True, key="ctx_timeline")
+    st.plotly_chart(fig_timeline, use_container_width=True, theme=None, key="ctx_timeline")
 
     with st.expander("ℹ️ Cómo leer este gráfico"):
         st.markdown(
@@ -520,7 +520,7 @@ def render_analisis_contextual():
                 )
                 fig_cat.update_layout(height=300, showlegend=False, yaxis=dict(autorange="reversed"))
                 _apply_horizontal_bar_labels(fig_cat)
-                st.plotly_chart(fig_cat, use_container_width=True, key="ctx_cats")
+                st.plotly_chart(fig_cat, use_container_width=True, theme=None, key="ctx_cats")
             else:
                 st.info("Sin datos de categorías.")
             if not _is_viewer():
@@ -545,7 +545,7 @@ def render_analisis_contextual():
                 )
                 fig_tgt.update_layout(height=300, showlegend=False, yaxis=dict(autorange="reversed"))
                 _apply_horizontal_bar_labels(fig_tgt)
-                st.plotly_chart(fig_tgt, use_container_width=True, key="ctx_targets")
+                st.plotly_chart(fig_tgt, use_container_width=True, theme=None, key="ctx_targets")
             else:
                 st.info("Sin datos de targets.")
 
@@ -569,7 +569,7 @@ def render_analisis_contextual():
                 )
                 fig_tema.update_layout(height=300, showlegend=False, yaxis=dict(autorange="reversed"))
                 _apply_horizontal_bar_labels(fig_tema)
-                st.plotly_chart(fig_tema, use_container_width=True, key="ctx_temas")
+                st.plotly_chart(fig_tema, use_container_width=True, theme=None, key="ctx_temas")
             else:
                 st.info("Sin datos de temas.")
 
@@ -598,7 +598,7 @@ def render_analisis_contextual():
                         marker=dict(line=dict(color="#FFFFFF", width=2)),
                     )
                     fig_int.update_layout(height=300)
-                    st.plotly_chart(fig_int, use_container_width=True, key="ctx_intensidad")
+                    st.plotly_chart(fig_int, use_container_width=True, theme=None, key="ctx_intensidad")
                 else:
                     st.info("Sin datos de intensidad.")
             else:

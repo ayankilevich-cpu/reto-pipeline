@@ -343,7 +343,7 @@ def render_terminos():
             )
             fig.update_layout(height=max(400, top_n * 22), yaxis=dict(autorange="reversed"), showlegend=False)
             _apply_horizontal_bar_labels(fig)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, theme=None)
 
         with col2:
             if counter:

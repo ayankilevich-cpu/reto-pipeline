@@ -318,7 +318,7 @@ def render_delitos():
             legend=dict(orientation="h", yanchor="bottom", y=-0.35),
             height=500,
         )
-        st.plotly_chart(fig_line, use_container_width=True)
+        st.plotly_chart(fig_line, use_container_width=True, theme=None)
 
     with tab_bar:
         fig_bar = px.bar(
@@ -332,7 +332,7 @@ def render_delitos():
             legend=dict(orientation="h", yanchor="bottom", y=-0.35),
             height=500,
         )
-        st.plotly_chart(fig_bar, use_container_width=True)
+        st.plotly_chart(fig_bar, use_container_width=True, theme=None)
 
     # ── 3. Tasa de esclarecimiento ──
     st.markdown("---")
@@ -367,7 +367,7 @@ def render_delitos():
         legend=dict(orientation="h", yanchor="bottom", y=-0.2),
     )
     _apply_horizontal_bar_labels(fig_solve)
-    st.plotly_chart(fig_solve, use_container_width=True)
+    st.plotly_chart(fig_solve, use_container_width=True, theme=None)
 
     # ── 4. Perfil de autores por edad ──
     st.markdown("---")
@@ -400,7 +400,7 @@ def render_delitos():
             )
         )
         fig_age.update_layout(height=450)
-        st.plotly_chart(fig_age, use_container_width=True)
+        st.plotly_chart(fig_age, use_container_width=True, theme=None)
 
     with tab_age_line:
         age_total_yr = df_age_f.groupby(["year", "grupo_edad"])["n_authors"].sum().reset_index()
@@ -411,7 +411,7 @@ def render_delitos():
             color_discrete_sequence=DELITOS_COLORS,
         )
         fig_age_l.update_layout(xaxis=dict(dtick=1), height=450)
-        st.plotly_chart(fig_age_l, use_container_width=True)
+        st.plotly_chart(fig_age_l, use_container_width=True, theme=None)
 
     # ── 5. Investigados por sexo ──
     st.markdown("---")
@@ -441,7 +441,7 @@ def render_delitos():
         legend=dict(orientation="h", yanchor="bottom", y=-0.2),
     )
     _apply_horizontal_bar_labels(fig_sex)
-    st.plotly_chart(fig_sex, use_container_width=True)
+    st.plotly_chart(fig_sex, use_container_width=True, theme=None)
 
     # Porcentaje de mujeres por motivo
     sex_agg["pct_mujeres"] = (
@@ -484,7 +484,7 @@ def render_delitos():
         legend=dict(orientation="h", yanchor="bottom", y=-0.2),
     )
     _apply_horizontal_bar_labels(fig_pros)
-    st.plotly_chart(fig_pros, use_container_width=True)
+    st.plotly_chart(fig_pros, use_container_width=True, theme=None)
 
     # ── 7. Artículos del Código Penal más aplicados ──
     st.markdown("---")
@@ -508,7 +508,7 @@ def render_delitos():
         )
         fig_art.update_layout(height=450, yaxis_title="")
         _apply_horizontal_bar_labels(fig_art)
-        st.plotly_chart(fig_art, use_container_width=True)
+        st.plotly_chart(fig_art, use_container_width=True, theme=None)
     elif not df_articles.empty:
         df_art_f = df_articles[df_articles["year"].isin(selected_years)]
         art_agg = (
@@ -528,7 +528,7 @@ def render_delitos():
             )
             fig_art.update_layout(height=450, yaxis_title="")
             _apply_horizontal_bar_labels(fig_art)
-            st.plotly_chart(fig_art, use_container_width=True)
+            st.plotly_chart(fig_art, use_container_width=True, theme=None)
         else:
             st.info("No hay datos de acusaciones por artículo para los años seleccionados.")
     else:

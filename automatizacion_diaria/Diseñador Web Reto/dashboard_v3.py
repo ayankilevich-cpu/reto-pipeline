@@ -401,6 +401,12 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
     border-radius: 8px !important;
     overflow: hidden !important;
 }
+/* El contenedor externo traía border-radius 0: sin esto las esquinas
+   redondeadas del resizable quedaban recortadas por el padre. */
+[data-testid="stDataFrame"] {
+    border-radius: 8px;
+    overflow: hidden;
+}
 
 /* --- Section header con barra de acento --- */
 .reto-section-header {
@@ -625,7 +631,7 @@ div[data-testid="stDateInput"] input:focus {
     font-weight: 500 !important;
     font-size: 0.85rem !important;
     padding: 6px 14px !important;
-    border-radius: 6px !important;
+    border-radius: 8px !important;
     transition: background 0.15s ease, color 0.15s ease !important;
 }
 [data-testid="stDownloadButton"] > button *,
@@ -1319,13 +1325,16 @@ PLATFORM_DISPLAY = {
 _PLATFORM_ALIASES = {"x": ("x", "twitter"), "twitter": ("x", "twitter")}
 
 
+_PLOTLY_FONT_FAMILY = "Inter, -apple-system, 'Segoe UI', Roboto, sans-serif"
+
+
 def _register_plotly_theme() -> None:
     """Registra el template Plotly 'reto' con paleta y estilo unificados."""
     if pio is None:
         return
     template = go.layout.Template()
     template.layout = go.Layout(
-        font=dict(family="Inter, -apple-system, sans-serif", size=13, color="#1A202C"),
+        font=dict(family=_PLOTLY_FONT_FAMILY, size=13, color="#1A202C"),
         title=dict(
             font=dict(size=15, color="#1A202C", family="Inter"),
             x=0.0, xanchor="left", pad=dict(t=4, b=8),
@@ -1351,7 +1360,7 @@ def _register_plotly_theme() -> None:
         bargroupgap=0.1,
         hoverlabel=dict(
             bgcolor="#1F4E79", bordercolor="#1F4E79",
-            font=dict(color="white", family="Inter", size=12),
+            font=dict(color="#FFFFFF", family=_PLOTLY_FONT_FAMILY, size=12),
         ),
     )
     pio.templates["reto"] = template
@@ -3340,7 +3349,7 @@ def render_panel_general():
                 showlegend=True,
                 legend=dict(orientation="h", yanchor="bottom", y=-0.15, x=0.5, xanchor="center"),
             )
-            st.plotly_chart(fig_pie, use_container_width=True)
+            st.plotly_chart(fig_pie, use_container_width=True, theme=None)
 
         # 2. Barras: Odio por plataforma (semánticos + coherente con donut)
         with col_g2:
@@ -3355,7 +3364,7 @@ def render_panel_general():
                 title="Distribución de odio por plataforma",
             )
             fig_plat.update_layout(height=380)
-            st.plotly_chart(fig_plat, use_container_width=True)
+            st.plotly_chart(fig_plat, use_container_width=True, theme=None)
 
         df_odio = df_comb[df_comb["odio_label"] == "Odio"].copy()
 
@@ -3377,7 +3386,7 @@ def render_panel_general():
                     text_auto=True,
                 )
                 fig_int.update_layout(height=380, showlegend=False)
-                st.plotly_chart(fig_int, use_container_width=True)
+                st.plotly_chart(fig_int, use_container_width=True, theme=None)
             else:
                 st.info("Sin datos de intensidad.")
 
@@ -3406,7 +3415,7 @@ def render_panel_general():
                     yaxis=dict(autorange="reversed"),
                 )
                 _apply_horizontal_bar_labels(fig_cat)
-                st.plotly_chart(fig_cat, use_container_width=True)
+                st.plotly_chart(fig_cat, use_container_width=True, theme=None)
             else:
                 st.info("Sin datos de categoría.")
 
@@ -3437,7 +3446,7 @@ def render_panel_general():
                 coloraxis_colorbar=dict(title="Intensidad"),
             )
             _apply_horizontal_bar_labels(fig_avg)
-            st.plotly_chart(fig_avg, use_container_width=True)
+            st.plotly_chart(fig_avg, use_container_width=True, theme=None)
 
         render_section_exports(
             section_key="panel_general",
@@ -3661,7 +3670,7 @@ def render_categorias():
         )
         fig.update_layout(showlegend=False, height=400, yaxis=dict(autorange="reversed"))
         _apply_horizontal_bar_labels(fig)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, theme=None)
 
     with col2:
         fig2 = px.pie(
@@ -3676,7 +3685,7 @@ def render_categorias():
             marker=dict(line=dict(color="#FFFFFF", width=2)),
         )
         fig2.update_layout(height=400)
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, use_container_width=True, theme=None)
 
     st.markdown("### Intensidad por categoría")
 
@@ -3704,7 +3713,7 @@ def render_categorias():
             title="Distribución de intensidad (1=baja, 2=media, 3=alta)",
         )
         fig3.update_layout(height=400, xaxis_tickangle=-30)
-        st.plotly_chart(fig3, use_container_width=True)
+        st.plotly_chart(fig3, use_container_width=True, theme=None)
 
     render_section_exports(
         section_key="categorias_odio",
@@ -3761,7 +3770,7 @@ def _render_ranking_simple(df: pd.DataFrame, top_n: int, key_suffix: str):
             showlegend=False, coloraxis_showscale=False,
         )
         _apply_horizontal_bar_labels(fig1)
-        st.plotly_chart(fig1, use_container_width=True, key=f"rm_vol_{key_suffix}")
+        st.plotly_chart(fig1, use_container_width=True, theme=None, key=f"rm_vol_{key_suffix}")
 
     with col2:
         fig2 = px.bar(
@@ -3776,7 +3785,7 @@ def _render_ranking_simple(df: pd.DataFrame, top_n: int, key_suffix: str):
             showlegend=False, coloraxis_showscale=False,
         )
         _apply_horizontal_bar_labels(fig2)
-        st.plotly_chart(fig2, use_container_width=True, key=f"rm_pct_{key_suffix}")
+        st.plotly_chart(fig2, use_container_width=True, theme=None, key=f"rm_pct_{key_suffix}")
 
     detail_cols = {
         "source_media": "Medio",
@@ -3934,7 +3943,7 @@ def _render_explorar_medio():
             )
             fig.update_layout(height=500, yaxis=dict(autorange="reversed"))
             _apply_horizontal_bar_labels(fig)
-            st.plotly_chart(fig, use_container_width=True, key="explore_todos_chart")
+            st.plotly_chart(fig, use_container_width=True, theme=None, key="explore_todos_chart")
         return
 
     row = df_full[
@@ -4005,7 +4014,7 @@ def _render_explorar_medio():
         fig.for_each_trace(lambda t: t.update(
             name="Total" if "total" in t.name else "Odio"
         ))
-        st.plotly_chart(fig, use_container_width=True, key="explore_plat_chart")
+        st.plotly_chart(fig, use_container_width=True, theme=None, key="explore_plat_chart")
 
 
 def render_ranking_medios():
@@ -4404,7 +4413,7 @@ def render_analisis_contextual():
             borderwidth=1,
             font=dict(size=11, color="#1a1a1a"),
         )
-    st.plotly_chart(fig_timeline, use_container_width=True, key="ctx_timeline")
+    st.plotly_chart(fig_timeline, use_container_width=True, theme=None, key="ctx_timeline")
 
     with st.expander("ℹ️ Cómo leer este gráfico"):
         st.markdown(
@@ -4558,7 +4567,7 @@ def render_analisis_contextual():
             )
             fig_cat.update_layout(height=300, showlegend=False, yaxis=dict(autorange="reversed"))
             _apply_horizontal_bar_labels(fig_cat)
-            st.plotly_chart(fig_cat, use_container_width=True, key="ctx_cats")
+            st.plotly_chart(fig_cat, use_container_width=True, theme=None, key="ctx_cats")
         else:
             st.info("Sin datos de categorías.")
         if not _is_viewer():
@@ -4583,7 +4592,7 @@ def render_analisis_contextual():
             )
             fig_tgt.update_layout(height=300, showlegend=False, yaxis=dict(autorange="reversed"))
             _apply_horizontal_bar_labels(fig_tgt)
-            st.plotly_chart(fig_tgt, use_container_width=True, key="ctx_targets")
+            st.plotly_chart(fig_tgt, use_container_width=True, theme=None, key="ctx_targets")
         else:
             st.info("Sin datos de targets.")
 
@@ -4607,7 +4616,7 @@ def render_analisis_contextual():
             )
             fig_tema.update_layout(height=300, showlegend=False, yaxis=dict(autorange="reversed"))
             _apply_horizontal_bar_labels(fig_tema)
-            st.plotly_chart(fig_tema, use_container_width=True, key="ctx_temas")
+            st.plotly_chart(fig_tema, use_container_width=True, theme=None, key="ctx_temas")
         else:
             st.info("Sin datos de temas.")
 
@@ -4636,7 +4645,7 @@ def render_analisis_contextual():
                     marker=dict(line=dict(color="#FFFFFF", width=2)),
                 )
                 fig_int.update_layout(height=300)
-                st.plotly_chart(fig_int, use_container_width=True, key="ctx_intensidad")
+                st.plotly_chart(fig_int, use_container_width=True, theme=None, key="ctx_intensidad")
             else:
                 st.info("Sin datos de intensidad.")
         else:
@@ -4765,7 +4774,7 @@ def render_comparativa():
         showscale=False,
     ))
     fig.update_layout(title="Baseline vs LLM", height=350, xaxis_title="LLM", yaxis_title="Baseline")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, theme=None)
 
     st.markdown("### Discrepancias")
     col1, col2 = st.columns(2)
@@ -4798,7 +4807,7 @@ def render_comparativa():
             )
             fig_cat.update_layout(height=350, yaxis=dict(autorange="reversed"))
             _apply_horizontal_bar_labels(fig_cat)
-            st.plotly_chart(fig_cat, use_container_width=True)
+            st.plotly_chart(fig_cat, use_container_width=True, theme=None)
 
     render_section_exports(
         section_key="comparativa_modelos",
@@ -5019,7 +5028,7 @@ def render_calidad_llm():
             )
             fig.update_layout(height=400, yaxis=dict(autorange="reversed"))
             _apply_horizontal_bar_labels(fig)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, theme=None)
         else:
             st.info("No hay casos odio ∩ odio para calcular accuracy por categoría.")
     else:
@@ -5034,7 +5043,7 @@ def render_calidad_llm():
             )
             fig.update_layout(height=350, yaxis=dict(autorange="reversed"))
             _apply_horizontal_bar_labels(fig)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, theme=None)
 
     if show_yt_errors:
         with st.expander("Análisis de errores — YouTube", expanded=False):
@@ -5165,7 +5174,7 @@ def render_terminos():
         )
         fig.update_layout(height=max(400, top_n * 22), yaxis=dict(autorange="reversed"), showlegend=False)
         _apply_horizontal_bar_labels(fig)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, theme=None)
 
     with col2:
         if counter:
@@ -5375,7 +5384,7 @@ def render_dataset_validado_guest() -> None:
     )
     fig_dist.update_traces(textinfo="label+percent")
     fig_dist.update_layout(height=380, showlegend=True)
-    st.plotly_chart(fig_dist, use_container_width=True)
+    st.plotly_chart(fig_dist, use_container_width=True, theme=None)
 
     st.markdown("---")
 
@@ -5407,7 +5416,7 @@ def render_dataset_validado_guest() -> None:
             xaxis_title="Mensajes", yaxis_title="",
         )
         _apply_horizontal_bar_labels(fig_cat)
-        st.plotly_chart(fig_cat, use_container_width=True)
+        st.plotly_chart(fig_cat, use_container_width=True, theme=None)
 
     st.markdown("---")
 
@@ -5439,7 +5448,7 @@ def render_dataset_validado_guest() -> None:
             text_auto=True,
         )
         fig_int.update_layout(height=360, showlegend=False, xaxis_title="", yaxis_title="Mensajes")
-        st.plotly_chart(fig_int, use_container_width=True)
+        st.plotly_chart(fig_int, use_container_width=True, theme=None)
 
         # D) Intensidad por categoría de odio
         st.markdown("### Intensidad por categoría de odio")
@@ -5478,7 +5487,7 @@ def render_dataset_validado_guest() -> None:
             fig_int_cat.update_layout(
                 height=420, xaxis_tickangle=-25, xaxis_title="", yaxis_title="Mensajes",
             )
-            st.plotly_chart(fig_int_cat, use_container_width=True)
+            st.plotly_chart(fig_int_cat, use_container_width=True, theme=None)
             st.caption(
                 "No todos los mensajes tienen la misma gravedad: la intensidad permite "
                 "diferenciar tonos leves de incitaciones hostiles."
@@ -5504,7 +5513,7 @@ def render_dataset_validado_guest() -> None:
             text_auto=True,
         )
         fig_plat.update_layout(height=340, showlegend=False, xaxis_title="", yaxis_title="Mensajes")
-        st.plotly_chart(fig_plat, use_container_width=True)
+        st.plotly_chart(fig_plat, use_container_width=True, theme=None)
 
     # F) Porcentaje de mensajes de odio por plataforma
     st.markdown("### Porcentaje de mensajes de odio por plataforma")
@@ -5532,7 +5541,7 @@ def render_dataset_validado_guest() -> None:
             yaxis_title="% mensajes de odio",
             yaxis_range=[0, max(100, float(plat_pct["% Odio"].max()) * 1.1) if not plat_pct.empty else 100],
         )
-        st.plotly_chart(fig_pct, use_container_width=True)
+        st.plotly_chart(fig_pct, use_container_width=True, theme=None)
 
 
 def render_gold_dataset_router() -> None:
@@ -5711,7 +5720,7 @@ def render_gold_dataset():
                 text="total",
             )
             fig_plat.update_layout(height=300, showlegend=False, xaxis_title="")
-            st.plotly_chart(fig_plat, use_container_width=True)
+            st.plotly_chart(fig_plat, use_container_width=True, theme=None)
 
         with col_p2:
             fig_plat_odio = px.bar(
@@ -5725,7 +5734,7 @@ def render_gold_dataset():
                 text="% Odio",
             )
             fig_plat_odio.update_layout(height=300, showlegend=False, xaxis_title="")
-            st.plotly_chart(fig_plat_odio, use_container_width=True)
+            st.plotly_chart(fig_plat_odio, use_container_width=True, theme=None)
 
     # ── 2. Distribución del label final ──
     st.markdown("---")
@@ -5743,7 +5752,7 @@ def render_gold_dataset():
             title="Distribución de Odio / No Odio / Dudusos sobre LLM",
         )
         fig_odio.update_layout(height=350)
-        st.plotly_chart(fig_odio, use_container_width=True)
+        st.plotly_chart(fig_odio, use_container_width=True, theme=None)
 
     with col_pie2:
         cat_counts = df_f["y_categoria_final"].dropna().value_counts().reset_index()
@@ -5763,7 +5772,7 @@ def render_gold_dataset():
             showlegend=False, height=400, yaxis=dict(autorange="reversed"),
         )
         _apply_horizontal_bar_labels(fig_cat)
-        st.plotly_chart(fig_cat, use_container_width=True)
+        st.plotly_chart(fig_cat, use_container_width=True, theme=None)
 
     # ── 3. Distribución de intensidad ──
     st.markdown("---")
@@ -5791,7 +5800,7 @@ def render_gold_dataset():
                 title="Intensidad del odio",
             )
             fig_int.update_layout(height=350, showlegend=False)
-            st.plotly_chart(fig_int, use_container_width=True)
+            st.plotly_chart(fig_int, use_container_width=True, theme=None)
 
         with col_int2:
             # Intensidad por categoría
@@ -5818,7 +5827,7 @@ def render_gold_dataset():
                 title="Intensidad por categoría",
             )
             fig_int_cat.update_layout(height=350, xaxis_tickangle=-30)
-            st.plotly_chart(fig_int_cat, use_container_width=True)
+            st.plotly_chart(fig_int_cat, use_container_width=True, theme=None)
 
         df_cat_int = df_odio.dropna(
             subset=["y_categoria_final", "y_intensidad_final"]
@@ -5846,7 +5855,7 @@ def render_gold_dataset():
                 coloraxis_colorbar=dict(title="Intensidad"),
             )
             _apply_horizontal_bar_labels(fig_avg_gold)
-            st.plotly_chart(fig_avg_gold, use_container_width=True)
+            st.plotly_chart(fig_avg_gold, use_container_width=True, theme=None)
     else:
         st.info("No hay casos de odio en la selección actual.")
 
@@ -5882,7 +5891,7 @@ def render_gold_dataset():
             yaxis_title="%", height=380,
             legend=dict(orientation="h", yanchor="bottom", y=-0.25),
         )
-        st.plotly_chart(fig_corr, use_container_width=True)
+        st.plotly_chart(fig_corr, use_container_width=True, theme=None)
 
     with col_c2:
         # Matriz de confusión: LLM vs Humano (clasificación principal)
@@ -5913,7 +5922,7 @@ def render_gold_dataset():
                 yaxis_title="LLM (predicción)",
                 height=380,
             )
-            st.plotly_chart(fig_cm, use_container_width=True)
+            st.plotly_chart(fig_cm, use_container_width=True, theme=None)
         else:
             st.info("No hay datos para la matriz de confusión.")
 
@@ -5953,7 +5962,7 @@ def render_gold_dataset():
             title="% de correcciones humanas por categoría",
         )
         fig_corr_cat.update_layout(height=420, xaxis_tickangle=-25)
-        st.plotly_chart(fig_corr_cat, use_container_width=True)
+        st.plotly_chart(fig_corr_cat, use_container_width=True, theme=None)
 
     # ── 6. Análisis por anotador ──
     st.markdown("---")
@@ -5971,7 +5980,7 @@ def render_gold_dataset():
             title="Mensajes por anotador",
         )
         fig_annot.update_layout(height=350, showlegend=False)
-        st.plotly_chart(fig_annot, use_container_width=True)
+        st.plotly_chart(fig_annot, use_container_width=True, theme=None)
 
     with col_a2:
         # Tasa de corrección por anotador
@@ -5992,7 +6001,7 @@ def render_gold_dataset():
             title="% de veces que corrigió al LLM (clasif. odio)",
         )
         fig_corr_annot.update_layout(height=350, showlegend=False, xaxis_title="Anotador")
-        st.plotly_chart(fig_corr_annot, use_container_width=True)
+        st.plotly_chart(fig_corr_annot, use_container_width=True, theme=None)
 
     # ── 7. Label source & Split ──
     st.markdown("---")
@@ -6013,7 +6022,7 @@ def render_gold_dataset():
             title="Origen del label final",
         )
         fig_source.update_layout(height=350)
-        st.plotly_chart(fig_source, use_container_width=True)
+        st.plotly_chart(fig_source, use_container_width=True, theme=None)
 
     with col_s2:
         split_counts = df_f["split"].value_counts().reset_index()
@@ -6024,7 +6033,7 @@ def render_gold_dataset():
             title="Distribución Train / Test",
         )
         fig_split.update_layout(height=350)
-        st.plotly_chart(fig_split, use_container_width=True)
+        st.plotly_chart(fig_split, use_container_width=True, theme=None)
 
     # ── 8. Tabla detalle ──
     st.markdown("---")
@@ -6768,7 +6777,7 @@ def _render_art510_preview(sel_platforms, sel_sources):
             color_discrete_sequence=CAT_COLORS,
         )
         fig_cat.update_layout(height=400)
-        st.plotly_chart(fig_cat, use_container_width=True)
+        st.plotly_chart(fig_cat, use_container_width=True, theme=None)
 
     with col_g2:
         if len(df["platform_label"].unique()) > 0 and len(df["source_label"].unique()) > 0:
@@ -6789,7 +6798,7 @@ def _render_art510_preview(sel_platforms, sel_sources):
                 },
             )
             fig_gr.update_layout(height=400)
-            st.plotly_chart(fig_gr, use_container_width=True)
+            st.plotly_chart(fig_gr, use_container_width=True, theme=None)
 
     # ── Tabla pivot ──
     st.markdown("---")
@@ -6824,7 +6833,7 @@ def _render_art510_preview(sel_platforms, sel_sources):
         title="Distribución por intensidad (los de intensidad 3 son los más relevantes para Art. 510)",
     )
     fig_int.update_layout(height=350, showlegend=False)
-    st.plotly_chart(fig_int, use_container_width=True)
+    st.plotly_chart(fig_int, use_container_width=True, theme=None)
 
     # ── Tabla detalle ──
     st.markdown("---")
@@ -7161,7 +7170,7 @@ def _render_art510_validacion_humana(summary: dict):
             },
         )
         fig_d.update_layout(height=360)
-        st.plotly_chart(fig_d, use_container_width=True, key="art510_vh_pie_decisiones")
+        st.plotly_chart(fig_d, use_container_width=True, theme=None, key="art510_vh_pie_decisiones")
     with g2:
         df_ap = df_vh[df_vh["validacion_humana"].isin(["confirmado", "corregido"])].copy()
         df_ap = df_ap[df_ap["apartado_510_final"].notna() & (df_ap["apartado_510_final"].astype(str) != "")]
@@ -7184,7 +7193,7 @@ def _render_art510_validacion_humana(summary: dict):
                 },
             )
             fig_ap.update_layout(height=360, showlegend=False)
-            st.plotly_chart(fig_ap, use_container_width=True, key="art510_vh_bar_apartado")
+            st.plotly_chart(fig_ap, use_container_width=True, theme=None, key="art510_vh_bar_apartado")
 
     st.markdown("---")
     tab_conf, tab_rech, tab_all = st.tabs([
@@ -7420,7 +7429,7 @@ def _render_art510_full(summary, sel_platforms, sel_sources, solo_delitos):
                 hole=0.4,
             )
             fig_ap.update_layout(height=400)
-            st.plotly_chart(fig_ap, use_container_width=True)
+            st.plotly_chart(fig_ap, use_container_width=True, theme=None)
 
         with col_g2:
             gp_counts = (
@@ -7441,7 +7450,7 @@ def _render_art510_full(summary, sel_platforms, sel_sources, solo_delitos):
             )
             fig_gp.update_layout(height=400, yaxis=dict(autorange="reversed"))
             _apply_horizontal_bar_labels(fig_gp)
-            st.plotly_chart(fig_gp, use_container_width=True)
+            st.plotly_chart(fig_gp, use_container_width=True, theme=None)
 
     # ── Vista agrupada: Plataforma x Fuente ──
     st.markdown("---")
@@ -7479,7 +7488,7 @@ def _render_art510_full(summary, sel_platforms, sel_sources, solo_delitos):
                     },
                 )
                 fig_grouped.update_layout(height=400)
-                st.plotly_chart(fig_grouped, use_container_width=True)
+                st.plotly_chart(fig_grouped, use_container_width=True, theme=None)
 
         with tab_conf:
             conf_order = ["alta", "media", "baja"]
@@ -7498,7 +7507,7 @@ def _render_art510_full(summary, sel_platforms, sel_sources, solo_delitos):
                 title="Distribución por nivel de confianza del LLM",
             )
             fig_conf.update_layout(height=350, showlegend=False)
-            st.plotly_chart(fig_conf, use_container_width=True)
+            st.plotly_chart(fig_conf, use_container_width=True, theme=None)
 
         with tab_detail:
             display_cols = [
@@ -8047,7 +8056,7 @@ def render_delitos():
             legend=dict(orientation="h", yanchor="bottom", y=-0.35),
             height=500,
         )
-        st.plotly_chart(fig_line, use_container_width=True)
+        st.plotly_chart(fig_line, use_container_width=True, theme=None)
 
     with tab_bar:
         fig_bar = px.bar(
@@ -8061,7 +8070,7 @@ def render_delitos():
             legend=dict(orientation="h", yanchor="bottom", y=-0.35),
             height=500,
         )
-        st.plotly_chart(fig_bar, use_container_width=True)
+        st.plotly_chart(fig_bar, use_container_width=True, theme=None)
 
     # ── 3. Tasa de esclarecimiento ──
     st.markdown("---")
@@ -8096,7 +8105,7 @@ def render_delitos():
         legend=dict(orientation="h", yanchor="bottom", y=-0.2),
     )
     _apply_horizontal_bar_labels(fig_solve)
-    st.plotly_chart(fig_solve, use_container_width=True)
+    st.plotly_chart(fig_solve, use_container_width=True, theme=None)
 
     # ── 4. Perfil de autores por edad ──
     st.markdown("---")
@@ -8129,7 +8138,7 @@ def render_delitos():
             )
         )
         fig_age.update_layout(height=450)
-        st.plotly_chart(fig_age, use_container_width=True)
+        st.plotly_chart(fig_age, use_container_width=True, theme=None)
 
     with tab_age_line:
         age_total_yr = df_age_f.groupby(["year", "grupo_edad"])["n_authors"].sum().reset_index()
@@ -8140,7 +8149,7 @@ def render_delitos():
             color_discrete_sequence=DELITOS_COLORS,
         )
         fig_age_l.update_layout(xaxis=dict(dtick=1), height=450)
-        st.plotly_chart(fig_age_l, use_container_width=True)
+        st.plotly_chart(fig_age_l, use_container_width=True, theme=None)
 
     # ── 5. Investigados por sexo ──
     st.markdown("---")
@@ -8170,7 +8179,7 @@ def render_delitos():
         legend=dict(orientation="h", yanchor="bottom", y=-0.2),
     )
     _apply_horizontal_bar_labels(fig_sex)
-    st.plotly_chart(fig_sex, use_container_width=True)
+    st.plotly_chart(fig_sex, use_container_width=True, theme=None)
 
     # Porcentaje de mujeres por motivo
     sex_agg["pct_mujeres"] = (
@@ -8213,7 +8222,7 @@ def render_delitos():
         legend=dict(orientation="h", yanchor="bottom", y=-0.2),
     )
     _apply_horizontal_bar_labels(fig_pros)
-    st.plotly_chart(fig_pros, use_container_width=True)
+    st.plotly_chart(fig_pros, use_container_width=True, theme=None)
 
     # ── 7. Artículos del Código Penal más aplicados ──
     st.markdown("---")
@@ -8237,7 +8246,7 @@ def render_delitos():
         )
         fig_art.update_layout(height=450, yaxis_title="")
         _apply_horizontal_bar_labels(fig_art)
-        st.plotly_chart(fig_art, use_container_width=True)
+        st.plotly_chart(fig_art, use_container_width=True, theme=None)
     elif not df_articles.empty:
         df_art_f = df_articles[df_articles["year"].isin(selected_years)]
         art_agg = (
@@ -8257,7 +8266,7 @@ def render_delitos():
             )
             fig_art.update_layout(height=450, yaxis_title="")
             _apply_horizontal_bar_labels(fig_art)
-            st.plotly_chart(fig_art, use_container_width=True)
+            st.plotly_chart(fig_art, use_container_width=True, theme=None)
         else:
             st.info("No hay datos de acusaciones por artículo para los años seleccionados.")
     else:
@@ -9804,7 +9813,7 @@ def _render_vllm_label_error_analysis(
             xaxis_title="Humano (gold)", yaxis_title="LLM (predicción)",
             height=340, margin=dict(t=10),
         )
-        st.plotly_chart(fig_cm, use_container_width=True)
+        st.plotly_chart(fig_cm, use_container_width=True, theme=None)
 
     with col_cm2:
         st.markdown("##### Tasa de corrección por dimensión")
@@ -9832,7 +9841,7 @@ def _render_vllm_label_error_analysis(
             margin=dict(t=10),
             legend=dict(orientation="h", yanchor="bottom", y=-0.3),
         )
-        st.plotly_chart(fig_corr, use_container_width=True)
+        st.plotly_chart(fig_corr, use_container_width=True, theme=None)
 
     # ── Matriz de confusión: categoría (solo casos donde ambos = ODIO) ──
     if not df_ambos_odio.empty and corrigio_cat > 0:
@@ -9865,7 +9874,7 @@ def _render_vllm_label_error_analysis(
                 height=380, margin=dict(t=10),
                 xaxis_tickangle=-25,
             )
-            st.plotly_chart(fig_cat, use_container_width=True)
+            st.plotly_chart(fig_cat, use_container_width=True, theme=None)
 
     # ── Sesgo de intensidad ──
     if not df_ambos_odio.empty:
@@ -9903,7 +9912,7 @@ def _render_vllm_label_error_analysis(
                 xaxis_title="Humano", yaxis_title="LLM",
                 height=300, margin=dict(t=10),
             )
-            st.plotly_chart(fig_int, use_container_width=True)
+            st.plotly_chart(fig_int, use_container_width=True, theme=None)
 
     # ── Tabla de correcciones ──
     st.markdown("---")
@@ -11496,7 +11505,7 @@ def render_buscador_terminos() -> None:
         legend=dict(orientation="h", y=-0.2),
         margin=dict(t=30, b=40),
     )
-    st.plotly_chart(fig_evol, use_container_width=True)
+    st.plotly_chart(fig_evol, use_container_width=True, theme=None)
 
     # 6) Comparativa por medio
     st.markdown("### Reacción de audiencia por medio")
@@ -11552,7 +11561,7 @@ def render_buscador_terminos() -> None:
         )
     fig_medios.update_layout(height=520, margin=dict(l=160, t=20))
     _apply_horizontal_bar_labels(fig_medios)
-    st.plotly_chart(fig_medios, use_container_width=True)
+    st.plotly_chart(fig_medios, use_container_width=True, theme=None)
 
     # 7) Distribución de categorías por medio (solo si filtro IA/LLM activo)
     if solo_llm:
@@ -11590,7 +11599,7 @@ def render_buscador_terminos() -> None:
                 },
             )
             fig_cat.update_layout(height=500, xaxis_tickangle=-30, margin=dict(t=20))
-            st.plotly_chart(fig_cat, use_container_width=True)
+            st.plotly_chart(fig_cat, use_container_width=True, theme=None)
 
     # 8) Muestra de mensajes
     st.markdown("### Muestra de mensajes")
