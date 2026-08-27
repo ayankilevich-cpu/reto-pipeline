@@ -12,13 +12,13 @@ _HERE = Path(__file__).resolve().parent.parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from db_utils import get_conn
 from components.constants import (
     CATEGORIAS_LABELS,
     COLORS,
     PLATFORM_DISPLAY,
     _expand_platforms,
 )
+from components.db_helpers import _pooled_conn
 from components.ui import (
     _apply_horizontal_bar_labels,
     _render_section_header,
@@ -50,7 +50,7 @@ def load_calidad_llm(
 
     where = f"WHERE {' AND '.join(conds)}" if conds else ""
 
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         df = pd.read_sql(f"""
             SELECT
                 pm.platform,
@@ -73,7 +73,7 @@ def load_calidad_llm(
 @st.cache_data(ttl=300)
 def load_calidad_llm_cobertura() -> pd.DataFrame:
     """Etiquetados LLM y validados (intersección) por plataforma."""
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         df = pd.read_sql("""
             SELECT
                 CASE WHEN pm.platform IN ('x', 'twitter') THEN 'x' ELSE pm.platform END AS platform,
@@ -90,7 +90,7 @@ def load_calidad_llm_cobertura() -> pd.DataFrame:
 
 @st.cache_data(ttl=300)
 def load_annotators() -> list:
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         df = pd.read_sql(
             "SELECT DISTINCT annotator_id FROM processed.validaciones_manuales "
             "WHERE annotator_id IS NOT NULL ORDER BY annotator_id", conn

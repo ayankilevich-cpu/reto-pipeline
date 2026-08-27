@@ -13,7 +13,6 @@ _HERE = Path(__file__).resolve().parent.parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from db_utils import get_conn
 from components.constants import CATEGORIAS_LABELS, _expand_platforms, platform_label
 from components.ui import (
     _apply_horizontal_bar_labels,
@@ -22,7 +21,7 @@ from components.ui import (
     _role_can_access_raw,
 )
 from components.exports import render_section_exports
-from components.db_helpers import load_filter_options
+from components.db_helpers import load_filter_options, _pooled_conn
 
 
 @st.cache_data(ttl=300)
@@ -50,7 +49,7 @@ def load_comparativa(
 
     where = f"WHERE {' AND '.join(conds)}" if conds else ""
 
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         df = pd.read_sql(f"""
             SELECT
                 s.pred_odio AS baseline_pred,

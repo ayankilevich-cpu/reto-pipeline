@@ -12,7 +12,6 @@ _HERE = Path(__file__).resolve().parent.parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from db_utils import get_conn
 from components.constants import (
     APARTADO_LABELS,
     ART510_COLORS,
@@ -33,6 +32,7 @@ from components.db_helpers import (
     load_art510_candidates,
     load_art510_summary,
     load_filter_options,
+    _pooled_conn,
 )
 from components.art510_shared import _render_art510_validacion_humana
 
@@ -148,7 +148,7 @@ def _art510_load_feedback_examples() -> str:
         LIMIT %s
     """
     try:
-        with get_conn() as conn:
+        with _pooled_conn() as conn:
             df = pd.read_sql(query, conn, params=[_MAX_FEEDBACK_EXAMPLES * 2])
     except Exception:
         return ""
@@ -287,7 +287,7 @@ def _art510_eval_single(client, model: str, txt: str, feedback: str = "") -> dic
 def _art510_get_already_evaluated() -> set:
     """Devuelve el set de claves 'uuid|label_source' ya evaluadas en BD."""
     try:
-        with get_conn() as conn:
+        with _pooled_conn() as conn:
             df = pd.read_sql(
                 "SELECT message_uuid, label_source FROM processed.evaluacion_art510",
                 conn,
@@ -341,7 +341,7 @@ def _art510_ensure_tables():
     END $$;
     """
     try:
-        with get_conn() as conn:
+        with _pooled_conn() as conn:
             cur = conn.cursor()
             cur.execute(ddl)
             cur.execute(alter_ddl)
@@ -382,7 +382,7 @@ def _art510_save_batch(results: list) -> int:
             "v1",
         ))
     try:
-        with get_conn() as conn:
+        with _pooled_conn() as conn:
             from db_utils import upsert_rows as _upsert
             _upsert(
                 conn, "processed.evaluacion_art510", columns, rows,
@@ -423,7 +423,7 @@ def load_art510_data(
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         df = pd.read_sql(f"""
             SELECT ea.message_uuid,
                    ea.label_source,

@@ -37,11 +37,17 @@ _MEDIOS_JSON_PATH = _HERE / "medios_validos.json"
 
 @st.cache_resource
 def _get_connection_pool():
-    """Pool de conexiones reutilizado entre reruns de Streamlit."""
+    """Pool de conexiones reutilizado entre reruns de Streamlit.
+
+    minconn=2 / maxconn=12: ahora sirve prácticamente todas las queries de
+    lectura y escritura de la app (antes solo un puñado de helpers
+    compartidos usaban el pool y el resto abría conexiones sueltas), así
+    que necesita más margen para varias sesiones/pestañas concurrentes.
+    """
     dsn = _connection_dsn()
     if dsn:
-        return psycopg2.pool.ThreadedConnectionPool(1, 5, dsn)
-    return psycopg2.pool.ThreadedConnectionPool(1, 5, **get_connection_params())
+        return psycopg2.pool.ThreadedConnectionPool(2, 12, dsn)
+    return psycopg2.pool.ThreadedConnectionPool(2, 12, **get_connection_params())
 
 
 @contextmanager

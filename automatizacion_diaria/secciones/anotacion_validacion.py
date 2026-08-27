@@ -14,7 +14,6 @@ _HERE = Path(__file__).resolve().parent.parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from db_utils import get_conn
 from components.constants import (
     APARTADO_LABELS,
     CATEGORIAS_LABELS,
@@ -25,6 +24,7 @@ from components.ui import _render_section_header, _require_role
 from components.db_helpers import (
     _load_vllm_yt_corrections,
     _public_medio_label,
+    _pooled_conn,
     load_art510_candidates,
     load_art510_summary,
 )
@@ -759,7 +759,7 @@ def _compute_coincide_con_llm(
 
 def _fetch_llm_labels_for_uuid(message_uuid: str) -> tuple:
     """Lee predicción LLM para calcular coincide_con_llm al guardar."""
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         cur = conn.cursor()
         cur.execute(
             """
@@ -840,7 +840,7 @@ def _load_admin_annotation_supervision(period: str) -> dict:
     frames: Dict[str, pd.DataFrame] = {}
 
     try:
-        with get_conn() as conn:
+        with _pooled_conn() as conn:
             for subsection, sql in queries.items():
                 df = pd.read_sql(sql, conn, params=(fecha_desde,))
                 if df.empty:
@@ -911,7 +911,7 @@ def _load_annotation_queue(
     skipped = st.session_state.get("ann_skipped", set())
     filter_sql, params = _ann_yt_sql_filters(fecha_desde, fecha_hasta)
 
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         df = pd.read_sql(f"""
             SELECT DISTINCT ON (pm.content_original)
                    pm.message_uuid, pm.content_original, pm.source_media,
@@ -939,7 +939,7 @@ def _load_annotation_queue(
 def _load_annotation_kpis(annotator_id: str, period: str = "day") -> dict:
     """Carga KPIs de progreso de anotación YouTube."""
     fecha_desde = _period_to_sql_date(period)
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         cur = conn.cursor()
 
         cur.execute("""
@@ -997,7 +997,7 @@ def _stratified_split(target_ratio: float = 0.85) -> str:
     """
     import random
     try:
-        with get_conn() as conn:
+        with _pooled_conn() as conn:
             cur = conn.cursor()
             cur.execute("""
                 SELECT
@@ -1043,7 +1043,7 @@ def _save_annotation(
     split_val = _stratified_split(target_ratio=0.85)
 
     try:
-        with get_conn() as conn:
+        with _pooled_conn() as conn:
             cur = conn.cursor()
 
             cur.execute("""
@@ -1117,7 +1117,7 @@ def _load_v510_queue() -> pd.DataFrame:
     skipped = st.session_state.get("v510_skipped", set())
 
     try:
-        with get_conn() as conn:
+        with _pooled_conn() as conn:
             df = pd.read_sql("""
                 SELECT ea.message_uuid,
                        ea.label_source,
@@ -1163,7 +1163,7 @@ def _load_v510_kpis(annotator_id: str, period: str = "day") -> dict:
     """KPIs de progreso de validación Art. 510."""
     fecha_desde = _period_to_sql_date(period)
     try:
-        with get_conn() as conn:
+        with _pooled_conn() as conn:
             cur = conn.cursor()
 
             cur.execute("""
@@ -1219,7 +1219,7 @@ def _save_v510_validation(
 ) -> bool:
     """Guarda la validación humana de Art. 510."""
     try:
-        with get_conn() as conn:
+        with _pooled_conn() as conn:
             cur = conn.cursor()
             cur.execute("""
                 INSERT INTO processed.validacion_art510_humana
@@ -1743,7 +1743,7 @@ def _render_validacion_art510(annotator: str):
 def _load_vllm_yt_queue(clasif_filter: Optional[str] = None) -> pd.DataFrame:
     """Carga muestra aleatoria de mensajes YT con etiqueta LLM pendientes de validación humana."""
     try:
-        with get_conn() as conn:
+        with _pooled_conn() as conn:
             clasif_cond = ""
             params: list = []
             if clasif_filter:
@@ -1787,7 +1787,7 @@ def _load_vllm_yt_kpis(
     """KPIs de validación de etiquetado LLM en YouTube."""
     fecha_desde = _period_to_sql_date(period)
     try:
-        with get_conn() as conn:
+        with _pooled_conn() as conn:
             cur = conn.cursor()
 
             clasif_cond = ""
@@ -1891,7 +1891,7 @@ def _load_vllm_x_queue(
 ) -> pd.DataFrame:
     """Cola de mensajes X/Twitter con etiqueta LLM pendientes de validación humana."""
     try:
-        with get_conn() as conn:
+        with _pooled_conn() as conn:
             filter_sql, params = _vllm_x_sql_filters(
                 clasif_filter, categoria_filter, fecha_desde, fecha_hasta,
             )
@@ -1935,7 +1935,7 @@ def _load_vllm_x_kpis(
     """KPIs de validación de etiquetado LLM en X."""
     fecha_desde_periodo = _period_to_sql_date(period)
     try:
-        with get_conn() as conn:
+        with _pooled_conn() as conn:
             cur = conn.cursor()
 
             filter_sql, params_pending = _vllm_x_sql_filters(
@@ -2051,7 +2051,7 @@ def _save_vllm_yt_validation(
     split_val = _stratified_split(target_ratio=0.85)
 
     try:
-        with get_conn() as conn:
+        with _pooled_conn() as conn:
             cur = conn.cursor()
 
             cur.execute("""
@@ -2102,7 +2102,7 @@ def _save_vllm_yt_validation(
 def _load_vllm_x_corrections() -> pd.DataFrame:
     """Validaciones humanas de etiquetado LLM en X (twitter / x)."""
     try:
-        with get_conn() as conn:
+        with _pooled_conn() as conn:
             df = pd.read_sql("""
                 SELECT pm.message_uuid,
                        pm.content_original,

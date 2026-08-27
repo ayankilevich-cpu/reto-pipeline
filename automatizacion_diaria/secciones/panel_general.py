@@ -13,7 +13,6 @@ _HERE = Path(__file__).resolve().parent.parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from db_utils import get_conn
 from components.constants import (
     CATEGORIAS_LABELS,
     CAT_COLOR_MAP,
@@ -31,7 +30,7 @@ from components.ui import (
     _ui_label,
 )
 from components.exports import render_section_exports
-from components.db_helpers import load_filter_options
+from components.db_helpers import load_filter_options, _pooled_conn
 
 
 def _render_pg_kpi_grid(
@@ -70,7 +69,7 @@ def load_kpis(
     platforms = _expand_platforms(list(platforms) if platforms else None)
     medios = list(medios) if medios else None
 
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         cur = conn.cursor()
 
         conds_p, params_p = [], []
@@ -215,7 +214,7 @@ def load_last_pipeline_health_summary(pipeline_name: str = "reto_pipeline_diario
     fuente principal del banner de estado en operación cloud-first.
     """
     try:
-        with get_conn() as conn:
+        with _pooled_conn() as conn:
             last_run_df = pd.read_sql(
                 """
                 SELECT run_id, run_at
@@ -315,7 +314,7 @@ def load_last_pipeline_run_legacy(pipeline_name: str = "reto_x_diario") -> dict:
     aunque no haya habido datos nuevos (changes_detected = False).
     """
     try:
-        with get_conn() as conn:
+        with _pooled_conn() as conn:
             df = pd.read_sql(
                 """
                 SELECT
@@ -568,7 +567,7 @@ def render_pipeline_status_banner(
 # ============================================================
 @st.cache_data(ttl=3600)
 def load_gold_stats() -> dict:
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         row = pd.read_sql("""
             WITH llm_comparison AS (
                 SELECT
@@ -914,7 +913,7 @@ def _load_panel_combined(
 
     where = " AND ".join(conds)
 
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         df = pd.read_sql(f"""
             SELECT
                 pm.platform,

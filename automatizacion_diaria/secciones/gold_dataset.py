@@ -11,7 +11,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from db_utils import get_conn
 from components.constants import (
     CATEGORIAS_LABELS,
     CAT_COLOR_MAP,

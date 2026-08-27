@@ -12,8 +12,8 @@ _HERE = Path(__file__).resolve().parent.parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from db_utils import get_conn
 from components.constants import COLORS, DELITOS_COLORS
+from components.db_helpers import _pooled_conn
 from components.ui import _apply_horizontal_bar_labels, _render_section_header
 from components.exports import render_section_exports
 
@@ -59,7 +59,7 @@ def _age_label(code: str) -> str:
 
 @st.cache_data(ttl=300)
 def load_crime_totals() -> pd.DataFrame:
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         df = pd.read_sql("""
             SELECT year, bias_motive_code, crimes_total
             FROM delitos.fact_crime_totals_minint
@@ -71,7 +71,7 @@ def load_crime_totals() -> pd.DataFrame:
 
 @st.cache_data(ttl=300)
 def load_crime_solved() -> pd.DataFrame:
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         df = pd.read_sql("""
             SELECT year, bias_motive_code, crimes_solved
             FROM delitos.fact_crime_solved_minint
@@ -83,7 +83,7 @@ def load_crime_solved() -> pd.DataFrame:
 
 @st.cache_data(ttl=300)
 def load_authors_age() -> pd.DataFrame:
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         df = pd.read_sql("""
             SELECT year, age_group_code, n_authors
             FROM delitos.fact_authors_by_age_minint
@@ -95,7 +95,7 @@ def load_authors_age() -> pd.DataFrame:
 
 @st.cache_data(ttl=300)
 def load_investigations_sex() -> pd.DataFrame:
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         df = pd.read_sql("""
             SELECT year, bias_code, male, female
             FROM delitos.fact_investigaciones_sexo_minint
@@ -107,7 +107,7 @@ def load_investigations_sex() -> pd.DataFrame:
 
 @st.cache_data(ttl=300)
 def load_suspects_bias() -> pd.DataFrame:
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         df = pd.read_sql("""
             SELECT year, bias_code, n_detained_or_investigated
             FROM delitos.fact_suspects_by_bias_minint
@@ -119,7 +119,7 @@ def load_suspects_bias() -> pd.DataFrame:
 
 @st.cache_data(ttl=300)
 def load_prosecution_motives() -> pd.DataFrame:
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         df = pd.read_sql("""
             SELECT source_type, year, motive_code, motive_label, value
             FROM delitos.fact_prosecution_discrimination_motives
@@ -135,7 +135,7 @@ def load_prosecution_motives() -> pd.DataFrame:
 
 @st.cache_data(ttl=300)
 def load_prosecution_articles() -> pd.DataFrame:
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         df = pd.read_sql("""
             SELECT year, legal_article, article_label, accusations_count
             FROM delitos.fact_prosecution_legal_articles
@@ -146,7 +146,7 @@ def load_prosecution_articles() -> pd.DataFrame:
 
 @st.cache_data(ttl=300)
 def load_fiscalia_investigations() -> pd.DataFrame:
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         df = pd.read_sql("""
             SELECT year, legal_article, legal_description, investigations
             FROM delitos.fact_fiscalia_investigations_by_legal_article

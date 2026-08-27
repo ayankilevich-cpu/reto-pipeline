@@ -14,8 +14,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from db_utils import get_conn
 from components.constants import COLORS
+from components.db_helpers import _pooled_conn
 from components.ui import (
     _render_section_header,
     _ui_label,
@@ -43,7 +43,7 @@ except ImportError:  # pragma: no cover
 # ============================================================
 @st.cache_data(ttl=3600)
 def load_analisis_semanal() -> pd.DataFrame:
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         df = pd.read_sql("""
             SELECT *
             FROM processed.analisis_semanal

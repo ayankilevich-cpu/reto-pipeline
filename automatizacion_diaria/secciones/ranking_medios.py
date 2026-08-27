@@ -13,9 +13,8 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from db_utils import get_conn
 from components.constants import COLORS, EXCLUDED_SOURCE_MEDIA, PLATFORM_DISPLAY
-from components.db_helpers import _load_valid_media_map, _public_medio_label
+from components.db_helpers import _load_valid_media_map, _public_medio_label, _pooled_conn
 from components.ui import (
     _render_section_header,
     _is_viewer,
@@ -37,7 +36,7 @@ def _load_ranking_medios_raw(min_msgs: int = 100, fecha_desde: Optional[str] = N
         params.append(fecha_hasta)
     where = " AND ".join(conds)
 
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         df = pd.read_sql(f"""
             SELECT
                 pm.source_media,

@@ -14,7 +14,6 @@ _HERE = Path(__file__).resolve().parent.parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from db_utils import get_conn
 from components.constants import CATEGORIAS_LABELS, platform_label
 from components.ui import (
     _anonimizar_texto_mensaje,
@@ -23,7 +22,7 @@ from components.ui import (
     _ui_label,
 )
 from components.exports import df_to_csv_bytes
-from components.db_helpers import _public_medio_label
+from components.db_helpers import _public_medio_label, _pooled_conn
 
 
 _INTENSIDAD_NUMERICA = {"1": 1, "2": 2, "3": 3}
@@ -59,7 +58,7 @@ def _load_buscador_resultados(termino: str) -> Tuple[pd.DataFrame, bool]:
         return pd.DataFrame(), False
 
     pattern = f"%{termino}%"
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         df = pd.read_sql(
             """
             SELECT

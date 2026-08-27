@@ -11,7 +11,8 @@ _HERE = Path(__file__).resolve().parent.parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from db_utils import get_conn, postgres_configured
+from db_utils import postgres_configured
+from components.db_helpers import _pooled_conn
 from components.ui import _is_viewer, _reto_asset_file, _role_can_access_raw
 from components.auth import (
     _ROLE_DISPLAY,
@@ -240,7 +241,7 @@ En **Hugging Face Docker** configurá los secrets como variables de entorno:
         probe_table = "raw.mensajes" if access_raw else "processed.mensajes"
         schema_ok = False
         perm_denied = False
-        with get_conn() as conn:
+        with _pooled_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT 1")
                 try:

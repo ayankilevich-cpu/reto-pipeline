@@ -12,7 +12,6 @@ _HERE = Path(__file__).resolve().parent.parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from db_utils import get_conn
 from components.constants import (
     CATEGORIAS_LABELS,
     CAT_COLOR_MAP,
@@ -28,13 +27,13 @@ from components.ui import (
     _role_can_access_raw,
 )
 from components.exports import render_section_exports
-from components.db_helpers import _public_medio_label, load_filter_options
+from components.db_helpers import _public_medio_label, load_filter_options, _pooled_conn
 
 
 @st.cache_data(ttl=60)
 def load_llm_stats() -> dict:
     """Total de mensajes procesados por LLM, desglosado por plataforma."""
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         row = pd.read_sql("""
             SELECT
                 COUNT(*)                                           AS total_procesados,
@@ -98,7 +97,7 @@ def load_categorias(
 
     where = " AND ".join(conds)
 
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         df = pd.read_sql(f"""
             SELECT e.categoria_odio_pred, count(*) AS total
             FROM processed.etiquetas_llm e
@@ -135,7 +134,7 @@ def load_intensidad_por_categoria(
 
     where = " AND ".join(conds)
 
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         df = pd.read_sql(f"""
             SELECT e.categoria_odio_pred, e.intensidad_pred, count(*) AS total
             FROM processed.etiquetas_llm e
@@ -155,7 +154,7 @@ def load_muestra_ultima_corrida_llm(limit: int = 20) -> Tuple[pd.DataFrame, Opti
 
     No usa @st.cache_data: la muestra aleatoria debe poder variar entre ejecuciones.
     """
-    with get_conn() as conn:
+    with _pooled_conn() as conn:
         df_meta = pd.read_sql(
             """
             SELECT MAX(etiquetado_date::date) AS ultima_fecha
