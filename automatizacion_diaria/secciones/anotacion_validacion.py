@@ -356,7 +356,9 @@ _KPI_V510 = "_kpi_v510"
 _KPI_VLLM_YT = "_kpi_vllm_yt"
 _KPI_VLLM_X = "_kpi_vllm_x"
 _KPI_SUPERVISION = "_kpi_supervision"
-_SUPERVISION_COLS = ("YT Odio", "Art.510", "LLM YT", "LLM X")
+# "Anot. YT" = anotaciones hechas en la cola de odio YouTube (Odio + No Odio +
+# Dudoso). El nombre anterior "YT Odio" confundía: parecía contar solo odio.
+_SUPERVISION_COLS = ("Anot. YT", "Art.510", "LLM YT", "LLM X")
 
 
 def _ann_kpi_invalidate(*keys: str) -> None:
@@ -385,7 +387,7 @@ def _ann_kpi_ensure_supervision(period: str) -> dict:
 
 
 def _ann_kpi_bump_supervision(subsection: str, annotator: str) -> None:
-    """Incrementa el resumen compartido YT Odio / Art.510 / LLM YT / LLM X."""
+    """Incrementa el resumen compartido Anot. YT / Art.510 / LLM YT / LLM X."""
     data = st.session_state.get(_KPI_SUPERVISION)
     if not data or subsection not in _SUPERVISION_COLS:
         return
@@ -436,7 +438,7 @@ def _ann_kpi_bump_yt(annotator: str) -> None:
     k["por_anotador"] = int(k.get("por_anotador", 0) or 0) + 1
     tot = int(k.get("total_relevantes", 0) or 0)
     k["pct_avance"] = (k["total_anotados"] / tot * 100) if tot else 0
-    _ann_kpi_bump_supervision("YT Odio", annotator)
+    _ann_kpi_bump_supervision("Anot. YT", annotator)
 
 
 def _ann_kpi_bump_v510(annotator: str) -> None:
@@ -477,13 +479,17 @@ def _ann_kpi_bump_vllm_x(annotator: str) -> None:
 
 
 def _ann_render_supervision_from_state(period: str) -> None:
-    """Tarjetas YT Odio / Art.510 / LLM YT / LLM X + tabla por anotador (desde session_state)."""
+    """Tarjetas Anot. YT / Art.510 / LLM YT / LLM X + tabla por anotador (desde session_state)."""
     data = _ann_kpi_ensure_supervision(period)
     summary = data.get("summary", {})
     by_annotator = data.get("by_annotator", pd.DataFrame())
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("YT Odio", f"{summary.get('YT Odio', 0):,}")
+    c1.metric(
+        "Anotaciones YT",
+        f"{summary.get('Anot. YT', 0):,}",
+        help="Mensajes anotados en la cola de odio YouTube (incluye Odio, No Odio y Dudoso).",
+    )
     c2.metric("Art. 510", f"{summary.get('Art.510', 0):,}")
     c3.metric("LLM YouTube", f"{summary.get('LLM YT', 0):,}")
     c4.metric("LLM X", f"{summary.get('LLM X', 0):,}")
@@ -494,8 +500,9 @@ def _ann_render_supervision_from_state(period: str) -> None:
     else:
         st.info("No hay anotaciones registradas en el periodo seleccionado.")
     st.caption(
-        "Los conteos reflejan mensajes etiquetados o re-etiquetados en el periodo "
-        "(no necesariamente primera anotación). Se actualizan al Guardar en esta pestaña."
+        "Los conteos son anotaciones hechas en el periodo (Odio + No Odio + Dudoso / "
+        "equivalentes en cada cola), no solo las marcadas como odio. "
+        "Se actualizan al Guardar en esta pestaña."
     )
 
 
@@ -742,11 +749,11 @@ def _load_admin_annotation_supervision(period: str) -> dict:
     """Carga conteos de anotación por subsección y anotador para el panel admin/editor."""
     fecha_desde = _period_to_sql_date(period)
     empty_df = pd.DataFrame(
-        columns=["Anotador", "YT Odio", "Art.510", "LLM YT", "LLM X", "Total"]
+        columns=["Anotador", "Anot. YT", "Art.510", "LLM YT", "LLM X", "Total"]
     )
 
     queries = {
-        "YT Odio": """
+        "Anot. YT": """
             SELECT vm.annotator_id, COUNT(*) AS n
             FROM processed.validaciones_manuales vm
             JOIN processed.mensajes pm USING (message_uuid)
@@ -811,14 +818,14 @@ def _load_admin_annotation_supervision(period: str) -> dict:
                 )
 
         if not by_annotator.empty:
-            for col in ("YT Odio", "Art.510", "LLM YT", "LLM X"):
+            for col in ("Anot. YT", "Art.510", "LLM YT", "LLM X"):
                 if col not in by_annotator.columns:
                     by_annotator[col] = 0
             by_annotator = by_annotator.fillna(0)
-            for col in ("YT Odio", "Art.510", "LLM YT", "LLM X"):
+            for col in ("Anot. YT", "Art.510", "LLM YT", "LLM X"):
                 by_annotator[col] = by_annotator[col].astype(int)
             by_annotator["Total"] = (
-                by_annotator["YT Odio"]
+                by_annotator["Anot. YT"]
                 + by_annotator["Art.510"]
                 + by_annotator["LLM YT"]
                 + by_annotator["LLM X"]
