@@ -356,9 +356,14 @@ _KPI_V510 = "_kpi_v510"
 _KPI_VLLM_YT = "_kpi_vllm_yt"
 _KPI_VLLM_X = "_kpi_vllm_x"
 _KPI_SUPERVISION = "_kpi_supervision"
-# "Anot. YT" = anotaciones hechas en la cola de odio YouTube (Odio + No Odio +
-# Dudoso). El nombre anterior "YT Odio" confundía: parecía contar solo odio.
-_SUPERVISION_COLS = ("Anot. YT", "Art.510", "LLM YT", "LLM X")
+# "Anotaciones YT" = anotaciones hechas en la cola de odio YouTube (Odio + No
+# Odio + Dudoso). El nombre anterior "YT Odio" confundía: parecía contar solo odio.
+_SUPERVISION_COLS = ("Anotaciones YT", "Art.510", "LLM YT", "LLM X")
+# Claves históricas que pueden quedar en session_state / cache tras renombres.
+_SUPERVISION_KEY_ALIASES = {
+    "YT Odio": "Anotaciones YT",
+    "Anot. YT": "Anotaciones YT",
+}
 
 
 def _ann_kpi_invalidate(*keys: str) -> None:
@@ -379,16 +384,52 @@ def _ann_kpi_ensure(key: str, sig: tuple, loader) -> dict:
 
 
 def _ann_kpi_ensure_supervision(period: str) -> dict:
-    return _ann_kpi_ensure(
+    data = _ann_kpi_ensure(
         _KPI_SUPERVISION,
         (period,),
         lambda: _load_admin_annotation_supervision(period),
     )
+    return _normalize_supervision_data(data)
+
+
+def _normalize_supervision_data(data: dict) -> dict:
+    """Unifica claves/columnas viejas («YT Odio», «Anot. YT») → «Anotaciones YT».
+
+    Evita que una sesión o @st.cache_data previa siga mostrando el encabezado
+    confuso en la tabla «Detalle por anotador» aunque la tarjeta ya diga bien.
+    """
+    if not data:
+        return data
+    summary = dict(data.get("summary") or {})
+    for old, new in _SUPERVISION_KEY_ALIASES.items():
+        if old in summary:
+            summary[new] = int(summary.get(new, 0) or 0) + int(summary.pop(old) or 0)
+    data["summary"] = summary
+
+    df = data.get("by_annotator")
+    if isinstance(df, pd.DataFrame) and not df.empty:
+        rename = {
+            old: new for old, new in _SUPERVISION_KEY_ALIASES.items() if old in df.columns
+        }
+        if rename:
+            df = df.copy()
+            for old, new in rename.items():
+                if new in df.columns and old != new:
+                    df[new] = (
+                        df[new].fillna(0).astype(int) + df[old].fillna(0).astype(int)
+                    )
+                    df = df.drop(columns=[old])
+                else:
+                    df = df.rename(columns={old: new})
+            data["by_annotator"] = df
+    return data
 
 
 def _ann_kpi_bump_supervision(subsection: str, annotator: str) -> None:
-    """Incrementa el resumen compartido Anot. YT / Art.510 / LLM YT / LLM X."""
+    """Incrementa el resumen compartido Anotaciones YT / Art.510 / LLM YT / LLM X."""
     data = st.session_state.get(_KPI_SUPERVISION)
+    if data:
+        _normalize_supervision_data(data)
     if not data or subsection not in _SUPERVISION_COLS:
         return
     summary = data.setdefault("summary", {})
@@ -438,7 +479,7 @@ def _ann_kpi_bump_yt(annotator: str) -> None:
     k["por_anotador"] = int(k.get("por_anotador", 0) or 0) + 1
     tot = int(k.get("total_relevantes", 0) or 0)
     k["pct_avance"] = (k["total_anotados"] / tot * 100) if tot else 0
-    _ann_kpi_bump_supervision("Anot. YT", annotator)
+    _ann_kpi_bump_supervision("Anotaciones YT", annotator)
 
 
 def _ann_kpi_bump_v510(annotator: str) -> None:
@@ -479,7 +520,7 @@ def _ann_kpi_bump_vllm_x(annotator: str) -> None:
 
 
 def _ann_render_supervision_from_state(period: str) -> None:
-    """Tarjetas Anot. YT / Art.510 / LLM YT / LLM X + tabla por anotador (desde session_state)."""
+    """Tarjetas Anotaciones YT / Art.510 / LLM YT / LLM X + tabla por anotador."""
     data = _ann_kpi_ensure_supervision(period)
     summary = data.get("summary", {})
     by_annotator = data.get("by_annotator", pd.DataFrame())
@@ -487,7 +528,7 @@ def _ann_render_supervision_from_state(period: str) -> None:
     c1, c2, c3, c4 = st.columns(4)
     c1.metric(
         "Anotaciones YT",
-        f"{summary.get('Anot. YT', 0):,}",
+        f"{summary.get('Anotaciones YT', 0):,}",
         help="Mensajes anotados en la cola de odio YouTube (incluye Odio, No Odio y Dudoso).",
     )
     c2.metric("Art. 510", f"{summary.get('Art.510', 0):,}")
@@ -496,7 +537,11 @@ def _ann_render_supervision_from_state(period: str) -> None:
 
     st.markdown("**Detalle por anotador**")
     if by_annotator is not None and isinstance(by_annotator, pd.DataFrame) and not by_annotator.empty:
-        st.dataframe(by_annotator, use_container_width=True, hide_index=True)
+        # Orden de columnas estable y con el nombre visible unificado.
+        cols = ["Anotador", *[c for c in _SUPERVISION_COLS if c in by_annotator.columns]]
+        if "Total" in by_annotator.columns:
+            cols.append("Total")
+        st.dataframe(by_annotator[cols], use_container_width=True, hide_index=True)
     else:
         st.info("No hay anotaciones registradas en el periodo seleccionado.")
     st.caption(
@@ -749,11 +794,11 @@ def _load_admin_annotation_supervision(period: str) -> dict:
     """Carga conteos de anotación por subsección y anotador para el panel admin/editor."""
     fecha_desde = _period_to_sql_date(period)
     empty_df = pd.DataFrame(
-        columns=["Anotador", "Anot. YT", "Art.510", "LLM YT", "LLM X", "Total"]
+        columns=["Anotador", "Anotaciones YT", "Art.510", "LLM YT", "LLM X", "Total"]
     )
 
     queries = {
-        "Anot. YT": """
+        "Anotaciones YT": """
             SELECT vm.annotator_id, COUNT(*) AS n
             FROM processed.validaciones_manuales vm
             JOIN processed.mensajes pm USING (message_uuid)
@@ -818,14 +863,14 @@ def _load_admin_annotation_supervision(period: str) -> dict:
                 )
 
         if not by_annotator.empty:
-            for col in ("Anot. YT", "Art.510", "LLM YT", "LLM X"):
+            for col in ("Anotaciones YT", "Art.510", "LLM YT", "LLM X"):
                 if col not in by_annotator.columns:
                     by_annotator[col] = 0
             by_annotator = by_annotator.fillna(0)
-            for col in ("Anot. YT", "Art.510", "LLM YT", "LLM X"):
+            for col in ("Anotaciones YT", "Art.510", "LLM YT", "LLM X"):
                 by_annotator[col] = by_annotator[col].astype(int)
             by_annotator["Total"] = (
-                by_annotator["Anot. YT"]
+                by_annotator["Anotaciones YT"]
                 + by_annotator["Art.510"]
                 + by_annotator["LLM YT"]
                 + by_annotator["LLM X"]
