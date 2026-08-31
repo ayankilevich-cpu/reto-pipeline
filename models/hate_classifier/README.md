@@ -7,9 +7,11 @@ en `analitica/diagnostico-modelo-autonomo-sin-llm.md` del proyecto ReTo en Claud
 
 ## Setup
 
+**Requiere Python 3.12.** Con 3.14 (u otras versiones muy nuevas) `pip install` intenta compilar `scipy` desde fuente y falla — no hay wheel precompilada para esas versiones.
+
 ```bash
 cd models/hate_classifier
-python3 -m venv venv && source venv/bin/activate
+python3.12 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # completar con la connection string real de Neon
 export $(cat .env | xargs)   # o usar python-dotenv / tu propio manejo de env vars
