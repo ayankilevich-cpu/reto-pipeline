@@ -22,7 +22,7 @@ jobs:
         run: |
           # Subdominio directo del Space (proceso real); el wrapper de HF
           # puede devolver 200 sin despertar Streamlit.
-       l -sSL -o /dev/null -w "HF Space (.hf.space): %{http_code}\n" \
+          curl -sSL -o /dev/null -w "HF Space (.hf.space): %{http_code}\n" \
             "https://aleyanki13-proyectoreto.hf.space" \
             --max-time 60 --retry 2 --retry-delay 10 || true
           curl -sSL -o /dev/null -w "HF Space (página HF): %{http_code}\n" \
