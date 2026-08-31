@@ -2,48 +2,27 @@ name: Despertar apps (Streamlit Cloud + HF Space)
 
 on:
   schedule:
-    - cron: '30 4 * * *'   # 06:30 en Madrid durante CEST (UTC+2, verano)
-    - cron: '30 5 * * *'   # 06:30 en Madrid durante CET  (UTC+1, invierno)
+    # Cada 3h en UTC, sin gate de temporada. GitHub Actions demora los cron
+    # scheduled hasta varias horas en el plan gratuito (confirmado: corridas
+    # que deberían disparar a las 6:30/7:30 Madrid terminaron ejecutándose
+    # recién al mediodía). Con un solo disparo diario, esos atrasos dejaban
+    # huecos más largos que las 12h de sleep de Streamlit Cloud. 8 disparos
+    # nominales por día dan margen aunque cada uno individualmente llegue tarde.
+    - cron: '0 */3 * * *'
   workflow_dispatch: {}     # permite disparo manual para probar
 
 jobs:
   wakeup:
     runs-on: ubuntu-latest
     steps:
-      - name: Verificar que el cron disparado corresponda a la temporada actual (evita duplicar por DST, inmune a demoras de GitHub Actions)
-        id: check_time
-        run: |
-          # ¿Madrid está en horario de verano (CEST, UTC+2) ahora mismo?
-          # Esto NO depende de la hora exacta, solo de la temporada — así que
-          # sigue siendo correcto aunque GitHub haya demorado el disparo del cron.
-          OFFSET=$(TZ="Europe/Madrid" date +%z)
-          if [ "$OFFSET" = "+0200" ]; then
-            EXPECTED_CRON="30 4 * * *"
-          else
-            EXPECTED_CRON="30 5 * * *"
-          fi
-
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "Disparo manual — se ejecuta sin importar la temporada."
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event.schedule }}" = "$EXPECTED_CRON" ]; then
-            echo "Cron '${{ github.event.schedule }}' coincide con la temporada actual (offset $OFFSET) — ejecutando."
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Cron '${{ github.event.schedule }}' no corresponde a la temporada actual (offset $OFFSET, se esperaba '$EXPECTED_CRON') — salteando, es el duplicado de DST."
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Checkout (script Playwright)
-        if: steps.check_time.outputs.run == 'true'
         uses: actions/checkout@v4
 
       - name: Despertar Hugging Face Space (ping simple)
-        if: steps.check_time.outputs.run == 'true'
         run: |
           # Subdominio directo del Space (proceso real); el wrapper de HF
           # puede devolver 200 sin despertar Streamlit.
-          curl -sSL -o /dev/null -w "HF Space (.hf.space): %{http_code}\n" \
+       l -sSL -o /dev/null -w "HF Space (.hf.space): %{http_code}\n" \
             "https://aleyanki13-proyectoreto.hf.space" \
             --max-time 60 --retry 2 --retry-delay 10 || true
           curl -sSL -o /dev/null -w "HF Space (página HF): %{http_code}\n" \
@@ -51,17 +30,14 @@ jobs:
             --max-time 60 --retry 2 --retry-delay 10 || true
 
       - name: Set up Python
-        if: steps.check_time.outputs.run == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Instalar Playwright
-        if: steps.check_time.outputs.run == 'true'
         run: |
           pip install playwright
           playwright install --with-deps chromium
 
       - name: Despertar Streamlit Cloud (click en botón si aparece)
-        if: steps.check_time.outputs.run == 'true'
         run: python .github/scripts/wakeup_streamlit.py
