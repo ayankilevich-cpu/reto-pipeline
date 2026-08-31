@@ -1,3 +1,18 @@
+"""
+ARCHIVADO 2026-08-31 — NO EJECUTAR ni conectar a la base sin revisión previa.
+
+Experimento de filtrado de relevancia LLM para X. Nunca integrado al pipeline
+oficial (no está en docker-compose, orchestrator, daily.yml ni
+run_pipeline_completo.py). Solo exportaba CSV; nunca escribió a
+processed.mensajes en producción.
+
+Bug de schema conocido (no corregido a propósito): llm_relevance() define un
+prompt con relevante: SI/NO, pero main() usa llm_tag() con taxonomía completa
+(clasificacion_principal, categoria_odio_pred, intensidad_pred) y el filtro
+final compara == "RELEVANTE", que no matchea ese contrato.
+
+Ubicación original: Medios/ML/etiquetado_llm/filtrar_relevancia_llm.py
+"""
 from __future__ import annotations
 
 import csv
