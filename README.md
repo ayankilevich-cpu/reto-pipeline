@@ -29,7 +29,7 @@ Deploy activo: Streamlit Cloud (`proyectoreto.streamlit.app`)
 
 ## Arranque rápido del dashboard
 
-1. Python 3.11+ recomendado.
+1. Python 3.11+ recomendado para el dashboard y el pipeline. El submódulo `models/hate_classifier/` requiere **Python 3.12** específicamente (con 3.14 falla la wheel de `scipy`; ver su README).
 2. Crear entorno virtual e instalar dependencias:
 
    ```bash
