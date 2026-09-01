@@ -245,15 +245,16 @@ def render_analisis_contextual():
         return pct >= spike_threshold
 
     st.markdown(
-        f"La **línea gris (promedio)** es informativa: **{avg_pct:.1f}%**, recalculada al cargar la página sobre las "
-        f"**semanas ya cerradas que se ven en este gráfico** (≥**{MIN_MSGS_CHART}** mensajes cada una, **sin** la "
-        "semana en curso). "
-        "La **línea roja punteada (umbral)** sigue el **umbral real de cada semana** — el mismo criterio "
-        "**congelado al cierre** guardado en la base de datos que decide si esa barra es roja o azul; por eso ahora "
-        "sube y baja según la semana en vez de ser una sola raya fija. Para semanas sin umbral archivado (previas a "
-        f"esa mejora del pipeline), se usa como aproximación el umbral vigente hoy (**{spike_threshold:.1f}%** "
-        "= 1,5 × el promedio de arriba). "
-        "La **tabla** de abajo y el **Detalle semanal** muestran el mismo número en detalle por semana."
+        f"**Línea gris (promedio):** {avg_pct:.1f}%, informativa. Se recalcula al cargar la página sobre las "
+        f"semanas ya cerradas que ves en este gráfico (≥{MIN_MSGS_CHART} mensajes cada una, sin la semana en curso).\n\n"
+        "**Línea roja (umbral): no es una raya fija, es un umbral distinto por semana.** Cada semana, al cerrar, "
+        "quedó guardado su propio umbral = 1,5 × el promedio histórico *de ese momento*. Como ese promedio va "
+        "cambiando con el tiempo, el umbral de una semana de hace meses no es el mismo que el de una semana "
+        "reciente — por eso la línea sube y baja en vez de ser recta. Con este umbral por semana, la línea "
+        "siempre coincide con el color de la barra: si es roja, superó el umbral de esa semana puntual.\n\n"
+        f"Para semanas sin umbral guardado (previas a esta mejora del pipeline), se usa como aproximación el "
+        f"umbral de hoy: {spike_threshold:.1f}% (= 1,5 × el promedio gris de arriba).\n\n"
+        "El número exacto de cada semana está en la tabla de abajo y en **Detalle semanal**."
     )
 
     fecha_ini_med = (
