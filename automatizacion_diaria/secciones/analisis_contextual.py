@@ -245,13 +245,15 @@ def render_analisis_contextual():
         return pct >= spike_threshold
 
     st.markdown(
-        f"Las **líneas horizontales** muestran el **contexto vigente** al cargar la página: promedio "
-        f"**{avg_pct:.1f}%** y umbral **{spike_threshold:.1f}%** (= 1,5 × ese promedio) sobre **semanas ya cerradas** "
-        f"del gráfico (≥**{MIN_MSGS_CHART}** mensajes cada una, **sin** la semana en curso). "
-        "Ese umbral **cambia** si el histórico evoluciona (p. ej. un promedio de 3,6% implica umbral 5,4%). "
-        "Las **barras rojas** siguen el criterio **congelado al cierre** guardado en la base de datos. "
-        "La **tabla** bajo el gráfico resume **% de odio** y **alerta** por semana; si el pipeline archiva "
-        "umbral y promedio de referencia (análisis posteriores a esa mejora), esas columnas **aparecen solas** en la tabla."
+        f"Las **líneas horizontales** muestran una **referencia aproximada, recalculada al cargar la página**: promedio "
+        f"**{avg_pct:.1f}%** y umbral **{spike_threshold:.1f}%** (= 1,5 × ese promedio) sobre las **semanas ya cerradas "
+        f"que se ven en este gráfico** (≥**{MIN_MSGS_CHART}** mensajes cada una, **sin** la semana en curso). "
+        "Esta línea **no es el criterio de alerta de ninguna semana en particular** y puede no coincidir con el de "
+        "semanas ya cerradas, porque su base de cálculo (semanas visibles arriba) puede ser distinta de la que usó "
+        "el pipeline al cerrar cada semana. "
+        "Las **barras rojas**, la columna **Alerta** de la tabla y el **Detalle semanal** siguen siempre el criterio "
+        "**congelado al cierre** guardado en la base de datos (columnas *Promedio ref.* y *Umbral 1,5× (al cierre)*); "
+        "ese es el número que manda para saber si una semana disparó alerta o no."
     )
 
     fecha_ini_med = (
@@ -473,6 +475,19 @@ def render_analisis_contextual():
         k3.metric("% Odio", f"{row['pct_odio']}%")
         alerta_label = "Sí ⚠️" if bool(row.get("es_spike")) else "No"
         k4.metric("Alerta", alerta_label)
+
+        _um = row.get("umbral_spike_pct")
+        _prom = row.get("promedio_referencia_pct")
+        _nbase = row.get("n_semanas_base")
+        if _um is not None and not (isinstance(_um, float) and pd.isna(_um)):
+            k4.caption(
+                f"Umbral aplicado a esta semana (congelado al cierre): **{float(_um):.2f}%** "
+                f"= 1,5 × promedio de referencia **{float(_prom):.2f}%** "
+                f"({_fmt_n_base(_nbase)} semanas previas con ≥{MIN_MSGS_CHART} msgs). "
+                "No es el mismo número que la línea del gráfico de arriba (esa es aproximada y vigente hoy)."
+            )
+        else:
+            k4.caption("Sin umbral congelado archivado para esta semana (análisis previo a esa mejora del pipeline).")
 
         st.markdown("---")
 
