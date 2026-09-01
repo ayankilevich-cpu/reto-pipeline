@@ -245,15 +245,15 @@ def render_analisis_contextual():
         return pct >= spike_threshold
 
     st.markdown(
-        f"Las **líneas horizontales** muestran una **referencia aproximada, recalculada al cargar la página**: promedio "
-        f"**{avg_pct:.1f}%** y umbral **{spike_threshold:.1f}%** (= 1,5 × ese promedio) sobre las **semanas ya cerradas "
-        f"que se ven en este gráfico** (≥**{MIN_MSGS_CHART}** mensajes cada una, **sin** la semana en curso). "
-        "Esta línea **no es el criterio de alerta de ninguna semana en particular** y puede no coincidir con el de "
-        "semanas ya cerradas, porque su base de cálculo (semanas visibles arriba) puede ser distinta de la que usó "
-        "el pipeline al cerrar cada semana. "
-        "Las **barras rojas**, la columna **Alerta** de la tabla y el **Detalle semanal** siguen siempre el criterio "
-        "**congelado al cierre** guardado en la base de datos (columnas *Promedio ref.* y *Umbral 1,5× (al cierre)*); "
-        "ese es el número que manda para saber si una semana disparó alerta o no."
+        f"La **línea gris (promedio)** es informativa: **{avg_pct:.1f}%**, recalculada al cargar la página sobre las "
+        f"**semanas ya cerradas que se ven en este gráfico** (≥**{MIN_MSGS_CHART}** mensajes cada una, **sin** la "
+        "semana en curso). "
+        "La **línea roja punteada (umbral)** sigue el **umbral real de cada semana** — el mismo criterio "
+        "**congelado al cierre** guardado en la base de datos que decide si esa barra es roja o azul; por eso ahora "
+        "sube y baja según la semana en vez de ser una sola raya fija. Para semanas sin umbral archivado (previas a "
+        f"esa mejora del pipeline), se usa como aproximación el umbral vigente hoy (**{spike_threshold:.1f}%** "
+        "= 1,5 × el promedio de arriba). "
+        "La **tabla** de abajo y el **Detalle semanal** muestran el mismo número en detalle por semana."
     )
 
     fecha_ini_med = (
@@ -331,22 +331,28 @@ def render_analisis_contextual():
         annotation_text=f"Promedio: {avg_pct:.1f}%",
         annotation_position="top left",
     )
-    fig_timeline.add_hline(
-        y=spike_threshold, line_dash="dot", line_color=COLORS["danger"],
-        annotation_text=f"Umbral alerta: >={spike_threshold:.1f}%",
-        annotation_position="top left",
-        annotation=dict(
-            font=dict(size=11, color=COLORS["danger"]),
-            bgcolor="white",
-            borderpad=3,
-            yshift=8,
-        ),
-    )
+    # Umbral real aplicado a cada semana: el congelado al cierre si existe, si no el vigente
+    # hoy como aproximación. Se dibuja como línea escalonada (no una sola raya fija) para que
+    # coincida exactamente con el criterio que coloreó cada barra — antes una única línea
+    # "vigente hoy" podía quedar por debajo de una barra azul (o encima de una roja) sin que
+    # eso fuera realmente una contradicción, solo dos números distintos mostrados juntos.
+    _umbral_efectivo = df_chart["umbral_spike_pct"].where(
+        df_chart["umbral_spike_pct"].notna(), spike_threshold
+    ).astype(float)
+    fig_timeline.add_trace(go.Scatter(
+        x=df_chart["semana_label"],
+        y=_umbral_efectivo,
+        mode="lines",
+        line=dict(shape="hv", dash="dot", color=COLORS["danger"], width=2),
+        name="Umbral aplicado esa semana",
+        hovertemplate="Umbral aplicado esa semana: %{y:.2f}%<extra></extra>",
+    ))
     fig_timeline.update_layout(
         height=420,
         xaxis_title="",
         yaxis_title="% Odio",
-        showlegend=False,
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         xaxis=dict(tickangle=-45, tickfont=dict(size=10)),
         margin=dict(b=80),
     )
@@ -370,10 +376,13 @@ def render_analisis_contextual():
     with st.expander("ℹ️ Cómo leer este gráfico"):
         st.markdown(
             f"""
-- 🔴 **Rojo**: semana con alerta (% odio ≥ umbral y ≥300 mensajes)
+- 🔴 **Rojo**: semana con alerta (% odio ≥ umbral **de esa semana** y ≥300 mensajes)
 - 🔵 **Azul**: semana normal
 - 🟡 **Amarillo**: semana en curso (parcial)
-- **Líneas**: promedio ({avg_pct:.1f}%) y umbral de alerta ({spike_threshold:.1f}%) vigentes al cargar la página
+- **Línea gris (promedio)**: {avg_pct:.1f}%, vigente hoy — informativa, no decide ninguna alerta
+- **Línea roja escalonada (umbral)**: el umbral real que se aplicó a cada semana (congelado al cierre); coincide
+  siempre con el color de la barra. Para semanas sin umbral archivado usa como aproximación el umbral vigente
+  hoy ({spike_threshold:.1f}%)
 - Solo se muestran semanas con ≥{MIN_MSGS_CHART} mensajes
             """
         )
