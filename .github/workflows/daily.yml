@@ -151,6 +151,12 @@ jobs:
         run: python automatizacion_diaria/load_to_db.py
         continue-on-error: true
 
+      # ── Semáforo diario — alerta temprana, Fase 1 (todos los días) ──────────
+      - name: "[7] Semáforo diario (alerta temprana)"
+        if: ${{ success() || steps.load_db.outcome == 'success' }}
+        run: python automatizacion_diaria/semaforo_diario.py
+        continue-on-error: true
+
       # ── Análisis semanal (solo lunes, hora España) ───────────────────────────
       - name: "[10] Análisis contextual semanal (solo lunes)"
         if: ${{ success() || steps.load_db.outcome == 'success' }}
