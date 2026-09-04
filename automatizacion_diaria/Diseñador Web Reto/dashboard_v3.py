@@ -4758,7 +4758,14 @@ def _plataformas_presentes_semaforo(df: pd.DataFrame) -> List[str]:
     return [p for p in _ORDEN_PLATAFORMAS_SEMAFORO if p in presentes]
 
 
-def _semaphore_html_v3(rojo: Optional[bool]) -> str:
+def _norm_semaforo_v3(rojo) -> Optional[bool]:
+    if pd.isna(rojo):
+        return None
+    return bool(rojo)
+
+
+def _semaphore_html_v3(rojo) -> str:
+    rojo = _norm_semaforo_v3(rojo)
     if rojo is True:
         cls = ("reto-light red lit", "reto-light amber", "reto-light green")
     elif rojo is False:
@@ -4769,7 +4776,8 @@ def _semaphore_html_v3(rojo: Optional[bool]) -> str:
     return f'<div class="reto-semaphore">{lights}</div>'
 
 
-def _status_text_v3(rojo: Optional[bool]):
+def _status_text_v3(rojo):
+    rojo = _norm_semaforo_v3(rojo)
     if rojo is True:
         return "Actividad fuera de lo común", "alert"
     if rojo is False:
@@ -4805,6 +4813,7 @@ def _day_strip_html_v3(df_p: pd.DataFrame, dias: int = DIAS_FRANJA_SEMAFORO) -> 
 
     cells = []
     for d, rojo in serie.items():
+        rojo = _norm_semaforo_v3(rojo)       # ← nuevo
         if rojo is True:
             cls, label = "alert", "Alerta"
         elif rojo is False:
