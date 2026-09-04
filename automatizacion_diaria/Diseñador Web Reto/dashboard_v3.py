@@ -4892,12 +4892,16 @@ def render_semaforo():
 
     with st.expander("Ver el detalle técnico"):
         st.markdown(
-            "Rojo si la señal suavizada de 3 días alcanza 1,5× el promedio de "
-            "referencia de los 21 días anteriores — mismo criterio que `es_spike`, "
-            "aplicado día a día en vez de al cierre de la semana. En X la señal es "
-            "el % de mensajes con `score_baseline` en prioridad alta (AUC test "
-            "0,716, validado por backtest). En YouTube todavía es volumen crudo, "
-            "sin backtest propio (pendiente de `score_baseline` en producción)."
+            "El semáforo se enciende en rojo cuando la actividad de los últimos "
+            "3 días supera en un 50% o más el promedio habitual de las tres "
+            "semanas anteriores. Es el mismo criterio que usamos para detectar "
+            "picos semanales, pero calculado día a día en vez de esperar al "
+            "cierre de la semana.\n\n"
+            "En X, la alerta se basa en qué proporción de los mensajes el "
+            "sistema marca como prioridad alta — un método ya probado contra "
+            "datos reales. En YouTube, por ahora, se basa en el volumen total "
+            "de mensajes sin ese filtro de prioridad, así que sus alertas son "
+            "más preliminares y conviene tomarlas con más cautela."
         )
         _tbl = df.sort_values(["platform", "fecha"], ascending=[True, False]).copy()
         _tbl["Plataforma"] = _tbl["platform"].map(lambda p: PLATFORM_DISPLAY.get(p, p))
