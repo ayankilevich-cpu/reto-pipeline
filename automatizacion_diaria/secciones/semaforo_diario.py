@@ -59,7 +59,19 @@ def _plataformas_presentes(df: pd.DataFrame) -> List[str]:
 # Semáforo (3 luces) — estado actual por plataforma
 # ------------------------------------------------------------------ #
 
-def _semaphore_html(rojo: Optional[bool]) -> str:
+def _norm_semaforo(rojo) -> Optional[bool]:
+    """Normaliza `semaforo_rojo` a True/False/None nativos de Python.
+
+    numpy.bool_(False) is False da False en Python: nunca comparar por
+    identidad valores que vienen de pandas. Siempre pd.isna() + bool().
+    """
+    if pd.isna(rojo):
+        return None
+    return bool(rojo)
+
+
+def _semaphore_html(rojo) -> str:
+    rojo = _norm_semaforo(rojo)
     if rojo is True:
         cls = ("reto-light red lit", "reto-light amber", "reto-light green")
     elif rojo is False:
@@ -70,7 +82,8 @@ def _semaphore_html(rojo: Optional[bool]) -> str:
     return f'<div class="reto-semaphore">{lights}</div>'
 
 
-def _status_text(rojo: Optional[bool]) -> tuple[str, str]:
+def _status_text(rojo) -> tuple[str, str]:
+    rojo = _norm_semaforo(rojo)
     if rojo is True:
         return "Actividad fuera de lo común", "alert"
     if rojo is False:
@@ -110,6 +123,7 @@ def _day_strip_html(df_p: pd.DataFrame, dias: int = DIAS_FRANJA) -> str:
 
     cells = []
     for d, rojo in serie.items():
+        rojo = _norm_semaforo(rojo)          # ← nuevo
         if rojo is True:
             cls, label = "alert", "Alerta"
         elif rojo is False:
