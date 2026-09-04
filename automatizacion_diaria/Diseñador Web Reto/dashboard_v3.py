@@ -4840,8 +4840,8 @@ _LEGEND_HTML_SEMAFORO = """
 def render_semaforo():
     _render_section_header(
         "Semáforo diario",
-        "Avisa el mismo día si hay un pico inusual de mensajes de odio, sin "
-        "esperar a que estén clasificados.",
+        "Detecta picos inusuales de actividad el mismo día, antes de "
+        "clasificarlos.",
     )
 
     df = load_semaforo_diario()
