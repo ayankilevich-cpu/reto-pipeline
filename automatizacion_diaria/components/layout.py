@@ -36,6 +36,7 @@ SECTION_ICONS: Dict[str, str] = {
     "Categorías de odio (LLM)": "tags",
     "Ranking de medios": "trophy",
     "Análisis contextual": "graph-up",
+    "Semáforo diario": "exclamation-triangle",
     "Comparativa modelos": "arrow-left-right",
     "Calidad LLM": "check2-circle",
     "Términos frecuentes": "cloud",

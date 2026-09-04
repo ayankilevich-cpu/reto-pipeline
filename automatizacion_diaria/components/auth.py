@@ -19,6 +19,7 @@ _ALL_SECTIONS = [
     "Categorías de odio (LLM)",
     "Ranking de medios",
     "Análisis contextual",
+    "Semáforo diario",
     "Comparativa modelos",
     "Calidad LLM",
     "Términos frecuentes",

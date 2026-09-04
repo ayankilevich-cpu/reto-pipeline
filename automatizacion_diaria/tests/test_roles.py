@@ -15,7 +15,7 @@ if str(_HERE) not in sys.path:
 
 from components.auth import _ALL_SECTIONS, _RESTRICTED_SECTIONS, _get_sections_for_role
 
-TOTAL_SECTIONS = 13
+TOTAL_SECTIONS = 14
 
 # Derivados directamente de _RESTRICTED_SECTIONS en auth.py:
 #   viewer:  {"Comparativa modelos", "Calidad LLM", "Anotación y validación", "Análisis Art. 510"}
@@ -30,6 +30,7 @@ def test_all_sections_count():
     assert len(_ALL_SECTIONS) == TOTAL_SECTIONS, (
         f"Se esperaban {TOTAL_SECTIONS} secciones, hay {len(_ALL_SECTIONS)}"
     )
+
 
 
 def test_no_duplicates_in_all_sections():

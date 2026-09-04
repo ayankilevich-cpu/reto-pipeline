@@ -38,6 +38,7 @@ from secciones.panel_general import render_panel_general
 from secciones.categorias_odio import render_categorias
 from secciones.ranking_medios import render_ranking_medios
 from secciones.analisis_contextual import render_analisis_contextual
+from secciones.semaforo_diario import render_semaforo, load_semaforo_diario
 from secciones.comparativa_modelos import render_comparativa
 from secciones.calidad_llm import render_calidad_llm
 from secciones.terminos_frecuentes import render_terminos
@@ -85,6 +86,8 @@ def _precalentar_cache() -> None:
         # Categorías de odio — defaults sin filtros
         load_categorias()
         load_intensidad_por_categoria()
+        # Semáforo diario — ventana de 60 días por defecto
+        load_semaforo_diario()
         print("[WARMUP] cache_data de secciones públicas precalentada")
     except Exception as e:
         print(f"[WARMUP] falló el precalentado: {e}")
@@ -106,6 +109,7 @@ _SECTION_RENDERERS: Dict[str, Callable[[], None]] = {
     "Categorías de odio (LLM)": render_categorias,
     "Ranking de medios": render_ranking_medios,
     "Análisis contextual": render_analisis_contextual,
+    "Semáforo diario": render_semaforo,
     "Comparativa modelos": render_comparativa,
     "Calidad LLM": render_calidad_llm,
     "Términos frecuentes": render_terminos,
