@@ -1,31 +1,35 @@
 """Sección «Semáforo diario» del dashboard RETO — alerta temprana (Fase 1).
 
-Muestra el estado del semáforo binario calculado por `automatizacion_diaria/
-semaforo_diario.py` (processed.semaforo_diario): por plataforma, si el
-volumen de mensajes "calientes" del día se desvía de lo normal, sin esperar
-clasificación LLM/humana.
+Rediseño (2026-09): chip de texto reemplazado por un semáforo real
+(3 luces) y el gráfico de línea por una franja de los últimos 30 días,
+en lenguaje llano. El detalle técnico (señal suavizada, referencia,
+AUC, etc.) queda en un expander aparte, no en la vista principal.
 
-Diseño validado por backtest v1→v2 + verificación manual de 9 eventos reales.
+Diseño validado por backtest v1→v2 + verificación manual de 9 eventos reales
+— ver analitica/plan-alerta-temprana-anticipacion.md en el proyecto de
+Cowork para el detalle completo.
 """
 from __future__ import annotations
 
+import html
 import sys
+from datetime import date
 from pathlib import Path
 from typing import List, Optional
 
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 
 _HERE = Path(__file__).resolve().parent.parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from components.constants import COLORS, PLATFORM_DISPLAY
+from components.constants import PLATFORM_DISPLAY
 from components.ui import _render_section_header
 from components.db_helpers import _pooled_conn
 
-VENTANA_DIAS_DASHBOARD = 60
+VENTANA_DIAS_DASHBOARD = 60   # histórico que trae la query (más que los 30 que se muestran)
+DIAS_FRANJA = 30              # ventana de la franja de días
 _ORDEN_PLATAFORMAS = ("x", "youtube")
 
 
@@ -46,28 +50,98 @@ def load_semaforo_diario(dias: int = VENTANA_DIAS_DASHBOARD) -> pd.DataFrame:
     return df
 
 
-def _chip_html(rojo: Optional[bool]) -> str:
-    """Chip reutilizando las clases .reto-chip ya definidas en theme.py."""
-    if rojo is True:
-        return '<span class="reto-chip danger">🔴 Alerta</span>'
-    if rojo is False:
-        return '<span class="reto-chip success">🟢 Normal</span>'
-    return '<span class="reto-chip warning">⚪ Sin datos suficientes</span>'
-
-
 def _plataformas_presentes(df: pd.DataFrame) -> List[str]:
     presentes = set(df["platform"].unique())
     return [p for p in _ORDEN_PLATAFORMAS if p in presentes]
 
 
+# ------------------------------------------------------------------ #
+# Semáforo (3 luces) — estado actual por plataforma
+# ------------------------------------------------------------------ #
+
+def _semaphore_html(rojo: Optional[bool]) -> str:
+    if rojo is True:
+        cls = ("reto-light red lit", "reto-light amber", "reto-light green")
+    elif rojo is False:
+        cls = ("reto-light red", "reto-light amber", "reto-light green lit")
+    else:
+        cls = ("reto-light red", "reto-light amber lit", "reto-light green")
+    lights = "".join(f'<div class="{c}"></div>' for c in cls)
+    return f'<div class="reto-semaphore">{lights}</div>'
+
+
+def _status_text(rojo: Optional[bool]) -> tuple[str, str]:
+    if rojo is True:
+        return "Actividad fuera de lo común", "alert"
+    if rojo is False:
+        return "Todo normal", "ok"
+    return "Todavía no hay datos suficientes", "unknown"
+
+
+def _plat_card_html(plat_label: str, rojo: Optional[bool], fecha, volumen) -> str:
+    status_text, status_cls = _status_text(rojo)
+    semaphore = _semaphore_html(rojo)
+    fecha_s = fecha.strftime("%d/%m/%Y") if pd.notna(fecha) else "—"
+    vol_s = f"{int(volumen)} mensajes ese día" if pd.notna(volumen) else "sin volumen registrado"
+    return (
+        '<div class="reto-plat-card">'
+        f"{semaphore}"
+        "<div>"
+        f'<p class="reto-plat-name">{html.escape(plat_label)}</p>'
+        f'<p class="reto-plat-status {status_cls}">{html.escape(status_text)}</p>'
+        f'<p class="reto-plat-caption">Última actualización: {fecha_s} · {vol_s}</p>'
+        "</div>"
+        "</div>"
+    )
+
+
+# ------------------------------------------------------------------ #
+# Franja de los últimos 30 días
+# ------------------------------------------------------------------ #
+
+def _day_strip_html(df_p: pd.DataFrame, dias: int = DIAS_FRANJA) -> str:
+    if df_p.empty:
+        return ""
+    fin = df_p["fecha"].max()
+    inicio = fin - pd.Timedelta(days=dias - 1)
+    idx = pd.date_range(inicio, fin, freq="D")
+    serie = df_p.set_index("fecha")["semaforo_rojo"].reindex(idx)
+    hoy = date.today()
+
+    cells = []
+    for d, rojo in serie.items():
+        if rojo is True:
+            cls, label = "alert", "Alerta"
+        elif rojo is False:
+            cls, label = "ok", "Normal"
+        else:
+            cls, label = "unknown", "Sin datos suficientes"
+        today_cls = " today" if d.date() == hoy else ""
+        cells.append(
+            f'<div class="reto-day {cls}{today_cls}" '
+            f'title="{d.strftime("%d/%m")} — {label}"></div>'
+        )
+    return '<div class="reto-day-strip">' + "".join(cells) + "</div>"
+
+
+_LEGEND_HTML = """
+<div class="reto-strip-legend">
+  <div class="reto-strip-legend-item"><span class="reto-strip-legend-dot ok"></span>Normal</div>
+  <div class="reto-strip-legend-item"><span class="reto-strip-legend-dot alert"></span>Alerta</div>
+  <div class="reto-strip-legend-item"><span class="reto-strip-legend-dot unknown"></span>Sin datos suficientes</div>
+</div>
+"""
+
+
+# ------------------------------------------------------------------ #
+# Render
+# ------------------------------------------------------------------ #
+
 def render_semaforo() -> None:
     _render_section_header(
         "Semáforo diario",
-        "Alerta temprana (Fase 1) — detecta desviaciones de volumen \"caliente\" "
-        "día a día, antes de que el mensaje esté clasificado. Verde = normal, "
-        "rojo = la señal suavizada de 3 días alcanzó 1,5× el promedio de "
-        "referencia de los 21 días anteriores (mismo criterio que <code>es_spike</code>, "
-        "pero calculado diariamente en vez de al cierre de la semana).",
+        "Avisa el mismo día si hay un pico inusual de mensajes de odio, sin "
+        "esperar a que estén clasificados.",
     )
 
     df = load_semaforo_diario()
@@ -81,93 +155,68 @@ def render_semaforo() -> None:
 
     plataformas = _plataformas_presentes(df)
 
-    st.subheader("Estado actual")
+    # --- Estado actual: el semáforo, arriba de todo ---
     cols = st.columns(len(plataformas)) if plataformas else []
     for col, plat in zip(cols, plataformas):
         df_p = df[df["platform"] == plat].sort_values("fecha")
         ultima = df_p.iloc[-1]
         with col:
-            st.markdown(f"**{PLATFORM_DISPLAY.get(plat, plat)}** — {ultima['fecha'].strftime('%d/%m/%Y')}")
-            st.markdown(_chip_html(ultima["semaforo_rojo"]), unsafe_allow_html=True)
-            if pd.notna(ultima["media_referencia_21d"]):
-                st.caption(
-                    f"Volumen: {int(ultima['volumen_total'])} · "
-                    f"Señal 3d: {ultima['senal_suavizada_3d']:.2f} · "
-                    f"Referencia 21d: {ultima['media_referencia_21d']:.2f}"
-                )
-            else:
-                st.caption(
-                    f"Volumen: {int(ultima['volumen_total'])} · referencia todavía en formación "
-                    "(hacen falta al menos 7 días de histórico)"
-                )
+            st.markdown(
+                _plat_card_html(
+                    PLATFORM_DISPLAY.get(plat, plat),
+                    ultima["semaforo_rojo"],
+                    ultima["fecha"],
+                    ultima["volumen_total"],
+                ),
+                unsafe_allow_html=True,
+            )
 
     if "youtube" in plataformas:
         st.caption(
-            "⚠️ YouTube corre con volumen crudo como proxy provisional — sin `score_baseline` "
-            "en producción todavía (PR #6 sin mergear). Sin backtest propio: tratar sus "
-            "alertas con más cautela que las de X."
+            "En YouTube esta alerta todavía es una versión preliminar — tomá sus "
+            "resultados con más cautela que los de X."
         )
 
-    st.subheader("Señal suavizada (3 días) vs. referencia (21 días)")
-    if plataformas:
-        tabs = st.tabs([PLATFORM_DISPLAY.get(p, p) for p in plataformas])
-        for tab, plat in zip(tabs, plataformas):
-            with tab:
-                df_p = df[df["platform"] == plat].sort_values("fecha")
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=df_p["fecha"], y=df_p["senal_suavizada_3d"],
-                    mode="lines", name="Señal suavizada (3d)",
-                    line=dict(color=COLORS["primary"], width=2),
-                ))
-                fig.add_trace(go.Scatter(
-                    x=df_p["fecha"], y=df_p["media_referencia_21d"],
-                    mode="lines", name="Referencia (21d)",
-                    line=dict(color=COLORS["muted"], width=1.5, dash="dot"),
-                ))
-                df_rojo = df_p[df_p["semaforo_rojo"] == True]  # noqa: E712
-                if not df_rojo.empty:
-                    fig.add_trace(go.Scatter(
-                        x=df_rojo["fecha"], y=df_rojo["senal_suavizada_3d"],
-                        mode="markers", name="Semáforo rojo",
-                        marker=dict(color=COLORS["danger"], size=8),
-                    ))
-                fig.update_layout(
-                    height=380,
-                    xaxis_title="", yaxis_title="Señal",
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                    margin=dict(b=60),
-                    xaxis=dict(tickangle=-45, tickfont=dict(size=10)),
-                )
-                st.plotly_chart(fig, use_container_width=True, theme=None, key=f"semaforo_chart_{plat}")
-
-    with st.expander("ℹ️ Cómo leer este panel"):
+    # --- Últimos 30 días, de un vistazo ---
+    st.subheader("Últimos 30 días, de un vistazo")
+    for plat in plataformas:
+        df_p = df[df["platform"] == plat].sort_values("fecha")
+        n_alertas = int((df_p["semaforo_rojo"] == True).sum())  # noqa: E712
+        etiqueta = "día en alerta" if n_alertas == 1 else "días en alerta"
         st.markdown(
-            """
-- 🟢 **Verde**: el volumen de mensajes "calientes" del día está dentro de lo normal.
-- 🔴 **Rojo**: la señal suavizada de 3 días alcanzó o superó 1,5× el promedio de referencia de los 21 días anteriores — mismo criterio que `es_spike` en el análisis semanal, pero calculado día a día en vez de al cierre de la semana.
-- ⚪ **Sin datos suficientes**: todavía no hay al menos 7 días de referencia, o el volumen del día es demasiado bajo para ser confiable.
-- En **X**, la señal es el % de mensajes con `score_baseline` en prioridad alta (proxy validado por backtest, AUC test 0,716). En **YouTube** todavía es volumen crudo — proxy provisional, sin backtest propio.
-- Este semáforo **no reemplaza** la clasificación de odio: es una alerta temprana de volumen, para saber más rápido cuándo hay que mirar más de cerca.
-            """
+            f'<div class="reto-strip-label">{html.escape(PLATFORM_DISPLAY.get(plat, plat))} '
+            f'<span class="reto-strip-label-n">· {n_alertas} {etiqueta} en el último mes</span></div>',
+            unsafe_allow_html=True,
         )
+        st.markdown(_day_strip_html(df_p), unsafe_allow_html=True)
 
-    st.subheader("Histórico reciente")
-    _tbl = df.sort_values(["platform", "fecha"], ascending=[True, False]).copy()
-    _tbl["Plataforma"] = _tbl["platform"].map(lambda p: PLATFORM_DISPLAY.get(p, p))
-    _tbl["Fecha"] = _tbl["fecha"].dt.strftime("%d/%m/%Y")
-    _tbl["Estado"] = _tbl["semaforo_rojo"].map(
-        lambda v: "🔴 Rojo" if v is True else ("🟢 Verde" if v is False else "⚪ Sin datos")
-    )
-    st.dataframe(
-        _tbl[[
-            "Plataforma", "Fecha", "Estado", "volumen_total",
-            "senal_suavizada_3d", "media_referencia_21d",
-        ]].rename(columns={
-            "volumen_total": "Volumen",
-            "senal_suavizada_3d": "Señal 3d",
-            "media_referencia_21d": "Referencia 21d",
-        }),
-        use_container_width=True,
-        hide_index=True,
-    )
+    st.markdown(_LEGEND_HTML, unsafe_allow_html=True)
+
+    # --- Detalle técnico, aparte ---
+    with st.expander("Ver el detalle técnico"):
+        st.markdown(
+            "Rojo si la señal suavizada de 3 días alcanza 1,5× el promedio de "
+            "referencia de los 21 días anteriores — mismo criterio que `es_spike`, "
+            "aplicado día a día en vez de al cierre de la semana. En X la señal es "
+            "el % de mensajes con `score_baseline` en prioridad alta (AUC test "
+            "0,716, validado por backtest). En YouTube todavía es volumen crudo, "
+            "sin backtest propio (pendiente de `score_baseline` en producción)."
+        )
+        _tbl = df.sort_values(["platform", "fecha"], ascending=[True, False]).copy()
+        _tbl["Plataforma"] = _tbl["platform"].map(lambda p: PLATFORM_DISPLAY.get(p, p))
+        _tbl["Fecha"] = _tbl["fecha"].dt.strftime("%d/%m/%Y")
+        _tbl["Estado"] = _tbl["semaforo_rojo"].map(
+            lambda v: "Alerta" if v is True else ("Normal" if v is False else "Sin datos")
+        )
+        st.dataframe(
+            _tbl[[
+                "Plataforma", "Fecha", "Estado", "volumen_total",
+                "senal_suavizada_3d", "media_referencia_21d",
+            ]].rename(columns={
+                "volumen_total": "Volumen",
+                "senal_suavizada_3d": "Señal 3d",
+                "media_referencia_21d": "Referencia 21d",
+            }),
+            use_container_width=True,
+            hide_index=True,
+        )

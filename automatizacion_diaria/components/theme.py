@@ -309,6 +309,47 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
 .reto-chip.warning { background: #FFFBEA; color: #975A16; border-color: #FAF089; }
 .reto-chip.danger  { background: #FFF5F5; color: #9B2C2C; border-color: #FEB2B2; }
 
+/* --- Semáforo diario: rediseño (2026-09) --- */
+.reto-plat-card{
+    display:flex;gap:1.1rem;align-items:center;
+    background:#FFFFFF;border:1px solid #E2E8F0;border-radius:14px;
+    padding:1.1rem 1.2rem 1.3rem;
+    box-shadow:0 1px 2px rgba(16,24,40,.04);
+}
+.reto-semaphore{
+    flex:0 0 auto;width:48px;background:#1C2733;border-radius:13px;
+    padding:7px;display:flex;flex-direction:column;gap:6px;
+    box-shadow:inset 0 2px 5px rgba(0,0,0,.5);
+}
+.reto-light{width:34px;height:34px;border-radius:50%;}
+.reto-light.red{background:#3A2622;}
+.reto-light.amber{background:#3A2E14;}
+.reto-light.green{background:#173321;}
+.reto-light.lit.red{background:#C0392B;box-shadow:0 0 14px 3px rgba(192,57,43,.65);}
+.reto-light.lit.amber{background:#F39C12;box-shadow:0 0 14px 3px rgba(243,156,18,.6);}
+.reto-light.lit.green{background:#27AE60;box-shadow:0 0 14px 3px rgba(39,174,96,.6);}
+.reto-plat-name{font-weight:700;font-size:.92rem;margin:0 0 .15rem;color:#1A202C;}
+.reto-plat-status{font-weight:700;font-size:1.02rem;margin:0 0 .3rem;}
+.reto-plat-status.ok{color:#27AE60;}
+.reto-plat-status.alert{color:#C0392B;}
+.reto-plat-status.unknown{color:#B7791F;}
+.reto-plat-caption{font-size:.78rem;color:#8592A3;line-height:1.4;margin:0;}
+
+.reto-strip-label{font-size:.82rem;font-weight:600;color:#4A5568;margin:1rem 0 .35rem;}
+.reto-strip-label-n{font-weight:400;color:#8592A3;}
+.reto-day-strip{display:flex;gap:4px;margin:0 0 .5rem;}
+.reto-day{flex:1 1 0;height:20px;border-radius:5px;}
+.reto-day.ok{background:#8FD6AC;}
+.reto-day.alert{background:#C0392B;}
+.reto-day.unknown{background:#E2E8F0;}
+.reto-day.today{outline:2px solid #1F4E79;outline-offset:1px;}
+.reto-strip-legend{display:flex;gap:1.2rem;margin-top:.5rem;flex-wrap:wrap;}
+.reto-strip-legend-item{display:flex;align-items:center;gap:.4rem;font-size:.76rem;color:#4A5568;}
+.reto-strip-legend-dot{width:10px;height:10px;border-radius:3px;display:inline-block;}
+.reto-strip-legend-dot.ok{background:#8FD6AC;}
+.reto-strip-legend-dot.alert{background:#C0392B;}
+.reto-strip-legend-dot.unknown{background:#E2E8F0;}
+
 /* --- Panel general: tarjetas KPI visuales --- */
 .pg-kpi-card {
     background: linear-gradient(135deg, #1F4E79 0%, #2B6CB0 100%);
