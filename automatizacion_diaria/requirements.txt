@@ -1,6 +1,6 @@
-streamlit>=1.30
+streamlit>=1.63.0
 pandas>=2.0
-plotly>=5.18
+plotly>=7.0.0
 psycopg2-binary>=2.9
 python-dotenv>=1.0
 wordcloud>=1.9
