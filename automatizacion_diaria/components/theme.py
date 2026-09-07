@@ -181,7 +181,7 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
 [data-testid="stMetric"] {
     background: #FFFFFF;
     border: 1px solid #E2E8F0;
-    border-radius: 12px;
+    border-radius: 8px;
     padding: 1rem 1.25rem;
     box-shadow: 0 1px 3px rgba(0,0,0,0.04);
     transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
