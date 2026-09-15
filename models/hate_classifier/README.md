@@ -19,6 +19,13 @@ export $(cat .env | xargs)   # o usar python-dotenv / tu propio manejo de env va
 
 **Nunca** commitear `.env` ni la connection string en ningún archivo del repo — ya está en `.gitignore`.
 
+**macOS + joblib 1.6.0:** si `train.py` crashea en `gs.fit()` con
+`KeyError: 'mp_tracker_args'`, es un bug conocido del backend `loky` de `joblib` en macOS.
+Solución sin tocar código — exportar antes de correr:
+```bash
+export LOKY_START_METHOD=fork
+```
+
 ## Correr
 
 ```bash
