@@ -17,6 +17,7 @@ import re
 import sys
 from datetime import datetime, timezone
 
+import joblib
 import numpy as np
 import pandas as pd
 import psycopg2
@@ -79,6 +80,19 @@ def to_bool_num(s):
     return s.astype(str).str.lower().map({'true': 1, 't': 1, '1': 1, 'false': 0, 'f': 0, '0': 0}).fillna(0)
 
 
+def count_exact_duplicates(train_df, test_df):
+    """Cuenta mensajes con texto idéntico (tras limpieza) presentes en TRAIN y TEST.
+
+    Un mismo texto compartido entre splits puede inflar las métricas de TEST sin que
+    el modelo esté generalizando de verdad — frecuente en discurso de odio por retuits
+    y copy-paste. Esto no arregla el split (viene fijo de gold_dataset), solo lo detecta.
+    """
+    train_clean = set(train_df['content_original'].apply(clean_text))
+    test_clean = set(test_df['content_original'].apply(clean_text))
+    overlap = (train_clean & test_clean) - {''}
+    return len(overlap)
+
+
 def build_features(df, vectorizer=None, scaler=None, fit=False):
     texts = df['content_original'].apply(clean_text)
     if fit:
@@ -131,6 +145,12 @@ def run_platform(df, platform, random_state=42):
         print(f"AVISO: muy pocos datos para {platform}, salteando.")
         return None
 
+    n_dup = count_exact_duplicates(train, test)
+    if n_dup > 0:
+        pct = 100 * n_dup / max(len(test), 1)
+        print(f"AVISO: {n_dup} mensajes con texto idéntico en TRAIN y TEST "
+              f"({pct:.1f}% del TEST) — revisar antes de confiar en test_auc.")
+
     X_train, vec, scaler = build_features(train, fit=True)
     y_train = train['y_odio_bin'].astype(int).values
     X_test, _, _ = build_features(test, vectorizer=vec, scaler=scaler, fit=False)
@@ -159,6 +179,21 @@ def run_platform(df, platform, random_state=42):
     res_05 = evaluate(y_test, (proba_test >= 0.5).astype(int), proba_test, 'TEST (umbral 0.5)')
     res_cal = evaluate(y_test, (proba_test >= best_thr).astype(int), proba_test, f'TEST (umbral calibrado {best_thr:.2f})')
 
+    artifacts_dir = os.path.join(os.path.dirname(__file__), 'artifacts')
+    os.makedirs(artifacts_dir, exist_ok=True)
+    artifact_path = os.path.join(artifacts_dir, f'{platform}_classifier.pkl')
+    joblib.dump({
+        'vectorizer': vec,
+        'scaler': scaler,
+        'model': model,
+        'threshold': best_thr,
+        'platform': platform,
+        'trained_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+        'engineered_features': ['relevante_score', 'match_count', 'strong_phrase',
+                                 'has_hate_terms_match', 'text_len', 'n_tokens'],
+    }, artifact_path)
+    print(f"Modelo guardado en {artifact_path}")
+
     return {
         'run_date': datetime.now(timezone.utc).isoformat(timespec='seconds'),
         'platform': platform, 'best_C': best_C, 'cv_auc': round(gs.best_score_, 4),
@@ -172,6 +207,7 @@ def run_platform(df, platform, random_state=42):
         'test_prec_cal': round(res_cal['precision'], 4),
         'test_rec_cal': round(res_cal['recall'], 4),
         'n_train': len(train), 'n_test': len(test),
+        'n_train_test_duplicates': n_dup,
     }
 
 
