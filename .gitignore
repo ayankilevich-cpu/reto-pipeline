@@ -115,3 +115,9 @@ automatizacion_diaria/Diseñador Web Reto/*
 !automatizacion_diaria/Diseñador Web Reto/dashboard_v3.py
 !automatizacion_diaria/Diseñador Web Reto/dashboard_v2.py
 Medios/reto-pipeline/
+
+# --- Clasificador de odio no-LLM (models/hate_classifier/) ---
+models/hate_classifier/.env
+models/hate_classifier/venv/
+models/hate_classifier/*.pkl
+!models/hate_classifier/results/training_log.csv
