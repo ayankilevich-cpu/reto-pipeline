@@ -93,7 +93,8 @@ def count_exact_duplicates(train_df, test_df):
     return len(overlap)
 
 
-def build_features(df, vectorizer=None, scaler=None, fit=False):
+def build_features(df, vectorizer=None, scaler=None, fit=False, drop_features=None):
+    drop_features = set(drop_features or [])
     texts = df['content_original'].apply(clean_text)
     if fit:
         vectorizer = TfidfVectorizer(max_features=6000, ngram_range=(1, 2), min_df=3, max_df=0.85,
@@ -102,14 +103,15 @@ def build_features(df, vectorizer=None, scaler=None, fit=False):
     else:
         X_text = vectorizer.transform(texts)
 
-    eng = pd.DataFrame({
+    eng_full = {
         'relevante_score': pd.to_numeric(df['relevante_score'], errors='coerce').fillna(-1),
         'match_count': pd.to_numeric(df['match_count'], errors='coerce').fillna(0),
         'strong_phrase': to_bool_num(df['strong_phrase']),
         'has_hate_terms_match': to_bool_num(df['has_hate_terms_match']),
         'text_len': texts.str.len(),
         'n_tokens': texts.str.split().apply(len),
-    })
+    }
+    eng = pd.DataFrame({k: v for k, v in eng_full.items() if k not in drop_features})
     if fit:
         scaler = StandardScaler()
         X_eng = scaler.fit_transform(eng.values)
@@ -133,9 +135,10 @@ def evaluate(y_true, y_pred, y_proba, label, verbose=True):
                 precision=prec, recall=rec, f1=f1)
 
 
-def run_platform(df, platform, random_state=42):
+def run_platform(df, platform, random_state=42, drop_features=None):
     print("\n" + "=" * 70)
-    print(f"PLATAFORMA: {platform}")
+    tag = f"  (sin features: {', '.join(drop_features)})" if drop_features else ""
+    print(f"PLATAFORMA: {platform}{tag}")
     print("=" * 70)
     sub = df[df['platform'] == platform].copy()
     train = sub[sub['split'] == 'TRAIN'].reset_index(drop=True)
@@ -151,9 +154,9 @@ def run_platform(df, platform, random_state=42):
         print(f"AVISO: {n_dup} mensajes con texto idéntico en TRAIN y TEST "
               f"({pct:.1f}% del TEST) — revisar antes de confiar en test_auc.")
 
-    X_train, vec, scaler = build_features(train, fit=True)
+    X_train, vec, scaler = build_features(train, fit=True, drop_features=drop_features)
     y_train = train['y_odio_bin'].astype(int).values
-    X_test, _, _ = build_features(test, vectorizer=vec, scaler=scaler, fit=False)
+    X_test, _, _ = build_features(test, vectorizer=vec, scaler=scaler, fit=False, drop_features=drop_features)
     y_test = test['y_odio_bin'].astype(int).values
 
     skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=random_state)
@@ -179,9 +182,14 @@ def run_platform(df, platform, random_state=42):
     res_05 = evaluate(y_test, (proba_test >= 0.5).astype(int), proba_test, 'TEST (umbral 0.5)')
     res_cal = evaluate(y_test, (proba_test >= best_thr).astype(int), proba_test, f'TEST (umbral calibrado {best_thr:.2f})')
 
+    all_engineered = ['relevante_score', 'match_count', 'strong_phrase',
+                       'has_hate_terms_match', 'text_len', 'n_tokens']
+    kept_features = [f for f in all_engineered if f not in (drop_features or [])]
+
     artifacts_dir = os.path.join(os.path.dirname(__file__), 'artifacts')
     os.makedirs(artifacts_dir, exist_ok=True)
-    artifact_path = os.path.join(artifacts_dir, f'{platform}_classifier.pkl')
+    suffix = ('_excl_' + '-'.join(sorted(drop_features))) if drop_features else ''
+    artifact_path = os.path.join(artifacts_dir, f'{platform}_classifier{suffix}.pkl')
     joblib.dump({
         'vectorizer': vec,
         'scaler': scaler,
@@ -189,8 +197,7 @@ def run_platform(df, platform, random_state=42):
         'threshold': best_thr,
         'platform': platform,
         'trained_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
-        'engineered_features': ['relevante_score', 'match_count', 'strong_phrase',
-                                 'has_hate_terms_match', 'text_len', 'n_tokens'],
+        'engineered_features': kept_features,
     }, artifact_path)
     print(f"Modelo guardado en {artifact_path}")
 
@@ -208,6 +215,7 @@ def run_platform(df, platform, random_state=42):
         'test_rec_cal': round(res_cal['recall'], 4),
         'n_train': len(train), 'n_test': len(test),
         'n_train_test_duplicates': n_dup,
+        'dropped_features': ','.join(drop_features) if drop_features else '',
     }
 
 
@@ -220,7 +228,11 @@ def main():
     parser.add_argument('--log-file', default='training_log.csv',
                          help='Nombre del CSV donde se acumulan los resultados de cada corrida')
     parser.add_argument('--random-state', type=int, default=42)
+    parser.add_argument('--drop-features', default='',
+                         help='Features de ingeniería a excluir del entrenamiento, separadas '
+                              'por coma (ej. relevante_score) — para experimentos de ablación')
     args = parser.parse_args()
+    drop_features = [f.strip() for f in args.drop_features.split(',') if f.strip()]
 
     database_url = os.environ.get('DATABASE_URL')
     if not database_url:
@@ -236,7 +248,7 @@ def main():
     results = []
     for plat in args.platforms.split(','):
         plat = plat.strip()
-        r = run_platform(df, plat, random_state=args.random_state)
+        r = run_platform(df, plat, random_state=args.random_state, drop_features=drop_features)
         if r:
             results.append(r)
 
