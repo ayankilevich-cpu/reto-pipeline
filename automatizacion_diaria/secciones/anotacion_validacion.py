@@ -890,8 +890,9 @@ def _load_admin_annotation_supervision(period: str) -> dict:
 def _ann_yt_sql_filters(
     fecha_desde: Optional[str] = None,
     fecha_hasta: Optional[str] = None,
+    terminos: Optional[List[str]] = None,
 ) -> Tuple[str, list]:
-    """Fragmento SQL + params para el filtro de fechas de la cola de anotación YT."""
+    """Fragmento SQL + params para el filtro de fechas y términos de la cola de anotación YT."""
     parts: List[str] = []
     params: list = []
     if fecha_desde:
@@ -900,16 +901,35 @@ def _ann_yt_sql_filters(
     if fecha_hasta:
         parts.append("AND pm.created_at < (%s::date + interval '1 day')")
         params.append(fecha_hasta)
+    if terminos:
+        or_clauses = " OR ".join("pm.content_original ILIKE %s" for _ in terminos)
+        parts.append(f"AND ({or_clauses})")
+        params.extend(f"%{t}%" for t in terminos)
     return " ".join(parts), params
 
 
 def _load_annotation_queue(
     fecha_desde: Optional[str] = None,
     fecha_hasta: Optional[str] = None,
+    terminos: Optional[tuple] = None,
 ) -> pd.DataFrame:
-    """Carga mensajes YouTube pendientes de anotación (sin cache)."""
+    """Carga mensajes YouTube pendientes de anotación (sin cache).
+
+    Con terminos: busca en todo processed.mensajes (sin exigir relevante_llm = 'SI')
+    filtrando por content_original ILIKE sobre cada término (OR entre ellos).
+    Sin terminos: comportamiento por defecto, solo relevante_llm = 'SI'.
+    """
     skipped = st.session_state.get("ann_skipped", set())
-    filter_sql, params = _ann_yt_sql_filters(fecha_desde, fecha_hasta)
+    terminos_list = list(terminos) if terminos else []
+    filter_sql, params = _ann_yt_sql_filters(fecha_desde, fecha_hasta, terminos_list)
+    relevante_cond = "" if terminos_list else "AND pm.relevante_llm = 'SI'"
+
+    if terminos_list:
+        dedup_order = "pm.content_original, pm.created_at DESC NULLS LAST"
+        final_sort, sort_asc = "created_at", False
+    else:
+        dedup_order = "pm.content_original, pm.relevante_score DESC NULLS LAST"
+        final_sort, sort_asc = "relevante_score", False
 
     with _pooled_conn() as conn:
         df = pd.read_sql(f"""
@@ -920,14 +940,14 @@ def _load_annotation_queue(
             FROM processed.mensajes pm
             LEFT JOIN raw.mensajes rm USING (message_uuid)
             WHERE pm.platform = 'youtube'
-              AND pm.relevante_llm = 'SI'
+              {relevante_cond}
               AND pm.message_uuid NOT IN (
                   SELECT message_uuid FROM processed.validaciones_manuales
               )
               {filter_sql}
-            ORDER BY pm.content_original, pm.relevante_score DESC NULLS LAST
+            ORDER BY {dedup_order}
         """, conn, params=params)
-        df = df.sort_values("relevante_score", ascending=False).head(100)
+        df = df.sort_values(final_sort, ascending=sort_asc).head(100)
 
     if skipped and not df.empty:
         df = df[~df["message_uuid"].astype(str).isin(skipped)]
@@ -1250,7 +1270,12 @@ def _save_v510_validation(
 
 
 @st.fragment
-def _fragment_anotacion_youtube(annotator: str, fd_str: Optional[str], fh_str: Optional[str]) -> None:
+def _fragment_anotacion_youtube(
+    annotator: str,
+    fd_str: Optional[str],
+    fh_str: Optional[str],
+    terminos: Optional[List[str]] = None,
+) -> None:
     """KPIs + mensaje + formulario: rerun acotado al fragment tras Guardar/Saltar."""
     _kpi_period = st.session_state.get("supervision_period", "day")
     if st.session_state.get("user_role") in ("admin", "editor"):
@@ -1272,11 +1297,14 @@ def _fragment_anotacion_youtube(annotator: str, fd_str: Optional[str], fh_str: O
     queue = _ann_get_or_load_queue(
         "_ann_yt_queue_cache",
         _load_annotation_queue,
-        (fd_str, fh_str),
+        (fd_str, fh_str, tuple(terminos or [])),
     )
 
     if queue.empty:
-        if fd_str or fh_str:
+        if terminos:
+            st.success("No hay mensajes pendientes para el término/los términos seleccionados.")
+            st.caption("Probá con otros términos o combinalo con un rango de fechas distinto.")
+        elif fd_str or fh_str:
             st.success("No hay mensajes pendientes de anotación en el rango de fechas seleccionado.")
             st.caption("Ampliá o quitá el filtro de fechas para ver el resto de la cola.")
         else:
@@ -1480,7 +1508,7 @@ def _fragment_anotacion_youtube(annotator: str, fd_str: Optional[str], fh_str: O
 def _render_anotacion_youtube(annotator: str):
     """Contenido del tab de anotación YouTube (filtros fuera del fragment; KPIs dentro)."""
 
-    col_fd, col_fh = st.columns(2)
+    col_fd, col_fh, col_term = st.columns(3)
     with col_fd:
         fecha_desde = st.date_input(
             "Fecha desde",
@@ -1493,16 +1521,24 @@ def _render_anotacion_youtube(annotator: str):
             value=None,
             key="ann_yt_fecha_hasta",
         )
+    with col_term:
+        st.text_input(
+            "Filtrar por término/temática",
+            placeholder="Ej.: periodistas, moro, ceuta",
+            key="ann_yt_termino",
+        )
 
     fd_str = fecha_desde.isoformat() if fecha_desde else None
     fh_str = fecha_hasta.isoformat() if fecha_hasta else None
+    termino_raw = st.session_state.get("ann_yt_termino", "")
+    terminos = [t.strip() for t in termino_raw.split(",") if t.strip()] if termino_raw else []
 
     if fd_str and fh_str and fd_str > fh_str:
         st.warning("La fecha **desde** no puede ser posterior a la fecha **hasta**.")
         st.divider()
         return
 
-    _fragment_anotacion_youtube(annotator, fd_str, fh_str)
+    _fragment_anotacion_youtube(annotator, fd_str, fh_str, terminos)
 
 
 @st.fragment
