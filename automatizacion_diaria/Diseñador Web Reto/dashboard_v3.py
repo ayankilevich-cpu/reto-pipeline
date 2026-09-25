@@ -532,6 +532,13 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
     margin: 0.35rem 0 1rem 0;
     width: 100%;
 }
+/* Evita que una tarjeta KPI quede huérfana y descentrada en la última fila
+   cuando el número de KPIs no es múltiplo de columnas (ver revisión visual
+   semanal): si es la única en su fila dentro de un grid de 4 columnas,
+   ocupa el ancho completo en vez de dejar hueco vacío a la derecha. */
+.pg-kpi-grid > .pg-kpi-card:last-child:nth-child(4n+1) {
+    grid-column: 1 / -1;
+}
 /* Forzar Inter en KPI cards y headers de sección (Streamlit resolvía
    "Source Sans" por defecto en estos contenedores de markdown) */
 .pg-kpi-grid,
