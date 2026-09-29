@@ -76,6 +76,37 @@ def limpiar_eventos_relacionados(texto: str) -> str:
     return "\n".join(out).strip()
 
 
+def _cuotas(temas: Dict[str, Any]) -> Dict[str, float]:
+    tot = sum(int(v or 0) for v in temas.values())
+    if tot <= 0:
+        return {}
+    return {k: 100.0 * int(v or 0) / tot for k, v in temas.items()}
+
+
+def describir_variacion_temas(stats: Dict[str, Any], min_pp: float = 3.0) -> str:
+    """
+    Frase semana-contra-semana: qué temas ganan / pierden peso relativo (en puntos
+    porcentuales sobre el total de menciones temáticas). Vacío si no hay semana previa
+    o si ningún cambio supera `min_pp`.
+    """
+    actual = _cuotas(stats.get("temas") or {})
+    previa = _cuotas(stats.get("temas_semana_anterior") or {})
+    if not actual or not previa:
+        return ""
+    claves = set(actual) | set(previa)
+    deltas = {k: actual.get(k, 0.0) - previa.get(k, 0.0) for k in claves}
+    suben = sorted((d, k) for k, d in deltas.items() if d >= min_pp)[::-1][:2]
+    bajan = sorted((d, k) for k, d in deltas.items() if d <= -min_pp)[:2]
+    trozos = []
+    if suben:
+        trozos.append("ganan peso " + ", ".join(f"{k} (+{d:.0f} pp)" for d, k in suben))
+    if bajan:
+        trozos.append("pierden peso " + ", ".join(f"{k} ({d:.0f} pp)" for d, k in bajan))
+    if not trozos:
+        return "Respecto de la semana anterior, la distribución de temas se mantiene estable."
+    return "Respecto de la semana anterior, " + "; ".join(trozos) + "."
+
+
 def generar_resumen_desde_stats(stats: Dict[str, Any]) -> str:
     """Resumen 100 % basado en agregados de la semana (sin inventar noticias)."""
     ini = stats.get("semana_inicio")
@@ -128,7 +159,11 @@ def generar_resumen_desde_stats(stats: Dict[str, Any]) -> str:
     temas = list((stats.get("temas") or {}).items())[:4]
     if temas:
         tm = ", ".join(f"{n} ({c})" for n, c in temas)
-        partes.append(f"Temas recurrentes en el corpus: {tm}.")
+        partes.append(f"Temas más presentes en los mensajes de odio de esta semana: {tm}.")
+
+    variacion = describir_variacion_temas(stats)
+    if variacion:
+        partes.append(variacion)
 
     intens = stats.get("intensidad") or {}
     if any(intens.values()):

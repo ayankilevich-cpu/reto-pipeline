@@ -72,7 +72,7 @@ TARGET_PATTERNS = {
 }
 
 TOPIC_PATTERNS = {
-    "Inmigración / fronteras": r"inmigra|mena|cayuco|patera|irregular|frontera|deport|acogida",
+    "Inmigración / fronteras": r"inmigra|\bmenas?\b|cayuco|patera|irregular|frontera|deporta|acogida",
     "Gobierno / Sánchez": r"sánchez|sanchez|gobierno|moncloa|presidente|consejo de ministros",
     "PP / Vox": r"\bvox\b|abascal|ayuso|\bpp\b|feijó|partido popular",
     "Islam / religión": r"islam|musulm|moro|mezquita|allah|ramadán|cristian|iglesia",
@@ -85,11 +85,14 @@ TOPIC_PATTERNS = {
     "Economía / inflación": r"inflaci|precio|sueldo|paro|desempleo|vivienda|hipoteca",
     "Educación": r"educaci|colegio|universidad|profesor|adoctrin",
     "Sanidad": r"sanidad|hospital|médico|salud|enferm",
-    "Fútbol / selección / racismo en estadio": (
-        r"fútbol|futbol|selecci[oó]n|españa|rfef|federaci[oó]n|mundial|eurocopa|"
-        r"estadio|grada|hincha|aficion|afición|cántico|cantico|himno|"
-        r"racis|insulto.*racial|monkey|simio|vinicius|lamine|yamal|partido"
+    # Solo léxico inequívocamente deportivo. NO incluir "españa", "partido", "selección",
+    # "himno" ni "racis": son palabras de uso general (partidos políticos, España como país)
+    # y hacían que este tema apareciera en el top TODAS las semanas.
+    "Fútbol / deporte": (
+        r"f[uú]tbol|\brfef\b|eurocopa|\bestadios?\b|\bgradas?\b|\bhinchas?\b|"
+        r"[áa]rbitr|vin[ií]cius|lamine|yamal|\bla roja\b"
     ),
+    "Racismo / insultos raciales": r"racis|\bsimios?\b|\bmacacos?\b|monkey",
 }
 
 # Etiquetas legibles (alineado con dashboard / Manual ReTo)
@@ -581,6 +584,26 @@ def get_all_week_starts(conn) -> List[date]:
     return [_to_py_date(x) for x in df["semana"].tolist()]
 
 
+def get_temas_semana_anterior(conn, week_start: date) -> Dict[str, int]:
+    """Temas guardados de la semana previa (para comparar semana contra semana)."""
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT temas FROM processed.analisis_semanal WHERE semana_inicio = %s",
+        (week_start - timedelta(days=7),),
+    )
+    row = cur.fetchone()
+    cur.close()
+    if not row or row[0] is None:
+        return {}
+    val = row[0]
+    if isinstance(val, str):
+        try:
+            val = json.loads(val) if val.strip() else {}
+        except Exception:
+            return {}
+    return val if isinstance(val, dict) else {}
+
+
 def get_already_analyzed(conn) -> set:
     """
     Considera "ya analizada" solo aquella semana cuyo analisis_date
@@ -767,6 +790,8 @@ def main():
         with get_conn() as conn:
             avg_pct, n_base = compute_avg_pct_prior_to_week(conn, week_start)
             stats = compute_week_stats(conn, week_start, avg_pct, n_base)
+            if stats is not None:
+                stats["temas_semana_anterior"] = get_temas_semana_anterior(conn, week_start)
 
         if stats is None:
             print("  (sin datos)\n", flush=True)

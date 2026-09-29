@@ -157,17 +157,13 @@ jobs:
         run: python automatizacion_diaria/semaforo_diario.py
         continue-on-error: true
 
-      # ── Análisis semanal (solo lunes, hora España) ───────────────────────────
-      - name: "[10] Análisis contextual semanal (solo lunes)"
+      # ── Análisis contextual semanal (todos los días) ─────────────────────────
+      # Ya no usa LLM (texto determinista desde agregados SQL): correrlo a diario no
+      # tiene costo de API y evita que una semana quede sin cerrar si el cron del
+      # lunes se retrasa. Solo reprocesa semanas no cerradas + la semana en curso.
+      - name: "[10] Análisis contextual semanal"
         if: ${{ success() || steps.load_db.outcome == 'success' }}
-        run: |
-          DOW=$(TZ=Europe/Madrid date +%u)
-          if [ "$DOW" -eq 1 ]; then
-            echo "Lunes (Europe/Madrid): ejecutando analisis_contexto_semanal.py"
-            python automatizacion_diaria/analisis_contexto_semanal.py
-          else
-            echo "No es lunes en España (dow=$DOW) — análisis semanal omitido."
-          fi
+        run: python automatizacion_diaria/analisis_contexto_semanal.py
         continue-on-error: true
 
       # ── Validación de etapas críticas ────────────────────────────────────────
