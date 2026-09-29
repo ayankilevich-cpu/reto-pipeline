@@ -4233,8 +4233,8 @@ def render_analisis_contextual():
         "Análisis contextual semanal",
         _ui_label(
             "Evolución semanal del discurso de odio con <strong>alertas</strong>, "
-            "<strong>targets</strong> y <strong>temas dominantes</strong>; análisis contextual con IA "
-            "(solo mensajes de <strong>X</strong> clasificados por LLM)."
+            "<strong>targets</strong> y <strong>temas dominantes</strong>; resumen generado automáticamente "
+            "cada semana a partir de los datos agregados (mensajes clasificados por LLM)."
         ),
     )
     st.info(
