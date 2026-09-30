@@ -40,6 +40,7 @@ import fnmatch
 import json
 import os
 import shutil
+import socket
 import sys
 import time
 import traceback
@@ -291,8 +292,12 @@ def main() -> int:
         error_msg += "Puedes especificar otra ruta con: --credentials /ruta/alternativa.json"
         raise FileNotFoundError(error_msg)
 
+    socket.setdefaulttimeout(30)
     try:
         service = build_drive_service(credentials_json)
+    except socket.timeout:
+        print("❌ Drive API timeout tras 30s al autenticar — sin respuesta del servidor.", file=sys.stderr)
+        return 3
     except Exception as e:
         print(f"❌ No se pudo autenticar con Google Drive: {e}", file=sys.stderr)
         traceback.print_exc()
@@ -301,6 +306,9 @@ def main() -> int:
     print(f"Listando archivos en folder: {args.folder_id}")
     try:
         files = _retry_api_call(list_files_in_folder, service, args.folder_id)
+    except socket.timeout:
+        print("❌ Drive API timeout tras 30s al listar archivos — sin respuesta del servidor.", file=sys.stderr)
+        return 4
     except HttpError as e:
         print(
             f"❌ Error HTTP de Google Drive (código {e.resp.status}): {e!s}\n"
@@ -313,6 +321,9 @@ def main() -> int:
         print(f"❌ Error al listar archivos en Drive: {e}", file=sys.stderr)
         traceback.print_exc()
         return 4
+
+    # Ampliar timeout para descargas: chunks de 1 MB pueden tardar más de 30s en conexiones lentas
+    socket.setdefaulttimeout(120)
 
     # Filtrar por patrón
     selected = [f for f in files if fnmatch.fnmatch(f.get("name", ""), args.pattern)]
@@ -406,6 +417,9 @@ def main() -> int:
         print(f"Descargando: {name} (id={meta['id']}) — {reason}")
         try:
             _retry_api_call(download_file, service, meta["id"], dest)
+        except socket.timeout:
+            print(f"❌ Timeout de red tras 120s descargando {name} — chunk sin respuesta.", file=sys.stderr)
+            return 5
         except HttpError as e:
             print(
                 f"❌ Error al descargar {name}: HTTP {e.resp.status} — {e!s}",
