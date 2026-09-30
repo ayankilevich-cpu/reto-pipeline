@@ -385,20 +385,26 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
     margin-top: 0.28rem;
     font-weight: 600;
 }
+/* Grid KPI: en escritorio, tantas columnas como tarjetas (--pg-cols lo fija
+   _render_pg_kpi_grid). Así cada fila ocupa el ancho completo sin huecos ni
+   tarjetas huérfanas: 5 KPIs principales en una fila, 4 de actividad en otra,
+   ambas alineadas a los mismos bordes. */
 .pg-kpi-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    justify-content: start;
+    grid-template-columns: repeat(var(--pg-cols, 4), minmax(0, 1fr));
     gap: 0.85rem;
     margin: 0.35rem 0 1rem 0;
     width: 100%;
 }
-/* Evita que una tarjeta KPI quede huérfana y descentrada en la última fila
-   cuando el número de KPIs no es múltiplo de columnas (ver revisión visual
-   semanal): si es la única en su fila dentro de un grid de 4 columnas,
-   ocupa el ancho completo en vez de dejar hueco vacío a la derecha. */
-.pg-kpi-grid > .pg-kpi-card:last-child:nth-child(4n+1) {
-    grid-column: 1 / -1;
+/* Tablet / ventana estrecha: 2 columnas; si queda una impar al final, ocupa
+   la fila completa (en mobile ≤768px pasa a 1 columna, ver más abajo). */
+@media (max-width: 1200px) {
+    .pg-kpi-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .pg-kpi-grid > .pg-kpi-card:last-child:nth-child(odd) {
+        grid-column: 1 / -1;
+    }
 }
 /* Forzar Inter en KPI cards y headers de sección (Streamlit resolvía
    "Source Sans" por defecto en estos contenedores de markdown) */

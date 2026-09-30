@@ -55,7 +55,8 @@ def _render_pg_kpi_grid(
             "</div>"
         )
     st.markdown(
-        f'<div class="pg-kpi-grid">{"".join(cards_html)}</div>',
+        f'<div class="pg-kpi-grid" style="--pg-cols:{len(cards)};">'
+        f'{"".join(cards_html)}</div>',
         unsafe_allow_html=True,
     )
 
