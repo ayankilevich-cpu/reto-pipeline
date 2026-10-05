@@ -17,6 +17,7 @@ from components.constants import COLORS, EXCLUDED_SOURCE_MEDIA, PLATFORM_DISPLAY
 from components.db_helpers import _load_valid_media_map, _public_medio_label, _pooled_conn
 from components.ui import (
     _render_section_header,
+    _render_pg_kpi_grid,
     _is_viewer,
     _apply_horizontal_bar_labels,
 )
@@ -252,10 +253,12 @@ def _render_explorar_medio():
         pct = round(odio / max(total, 1) * 100, 1)
 
         st.markdown("---")
-        k1, k2, k3 = st.columns(3)
-        k1.metric("Total mensajes", f"{total:,}")
-        k2.metric("Mensajes con odio", f"{odio:,}")
-        k3.metric("% Odio", f"{pct}%")
+        # Reutiliza las tarjetas KPI institucionales del Panel general.
+        _render_pg_kpi_grid([
+            ("Total mensajes", f"{total:,}", ""),
+            ("Mensajes con odio", f"{odio:,}", ""),
+            ("% Odio", f"{pct}%", ""),
+        ])
 
         st.markdown("---")
         detail_data = {
@@ -315,10 +318,12 @@ def _render_explorar_medio():
 
     st.markdown("---")
 
-    k1, k2, k3 = st.columns(3)
-    k1.metric("Total mensajes", f"{total:,}")
-    k2.metric("Mensajes con odio", f"{odio:,}")
-    k3.metric("% Odio", f"{pct}%")
+    # Mismo componente y mismo formato para la selección de un medio concreto.
+    _render_pg_kpi_grid([
+        ("Total mensajes", f"{total:,}", ""),
+        ("Mensajes con odio", f"{odio:,}", ""),
+        ("% Odio", f"{pct}%", ""),
+    ])
 
     st.markdown("---")
 
@@ -389,9 +394,21 @@ def render_ranking_medios():
 
     col_fd, col_fh = st.columns(2)
     with col_fd:
-        fecha_desde = st.date_input("Desde", value=None, key="ranking_fecha_desde")
+        fecha_desde = st.date_input(
+            "Desde",
+            value=None,
+            key="ranking_fecha_desde",
+            help="Opcional: deja vacío para ver todo el periodo.",
+            format="DD/MM/YYYY",
+        )
     with col_fh:
-        fecha_hasta = st.date_input("Hasta", value=None, key="ranking_fecha_hasta")
+        fecha_hasta = st.date_input(
+            "Hasta",
+            value=None,
+            key="ranking_fecha_hasta",
+            help="Opcional: deja vacío para ver todo el periodo.",
+            format="DD/MM/YYYY",
+        )
 
     fd_str = fecha_desde.isoformat() if fecha_desde else None
     fh_str = fecha_hasta.isoformat() if fecha_hasta else None

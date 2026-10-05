@@ -613,6 +613,12 @@ hr { border-color: #E2E8F0; margin: 1.2rem 0; }
 div[data-baseweb="notification"] {
     border-radius: 10px !important;
 }
+[data-testid="stAlert"] {
+    background: #E8EEF4;
+    border-left: 5px solid #1F4E79;
+    border-radius: 0 8px 8px 0;
+    color: #1A202C;
+}
 
 /* --- Foco accesible --- */
 *:focus-visible {
@@ -1574,7 +1580,10 @@ def render_section_exports(
                 use_container_width=True,
             )
         else:
-            st.info("No se pudo generar el PDF de gráficos para esta sección.")
+            st.info(
+                "La exportación a PDF no está disponible en este momento. "
+                "Puedes descargar los datos en CSV más abajo."
+            )
 
         if pdf_errors:
             st.caption("Avisos de exportación PDF: " + " | ".join(pdf_errors[:4]))
@@ -3472,6 +3481,9 @@ def render_panel_general():
                     yaxis=dict(autorange="reversed"),
                 )
                 _apply_horizontal_bar_labels(fig_cat)
+                # Deja que Plotly reserve el ancho necesario para categorías largas.
+                fig_cat.update_yaxes(automargin=True, tickfont=dict(size=11))
+                fig_cat.update_layout(margin=dict(l=10, r=20, t=40, b=40))
                 st.plotly_chart(fig_cat, use_container_width=True, theme=None)
             else:
                 st.info("Sin datos de categoría.")
@@ -3727,6 +3739,9 @@ def render_categorias():
         )
         fig.update_layout(showlegend=False, height=400, yaxis=dict(autorange="reversed"))
         _apply_horizontal_bar_labels(fig)
+        # Evita recortes de las etiquetas en media columna con el sidebar abierto.
+        fig.update_yaxes(automargin=True, tickfont=dict(size=11))
+        fig.update_layout(margin=dict(l=10, r=20, t=40, b=40))
         st.plotly_chart(fig, use_container_width=True, theme=None)
 
     with col2:
@@ -3955,10 +3970,12 @@ def _render_explorar_medio():
         pct = round(odio / max(total, 1) * 100, 1)
 
         st.markdown("---")
-        k1, k2, k3 = st.columns(3)
-        k1.metric("Total mensajes", f"{total:,}")
-        k2.metric("Mensajes con odio", f"{odio:,}")
-        k3.metric("% Odio", f"{pct}%")
+        # Reutiliza las tarjetas KPI institucionales del Panel general.
+        _render_pg_kpi_grid([
+            ("Total mensajes", f"{total:,}", ""),
+            ("Mensajes con odio", f"{odio:,}", ""),
+            ("% Odio", f"{pct}%", ""),
+        ])
 
         st.markdown("---")
         detail_data = {
@@ -4018,10 +4035,12 @@ def _render_explorar_medio():
 
     st.markdown("---")
 
-    k1, k2, k3 = st.columns(3)
-    k1.metric("Total mensajes", f"{total:,}")
-    k2.metric("Mensajes con odio", f"{odio:,}")
-    k3.metric("% Odio", f"{pct}%")
+    # Mismo componente y mismo formato para la selección de un medio concreto.
+    _render_pg_kpi_grid([
+        ("Total mensajes", f"{total:,}", ""),
+        ("Mensajes con odio", f"{odio:,}", ""),
+        ("% Odio", f"{pct}%", ""),
+    ])
 
     st.markdown("---")
 
@@ -4082,9 +4101,21 @@ def render_ranking_medios():
 
     col_fd, col_fh = st.columns(2)
     with col_fd:
-        fecha_desde = st.date_input("Desde", value=None, key="ranking_fecha_desde")
+        fecha_desde = st.date_input(
+            "Desde",
+            value=None,
+            key="ranking_fecha_desde",
+            help="Opcional: deja vacío para ver todo el periodo.",
+            format="DD/MM/YYYY",
+        )
     with col_fh:
-        fecha_hasta = st.date_input("Hasta", value=None, key="ranking_fecha_hasta")
+        fecha_hasta = st.date_input(
+            "Hasta",
+            value=None,
+            key="ranking_fecha_hasta",
+            help="Opcional: deja vacío para ver todo el periodo.",
+            format="DD/MM/YYYY",
+        )
 
     fd_str = fecha_desde.isoformat() if fecha_desde else None
     fh_str = fecha_hasta.isoformat() if fecha_hasta else None
@@ -12086,11 +12117,24 @@ def _scroll_main_to_top() -> None:
     )
 
 
+def _render_db_retry_notice() -> None:
+    """Muestra un estado recuperable sin alterar la lógica de conexión."""
+    st.warning(
+        "No se pudo conectar con la base de datos. "
+        "Pulsa «Reintentar» o recarga la página."
+    )
+    if st.button("Reintentar", type="secondary", key="retry_db_connection"):
+        # Quita solo el estado de esta comprobación para repetirla en el rerun.
+        st.session_state.pop("_db_ok", None)
+        st.rerun()
+
+
 def _ensure_db_connection() -> bool:
     """Comprueba PostgreSQL una vez por sesión; evita cuelgues sin connect_timeout."""
     if st.session_state.get("_db_ok") is True:
         return True
     if st.session_state.get("_db_ok") is False:
+        _render_db_retry_notice()
         return False
 
     is_admin = st.session_state.get("user_role") == "admin"
@@ -12153,7 +12197,7 @@ Script de referencia: `automatizacion_diaria/migrations/grant_analista_01_viewer
         return True
     except Exception as exc:
         st.session_state["_db_ok"] = False
-        st.error("No se pudo conectar a la base de datos. Intentá recargar la página.")
+        _render_db_retry_notice()
         if is_admin:
             st.caption(f"[Admin] Detalle técnico: {type(exc).__name__}")
         return False

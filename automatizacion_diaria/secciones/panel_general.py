@@ -3,8 +3,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
-import html
+from typing import Optional, Tuple
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -25,40 +24,13 @@ from components.constants import (
 )
 from components.ui import (
     _apply_horizontal_bar_labels,
+    _render_pg_kpi_grid,
     _render_section_header,
     _role_can_access_raw,
     _ui_label,
 )
 from components.exports import render_section_exports
 from components.db_helpers import load_filter_options, _pooled_conn
-
-
-def _render_pg_kpi_grid(
-    cards: List[Tuple[str, str, str]],
-    *,
-    secondary: bool = False,
-) -> None:
-    """Renderiza KPIs del panel general como grid responsive de tarjetas HTML/CSS."""
-    cards_html = []
-    card_style = ' style="opacity:0.75;"' if secondary else ""
-    for label, value, delta in cards:
-        d = (
-            f'<div class="pg-kpi-delta">{html.escape(delta)}</div>'
-            if delta
-            else ""
-        )
-        cards_html.append(
-            f'<div class="pg-kpi-card"{card_style}>'
-            f'<div class="pg-kpi-label">{html.escape(label)}</div>'
-            f'<div class="pg-kpi-value">{html.escape(value)}</div>'
-            f"{d}"
-            "</div>"
-        )
-    st.markdown(
-        f'<div class="pg-kpi-grid" style="--pg-cols:{len(cards)};">'
-        f'{"".join(cards_html)}</div>',
-        unsafe_allow_html=True,
-    )
 
 
 @st.cache_data(ttl=300)
@@ -837,6 +809,9 @@ def render_panel_general():
                     yaxis=dict(autorange="reversed"),
                 )
                 _apply_horizontal_bar_labels(fig_cat)
+                # Deja que Plotly reserve el ancho necesario para categorías largas.
+                fig_cat.update_yaxes(automargin=True, tickfont=dict(size=11))
+                fig_cat.update_layout(margin=dict(l=10, r=20, t=40, b=40))
                 st.plotly_chart(fig_cat, use_container_width=True, theme=None)
             else:
                 st.info("Sin datos de categoría.")

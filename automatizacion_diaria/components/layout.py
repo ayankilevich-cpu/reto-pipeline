@@ -214,11 +214,24 @@ def render_sidebar():
     return section
 
 
+def _render_db_retry_notice() -> None:
+    """Muestra un estado recuperable sin alterar la lógica de conexión."""
+    st.warning(
+        "No se pudo conectar con la base de datos. "
+        "Pulsa «Reintentar» o recarga la página."
+    )
+    if st.button("Reintentar", type="secondary", key="retry_db_connection"):
+        # Quita solo el estado de esta comprobación para repetirla en el rerun.
+        st.session_state.pop("_db_ok", None)
+        st.rerun()
+
+
 def _ensure_db_connection() -> bool:
     """Comprueba PostgreSQL una vez por sesión; evita cuelgues sin connect_timeout."""
     if st.session_state.get("_db_ok") is True:
         return True
     if st.session_state.get("_db_ok") is False:
+        _render_db_retry_notice()
         return False
 
     is_admin = st.session_state.get("user_role") == "admin"
@@ -281,7 +294,7 @@ Script de referencia: `automatizacion_diaria/migrations/grant_analista_01_viewer
         return True
     except Exception as exc:
         st.session_state["_db_ok"] = False
-        st.error("No se pudo conectar a la base de datos. Intentá recargar la página.")
+        _render_db_retry_notice()
         if is_admin:
             st.caption(f"[Admin] Detalle técnico: {type(exc).__name__}")
         return False

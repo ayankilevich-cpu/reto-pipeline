@@ -164,7 +164,10 @@ def render_section_exports(
                 use_container_width=True,
             )
         else:
-            st.info("No se pudo generar el PDF de gráficos para esta sección.")
+            st.info(
+                "La exportación a PDF no está disponible en este momento. "
+                "Puedes descargar los datos en CSV más abajo."
+            )
 
         if pdf_errors:
             st.caption("Avisos de exportación PDF: " + " | ".join(pdf_errors[:4]))

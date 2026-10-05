@@ -2,7 +2,7 @@
 import html
 import re
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional, Tuple
 
 import streamlit as st
 
@@ -41,6 +41,34 @@ def _render_section_header(title: str, subtitle_html: str = "") -> None:
     )
     st.markdown(
         f'<div class="reto-section-header"><h1>{html.escape(title)}</h1>{sub}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _render_pg_kpi_grid(
+    cards: List[Tuple[str, str, str]],
+    *,
+    secondary: bool = False,
+) -> None:
+    """Renderiza KPIs institucionales como grid responsive de tarjetas navy."""
+    cards_html = []
+    card_style = ' style="opacity:0.75;"' if secondary else ""
+    for label, value, delta in cards:
+        d = (
+            f'<div class="pg-kpi-delta">{html.escape(delta)}</div>'
+            if delta
+            else ""
+        )
+        cards_html.append(
+            f'<div class="pg-kpi-card"{card_style}>'
+            f'<div class="pg-kpi-label">{html.escape(label)}</div>'
+            f'<div class="pg-kpi-value">{html.escape(value)}</div>'
+            f"{d}"
+            "</div>"
+        )
+    st.markdown(
+        f'<div class="pg-kpi-grid" style="--pg-cols:{len(cards)};">'
+        f'{"".join(cards_html)}</div>',
         unsafe_allow_html=True,
     )
 

@@ -433,6 +433,9 @@ def render_categorias():
         )
         fig.update_layout(showlegend=False, height=400, yaxis=dict(autorange="reversed"))
         _apply_horizontal_bar_labels(fig)
+        # Evita recortes de las etiquetas en media columna con el sidebar abierto.
+        fig.update_yaxes(automargin=True, tickfont=dict(size=11))
+        fig.update_layout(margin=dict(l=10, r=20, t=40, b=40))
         st.plotly_chart(fig, use_container_width=True, theme=None)
 
     with col2:

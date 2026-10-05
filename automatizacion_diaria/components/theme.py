@@ -474,6 +474,12 @@ hr { border-color: #E2E8F0; margin: 1.2rem 0; }
 div[data-baseweb="notification"] {
     border-radius: 10px !important;
 }
+[data-testid="stAlert"] {
+    background: #E8EEF4;
+    border-left: 5px solid #1F4E79;
+    border-radius: 0 8px 8px 0;
+    color: #1A202C;
+}
 
 /* --- Foco accesible --- */
 *:focus-visible {
