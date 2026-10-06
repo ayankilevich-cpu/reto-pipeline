@@ -13,8 +13,8 @@ def render_aviso_cambio_criterio(con_umbral: bool = False) -> None:
         return
     st.info(
         f"Desde el {CRITERIO_CORTE_SEMANA.strftime('%d/%m/%Y')} el criterio de etiquetado "
-        "cambió (v1 → v22bcrit). Los porcentajes de odio no son directamente comparables "
-        "entre ambos períodos."
+        "de X (Twitter) cambió (v1 → v22bcrit). Los porcentajes de odio de X no son "
+        "directamente comparables entre ambos períodos. YouTube no se ve afectado."
     )
     if con_umbral:
         umbral = f"{UMBRAL_PROVISIONAL_PCT:.2f}".replace(".", ",")

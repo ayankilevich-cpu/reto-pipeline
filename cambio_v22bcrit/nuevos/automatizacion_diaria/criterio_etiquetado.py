@@ -1,17 +1,16 @@
 """
-criterio_etiquetado.py — Criterio de etiquetado LLM de X por semana (v1 → v22bcrit).
+criterio_etiquetado.py — Criterio de etiquetado LLM por plataforma y semana (v1 → v22bcrit).
 
 Una sola fuente de verdad para:
   - la semana de corte (CRITERIO_CORTE_SEMANA),
-  - qué criterio corresponde a un mensaje (según la semana en que se PUBLICÓ),
+  - qué criterio corresponde a un mensaje (según plataforma y semana de PUBLICACIÓN),
   - el umbral de spike provisional / definitivo.
 
 Sin dependencias de BD ni de OpenAI: se puede importar y probar en cualquier sitio.
 
-Regla de oro: todos los mensajes de una misma semana (lunes-domingo) usan el mismo
-criterio. Por eso el criterio depende de `created_at` (fecha de publicación, la misma
-con la que analisis_contexto_semanal.py agrupa por semana) y NO de cuándo se etiquetó
-ni de cuándo se ingestó el mensaje.
+Regla de oro: todos los mensajes de una misma semana (lunes-domingo) en la misma
+plataforma usan el mismo criterio. El criterio depende de `created_at` (fecha de
+publicación) y de la plataforma — v22bcrit solo se validó en X. YouTube siempre v1.
 """
 
 from __future__ import annotations
@@ -74,17 +73,23 @@ def a_fecha(valor: Any) -> Optional[date]:
 
 
 def criterio_para_fecha(
-    fecha_publicacion: Any, corte: date = CRITERIO_CORTE_SEMANA
+    fecha_publicacion: Any,
+    corte: date = CRITERIO_CORTE_SEMANA,
+    *,
+    platform: str = "x",
 ) -> str:
     """
-    Criterio que le toca a un mensaje según su fecha de PUBLICACIÓN.
+    Criterio que le toca a un mensaje según su plataforma y fecha de PUBLICACIÓN.
 
+    - platform != "x"          → v1  (v22bcrit solo validado en X; YouTube siempre v1).
     - Semana (lunes) >= corte  → v22bcrit
     - Semana anterior al corte → v1  (incluye mensajes que llegan tarde: un mensaje
       publicado antes del corte pero ingestado/etiquetado después sigue siendo v1,
       para no mezclar criterios dentro de una semana ya cerrada).
     - Sin fecha                → v1  (no cuenta en ninguna semana del análisis).
     """
+    if platform != "x":
+        return CRITERIO_V1
     d = a_fecha(fecha_publicacion)
     if d is None:
         return CRITERIO_V1

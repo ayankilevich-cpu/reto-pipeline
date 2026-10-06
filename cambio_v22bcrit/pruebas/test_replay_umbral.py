@@ -74,6 +74,36 @@ def test_toda_la_semana_comparte_criterio():
         assert len(criterios) == 1
 
 
+# ── Aislamiento de plataforma ─────────────────────────────────────────────────
+
+def test_youtube_siempre_v1_independiente_de_fecha():
+    """YouTube nunca debe recibir v22bcrit, independientemente de la fecha."""
+    assert ce.criterio_para_fecha(date(2026, 10, 19), platform="youtube") == ce.CRITERIO_V1
+    assert ce.criterio_para_fecha(date(2026, 12, 1),  platform="youtube") == ce.CRITERIO_V1
+    assert ce.criterio_para_fecha(None,               platform="youtube") == ce.CRITERIO_V1
+
+
+def test_x_post_corte_recibe_v22bcrit():
+    assert ce.criterio_para_fecha(date(2026, 10, 19), platform="x") == ce.CRITERIO_V22BCRIT
+
+
+def test_x_pre_corte_sigue_siendo_v1():
+    assert ce.criterio_para_fecha(date(2026, 10, 18), platform="x") == ce.CRITERIO_V1
+
+
+def test_plataforma_desconocida_es_v1():
+    """Cualquier plataforma que no sea 'x' cae a v1 (fail-safe)."""
+    for plat in ("youtube", "tiktok", "instagram", "", "X", "X ".strip()):
+        assert ce.criterio_para_fecha(date(2026, 10, 25), platform=plat) == ce.CRITERIO_V1, \
+            f"platform={plat!r} debería ser v1"
+
+
+def test_default_platform_es_x():
+    """Sin pasar platform=, el comportamiento histórico de X se preserva."""
+    assert ce.criterio_para_fecha(date(2026, 10, 19)) == ce.CRITERIO_V22BCRIT
+    assert ce.criterio_para_fecha(date(2026, 10, 18)) == ce.CRITERIO_V1
+
+
 # ── Umbral ───────────────────────────────────────────────────────────────────
 def test_umbral_provisional_hasta_12_semanas():
     assert ce.UMBRAL_PROVISIONAL_PCT == 5.70
