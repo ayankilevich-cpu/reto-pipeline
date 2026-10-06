@@ -1,0 +1,60 @@
+diff --git "a/automatizacion_diaria/Dise\303\261ador Web Reto/dashboard_v3.py" "b/automatizacion_diaria/Dise\303\261ador Web Reto/dashboard_v3.py"
+index 523e9a7..40e1e27 100644
+--- "a/automatizacion_diaria/Dise\303\261ador Web Reto/dashboard_v3.py"	
++++ "b/automatizacion_diaria/Dise\303\261ador Web Reto/dashboard_v3.py"	
+@@ -3305,12 +3305,39 @@ def _render_gold_dataset_card() -> None:
+     )
+ 
+ 
++# ── Aviso de cambio de criterio de etiquetado (v1 → v22bcrit) ───────────────────
++# COPIA de criterio_etiquetado.CRITERIO_CORTE_SEMANA: este monolito se despliega solo
++# (sync_hf.sh), sin el resto de módulos. Si cambia el corte, cambiarlo en los dos sitios
++# (cambio_v22bcrit/pruebas/test_replay_umbral.py::test_corte_consistente lo comprueba).
++CRITERIO_CORTE_SEMANA = date(2026, 10, 19)
++UMBRAL_PROVISIONAL_PCT = 5.70
++MIN_SEMANAS_POSTCORTE = 12
++
++
++def render_aviso_cambio_criterio(con_umbral: bool = False) -> None:
++    if date.today() < CRITERIO_CORTE_SEMANA:
++        return
++    st.info(
++        f"Desde el {CRITERIO_CORTE_SEMANA.strftime('%d/%m/%Y')} el criterio de etiquetado "
++        "cambió (v1 → v22bcrit). Los porcentajes de odio no son directamente comparables "
++        "entre ambos períodos."
++    )
++    if con_umbral:
++        umbral = f"{UMBRAL_PROVISIONAL_PCT:.2f}".replace(".", ",")
++        st.caption(
++            f"Con el criterio nuevo, el umbral de alerta es provisional "
++            f"({umbral}%) hasta acumular {MIN_SEMANAS_POSTCORTE} semanas; "
++            "después se calcula con el promedio de las semanas del criterio nuevo."
++        )
++
++
+ def render_panel_general():
+     _render_section_header(
+         "Panel general",
+         "Indicadores clave del proyecto ReTo · visión consolidada de volumen, "
+         "clasificaciones y validación humana.",
+     )
++    render_aviso_cambio_criterio()
+ 
+     if st.session_state.get("user_role") != "viewer":
+         render_pipeline_status_banner()
+@@ -4098,6 +4125,7 @@ def render_ranking_medios():
+         "Ranking de medios",
+         "Top 10 medios de comunicación por volumen de mensajes y porcentaje de odio.",
+     )
++    render_aviso_cambio_criterio()
+ 
+     col_fd, col_fh = st.columns(2)
+     with col_fd:
+@@ -4275,6 +4303,7 @@ def render_analisis_contextual():
+             "cada semana a partir de los datos agregados (mensajes clasificados por LLM)."
+         ),
+     )
++    render_aviso_cambio_criterio(con_umbral=True)
+     st.info(
+         _ui_label(
+             "📌 Esta sección analiza exclusivamente mensajes de **X (Twitter)** "

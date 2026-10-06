@@ -1,0 +1,7 @@
+{
+  "_comentario": "PLANTILLA SIN RELLENAR. Pega aquí el prompt, el modelo y los parámetros EXACTOS usados en la calibración de v22bcrit. 'user' debe contener {txt} (ahí se inserta el mensaje) y puede llevar llaves {} literales. Mientras 'user' contenga __PENDIENTE__ el etiquetador se niega a etiquetar mensajes post-corte.",
+  "system": "__PENDIENTE__",
+  "user": "__PENDIENTE__ {txt}",
+  "model": null,
+  "max_output_tokens": 200
+}

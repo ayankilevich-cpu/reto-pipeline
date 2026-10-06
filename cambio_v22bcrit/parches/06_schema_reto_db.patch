@@ -1,0 +1,21 @@
+diff --git a/automatizacion_diaria/schema_reto_db.sql b/automatizacion_diaria/schema_reto_db.sql
+index 7ba1acd..2999fa4 100644
+--- a/automatizacion_diaria/schema_reto_db.sql
++++ b/automatizacion_diaria/schema_reto_db.sql
+@@ -108,6 +108,9 @@ CREATE TABLE IF NOT EXISTS processed.etiquetas_llm (
+     resumen_motivo          TEXT,
+     etiquetado_date         TIMESTAMPTZ DEFAULT NOW(),
+     llm_version             VARCHAR(50) NOT NULL DEFAULT 'v1',
++    -- Criterio de etiquetado: v1 | v22bcrit (por semana de publicación). Ver
++    -- migrations/20261019_llm_criterio.sql. La PK no cambia.
++    llm_criterio            TEXT        DEFAULT 'v1',
+     PRIMARY KEY (message_uuid, llm_version)
+ );
+ 
+@@ -201,5 +204,6 @@ CREATE TABLE IF NOT EXISTS processed.analisis_semanal (
+     dia_pico_pct        NUMERIC(5,2),
+     resumen_contexto    TEXT,
+     eventos_relacionados TEXT,
++    llm_criterio        TEXT        DEFAULT 'v1',  -- criterio de etiquetado de la semana (v1 | v22bcrit)
+     analisis_date       TIMESTAMPTZ DEFAULT NOW()
+ );

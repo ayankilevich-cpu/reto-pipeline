@@ -1,0 +1,72 @@
+diff --git a/automatizacion_diaria/secciones/analisis_contextual.py b/automatizacion_diaria/secciones/analisis_contextual.py
+index eb71b3b..e6b9396 100644
+--- a/automatizacion_diaria/secciones/analisis_contextual.py
++++ b/automatizacion_diaria/secciones/analisis_contextual.py
+@@ -15,6 +15,7 @@ import plotly.graph_objects as go
+ import streamlit as st
+ 
+ from components.constants import COLORS
++from components.aviso_criterio import render_aviso_cambio_criterio
+ from components.db_helpers import _pooled_conn
+ from components.ui import (
+     _render_section_header,
+@@ -137,6 +138,7 @@ def render_analisis_contextual():
+             "cada semana a partir de los datos agregados (mensajes clasificados por LLM)."
+         ),
+     )
++    render_aviso_cambio_criterio(con_umbral=True)
+     st.info(
+         _ui_label(
+             "📌 Esta sección analiza exclusivamente mensajes de **X (Twitter)** "
+diff --git a/automatizacion_diaria/secciones/panel_general.py b/automatizacion_diaria/secciones/panel_general.py
+index 879798d..7bed9de 100644
+--- a/automatizacion_diaria/secciones/panel_general.py
++++ b/automatizacion_diaria/secciones/panel_general.py
+@@ -30,6 +30,7 @@ from components.ui import (
+     _ui_label,
+ )
+ from components.exports import render_section_exports
++from components.aviso_criterio import render_aviso_cambio_criterio
+ from components.db_helpers import load_filter_options, _pooled_conn
+ 
+ 
+@@ -630,6 +631,7 @@ def render_panel_general():
+         "Indicadores clave del proyecto ReTo · visión consolidada de volumen, "
+         "clasificaciones y validación humana.",
+     )
++    render_aviso_cambio_criterio()
+ 
+     if st.session_state.get("user_role") != "viewer":
+         render_pipeline_status_banner()
+diff --git a/automatizacion_diaria/secciones/ranking_medios.py b/automatizacion_diaria/secciones/ranking_medios.py
+index 9836b7d..cdfdc26 100644
+--- a/automatizacion_diaria/secciones/ranking_medios.py
++++ b/automatizacion_diaria/secciones/ranking_medios.py
+@@ -22,6 +22,7 @@ from components.ui import (
+     _apply_horizontal_bar_labels,
+ )
+ from components.exports import render_section_exports
++from components.aviso_criterio import render_aviso_cambio_criterio
+ 
+ 
+ @st.cache_data(ttl=3600)
+@@ -391,6 +392,7 @@ def render_ranking_medios():
+         "Ranking de medios",
+         "Top 10 medios de comunicación por volumen de mensajes y porcentaje de odio.",
+     )
++    render_aviso_cambio_criterio()
+ 
+     col_fd, col_fh = st.columns(2)
+     with col_fd:
+diff --git a/automatizacion_diaria/tests/test_imports.py b/automatizacion_diaria/tests/test_imports.py
+index 8861bcc..5b6f41f 100644
+--- a/automatizacion_diaria/tests/test_imports.py
++++ b/automatizacion_diaria/tests/test_imports.py
+@@ -18,6 +18,7 @@ if str(_HERE) not in sys.path:
+ 
+ COMPONENT_MODULES = [
+     "components.art510_shared",
++    "components.aviso_criterio",
+     "components.auth",
+     "components.constants",
+     "components.db_helpers",

@@ -1,0 +1,210 @@
+diff --git a/Medios/ML/etiquetado_llm/etiquetar_completo_llm.py b/Medios/ML/etiquetado_llm/etiquetar_completo_llm.py
+index 35c4a0f..4926926 100644
+--- a/Medios/ML/etiquetado_llm/etiquetar_completo_llm.py
++++ b/Medios/ML/etiquetado_llm/etiquetar_completo_llm.py
+@@ -35,7 +35,22 @@ CACHE_SAVE_INTERVAL = 10
+ 
+ # ========= DB CONFIG =========
+ DB_UTILS_DIR = str(RETO_ROOT / "automatizacion_diaria")
+-DB_LLM_VERSION = "v1"
++DB_LLM_VERSION = "v1"  # llm_version NO cambia (la PK es message_uuid + llm_version)
++
++# ========= CRITERIO DE ETIQUETADO (v1 → v22bcrit) =========
++# Cada mensaje se etiqueta con el criterio de la semana en que se PUBLICÓ (created_at),
++# no de la semana en que se etiqueta. Ver automatizacion_diaria/criterio_etiquetado.py.
++sys.path.insert(0, DB_UTILS_DIR)
++from criterio_etiquetado import (  # noqa: E402
++    CRITERIO_CORTE_SEMANA,
++    CRITERIO_V1,
++    CRITERIO_V22BCRIT,
++    criterio_para_fecha,
++)
++
++# Prompt, modelo y parámetros EXACTOS de v22bcrit (los de la calibración).
++PROMPT_V22BCRIT_FILE = SCRIPT_DIR / "prompt_v22bcrit.json"
++_CONFIG_V22BCRIT: Optional[Dict[str, Any]] = None
+ # ==========================
+ 
+ # ---- TAXONOMÍA OFICIAL RETO (LISTA CERRADA) ----
+@@ -72,6 +87,48 @@ MENSAJE:
+ {{txt}}
+ """
+ 
++def config_criterio(criterio: str) -> Dict[str, Any]:
++    """Prompt/modelo para un criterio. v1 = el prompt de este script (sin cambios)."""
++    global _CONFIG_V22BCRIT
++    if criterio != CRITERIO_V22BCRIT:
++        return {"system": SYSTEM, "user": USER_TMPL, "model": MODEL,
++                "max_output_tokens": 200, "formato": "format"}
++    if _CONFIG_V22BCRIT is None:
++        if not PROMPT_V22BCRIT_FILE.exists():
++            raise RuntimeError(f"Falta {PROMPT_V22BCRIT_FILE.name} (prompt del criterio v22bcrit).")
++        cfg = json.loads(PROMPT_V22BCRIT_FILE.read_text(encoding="utf-8"))
++        user = str(cfg.get("user") or "")
++        if "__PENDIENTE__" in user or "{txt}" not in user or not cfg.get("system"):
++            raise RuntimeError(
++                f"{PROMPT_V22BCRIT_FILE.name} está incompleto: pega el prompt real de "
++                "v22bcrit (claves 'system' y 'user'; 'user' debe contener {txt})."
++            )
++        _CONFIG_V22BCRIT = {
++            "system": str(cfg["system"]),
++            "user": user,
++            "model": cfg.get("model") or MODEL,
++            "max_output_tokens": int(cfg.get("max_output_tokens") or 200),
++            "formato": "replace",  # el prompt puede llevar llaves {} literales
++        }
++    return _CONFIG_V22BCRIT
++
++
++def criterio_de_fila(row: Dict[str, Any]) -> str:
++    return criterio_para_fecha(row.get("created_at"))
++
++
++def verificar_cabecera_salida() -> None:
++    """Si el CSV de salida ya existe sin la columna llm_criterio, parar: añadir filas
++    nuevas lo dejaría sin criterio y load_to_db las cargaría como v1."""
++    with open(OUTPUT_FILE, "r", encoding="utf-8", newline="") as f:
++        cabecera = next(csv.reader(f), [])
++    if "llm_criterio" not in cabecera:
++        raise RuntimeError(
++            f"{OUTPUT_FILE} no tiene la columna llm_criterio. Archívalo antes del primer "
++            "run con v22bcrit (p. ej. renómbralo a etiquetado_llm_completo_v1_archivo.csv)."
++        )
++
++
+ # =============================================================================
+ # FUNCIONES DE CACHÉ
+ # =============================================================================
+@@ -226,7 +283,7 @@ def upload_results_to_db(results: List[Dict[str, Any]]) -> int:
+ 
+     columns = [
+         "message_uuid", "clasificacion_principal", "categoria_odio_pred",
+-        "intensidad_pred", "resumen_motivo", "llm_version",
++        "intensidad_pred", "resumen_motivo", "llm_version", "llm_criterio",
+     ]
+     db_rows = []
+     for r in results:
+@@ -240,6 +297,7 @@ def upload_results_to_db(results: List[Dict[str, Any]]) -> int:
+             r.get("intensidad_pred", ""),
+             r.get("resumen_motivo", ""),
+             DB_LLM_VERSION,
++            r.get("llm_criterio") or criterio_de_fila(r),
+         ))
+ 
+     if not db_rows:
+@@ -251,7 +309,7 @@ def upload_results_to_db(results: List[Dict[str, Any]]) -> int:
+                 conn, "processed.etiquetas_llm", columns, db_rows,
+                 conflict_columns=["message_uuid", "llm_version"],
+                 update_columns=["clasificacion_principal", "categoria_odio_pred",
+-                                "intensidad_pred", "resumen_motivo"],
++                                "intensidad_pred", "resumen_motivo", "llm_criterio"],
+             )
+         print(f"  ✓ {len(db_rows)} etiquetas subidas a BD (processed.etiquetas_llm)")
+         return len(db_rows)
+@@ -345,20 +403,24 @@ def norm_intensidad(x: Any) -> str:
+     return s if s in {"1", "2", "3"} else ""
+ 
+ 
+-def llm_tag(client: OpenAI, txt: str) -> Dict[str, Any]:
++def llm_tag(client: OpenAI, txt: str, criterio: str = CRITERIO_V1) -> Dict[str, Any]:
++    cfg = config_criterio(criterio)
+     last_raw = ""
+     for attempt in range(MAX_RETRIES):
+-        user_content = USER_TMPL.format(txt=txt)
++        if cfg["formato"] == "replace":
++            user_content = cfg["user"].replace("{txt}", txt)
++        else:
++            user_content = cfg["user"].format(txt=txt)
+         if attempt > 0:
+             user_content = "IMPORTANTE: devolvé SOLO JSON válido. Sin texto extra.\n\n" + user_content
+ 
+         resp = client.responses.create(
+-            model=MODEL,
++            model=cfg["model"],
+             input=[
+-                {"role": "system", "content": SYSTEM},
++                {"role": "system", "content": cfg["system"]},
+                 {"role": "user", "content": user_content},
+             ],
+-            max_output_tokens=200,
++            max_output_tokens=cfg["max_output_tokens"],
+         )
+ 
+         last_raw = getattr(resp, "output_text", "") or ""
+@@ -367,7 +429,7 @@ def llm_tag(client: OpenAI, txt: str) -> Dict[str, Any]:
+             break
+         except Exception:
+             if attempt == MAX_RETRIES - 1:
+-                log_bad_json(MODEL, txt, last_raw)
++                log_bad_json(cfg["model"], txt, last_raw)
+                 # No cortamos el proceso por un JSON mal formado
+                 obj = {
+                     "clasificacion_principal": "DUDOSO",
+@@ -392,6 +454,7 @@ def llm_tag(client: OpenAI, txt: str) -> Dict[str, Any]:
+         "categoria_odio_pred": categoria,
+         "intensidad_pred": intensidad,
+         "resumen_motivo": str(obj.get("resumen_motivo", "")).strip(),
++        "llm_criterio": criterio,
+     }
+ 
+ 
+@@ -407,6 +470,7 @@ def main():
+     print("ETIQUETADO LLM - ReTo (con caché + BD)")
+     print("=" * 70)
+     print(f"Modelo: {MODEL}")
++    print(f"Criterio v22bcrit desde la semana del {CRITERIO_CORTE_SEMANA} (antes: v1)")
+     print(f"Output: {OUTPUT_FILE}")
+     print(f"Caché:  {CACHE_FILE}")
+     print()
+@@ -457,7 +521,9 @@ def main():
+         msg_id = str(r.get(ID_COL, "")).strip()
+         if msg_id in processed_ids:
+             continue
+-        elif msg_id in cache:
++        elif msg_id in cache and cache[msg_id].get("llm_criterio", CRITERIO_V1) == criterio_de_fila(r):
++            # (entradas de caché antiguas, sin llm_criterio, son v1; si ya no coinciden
++            # con el criterio que le toca a ese mensaje, se reetiqueta)
+             rows_from_cache.append((r, cache[msg_id]))
+         else:
+             rows_to_process.append(r)
+@@ -478,11 +544,14 @@ def main():
+         "categoria_odio_pred",
+         "intensidad_pred",
+         "resumen_motivo",
++        "llm_criterio",
+     ]
+     first_row = rows_to_process[0] if rows_to_process else rows_from_cache[0][0]
+     fieldnames = list(first_row.keys()) + LLM_EXTRA_COLS
+ 
+     file_exists = os.path.exists(OUTPUT_FILE) and len(processed_ids) > 0
++    if file_exists:
++        verificar_cabecera_salida()
+     mode = "a" if file_exists else "w"
+ 
+     print(f"\nModo de escritura: {'Agregar a existente' if file_exists else 'Crear nuevo'}")
+@@ -506,6 +575,7 @@ def main():
+         # 5a. Filas que ya están en caché
+         for r, cached_labels in rows_from_cache:
+             merged = {**{str(k): str(v) for k, v in r.items()}, **cached_labels}
++            merged.setdefault("llm_criterio", criterio_de_fila(r))
+             w.writerow(merged)
+             all_new_results.append(merged)
+             desde_cache += 1
+@@ -521,14 +591,16 @@ def main():
+             msg_id = str(r.get(ID_COL, "")).strip()
+             txt = str(r.get(TEXT_COL) or "").strip()
+ 
++            criterio = criterio_de_fila(r)
+             if txt:
+-                extra = llm_tag(client, txt)
++                extra = llm_tag(client, txt, criterio)
+             else:
+                 extra = {
+                     "clasificacion_principal": "DUDOSO",
+                     "categoria_odio_pred": "",
+                     "intensidad_pred": "",
+                     "resumen_motivo": "Texto vacío",
++                    "llm_criterio": criterio,
+                 }
+ 
+             merged = {**{str(k): str(v) for k, v in r.items()}, **extra}
