@@ -26,7 +26,7 @@ index 35c4a0f..4926926 100644
  # ==========================
  
  # ---- TAXONOMÍA OFICIAL RETO (LISTA CERRADA) ----
-@@ -72,6 +87,48 @@ MENSAJE:
+@@ -72,6 +87,49 @@ MENSAJE:
  {{txt}}
  """
  
@@ -50,6 +50,7 @@ index 35c4a0f..4926926 100644
 +            "system": str(cfg["system"]),
 +            "user": user,
 +            "model": cfg.get("model") or MODEL,
++            "temperature": int(cfg["temperature"]) if cfg.get("temperature") is not None else 0,
 +            "max_output_tokens": int(cfg.get("max_output_tokens") or 200),
 +            "formato": "replace",  # el prompt puede llevar llaves {} literales
 +        }
@@ -101,7 +102,7 @@ index 35c4a0f..4926926 100644
              )
          print(f"  ✓ {len(db_rows)} etiquetas subidas a BD (processed.etiquetas_llm)")
          return len(db_rows)
-@@ -345,20 +403,24 @@ def norm_intensidad(x: Any) -> str:
+@@ -345,20 +403,26 @@ def norm_intensidad(x: Any) -> str:
      return s if s in {"1", "2", "3"} else ""
  
  
@@ -118,6 +119,7 @@ index 35c4a0f..4926926 100644
          if attempt > 0:
              user_content = "IMPORTANTE: devolvé SOLO JSON válido. Sin texto extra.\n\n" + user_content
  
++        temperature = cfg.get("temperature")
          resp = client.responses.create(
 -            model=MODEL,
 +            model=cfg["model"],
@@ -128,6 +130,7 @@ index 35c4a0f..4926926 100644
              ],
 -            max_output_tokens=200,
 +            max_output_tokens=cfg["max_output_tokens"],
++            **({} if temperature is None else {"temperature": temperature}),
          )
  
          last_raw = getattr(resp, "output_text", "") or ""
