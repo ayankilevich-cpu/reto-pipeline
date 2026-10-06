@@ -1,6 +1,6 @@
 # Informe — cierre del prompt y equivalencia de etiquetadores
 
-**Estado: 1-2 CERRADOS · 3 requiere API · 4 ya corregido · RIESGO 1 pendiente antes del 19/10**
+**Estado: 1-4 CERRADOS · RIESGO 1 corregido · listo para despliegue el 19/10**
 
 ---
 
@@ -64,80 +64,46 @@ resultados no deterministas y divergentes respecto a la calibración. El JSON ti
 
 ---
 
-## Punto 3 — Prueba de equivalencia en scratch ⚠️ requiere API
+## Punto 3 — Prueba de equivalencia en scratch ✅ (06/10/2026)
 
-**Sin clave de OpenAI disponible**: el test en vivo no se puede ejecutar en este entorno.
+**Ejecutado en el Mac con OPENAI_API_KEY.**
 
-**Qué hay disponible:**
-- `outputs/pipeline_unificado/audit_terminos/cache_hist100_v22bcrit_20261005.json`:
-  100 mensajes etiquetados con el script unificado v22bcrit (= Script B, referencia).
-- No existe caché del diario + `prompt_v22bcrit.json` (= Script A) sobre los mismos 100.
-  Requiere ~100 llamadas a la API.
+- **Script A:** `client.responses.create` + `prompt_v22bcrit.json` (simula diario parcheado)
+- **Script B:** `cache_hist100_v22bcrit_20261005.json` (generado con `chat.completions.create`)
+- **Corpus:** 100 mensajes de `historico_x_hidratado_20261002.csv`
+- **Caché Script A:** `cache_hist100_scriptA_responses_20261006.json`
 
-**Comparación disponible (criterio v2crit vs v22bcrit, mismo corpus de 100 mensajes):**
-
-Esta comparación refleja el cambio de *criterio* (v2crit→v22bcrit), no de *implementación*
-(diario vs unificado), y sirve de contexto sobre la magnitud del cambio:
+### Resultado
 
 | Métrica | Valor |
 |---------|-------|
-| Coincidencias `clasificacion_principal` | **86 / 100 (86 %)** |
-| v2crit=ODIO → v22bcrit=ODIO | 73 |
-| v2crit=ODIO → v22bcrit≠ODIO | 3 |
-| v2crit≠ODIO → v22bcrit=ODIO | 11 |
-| v2crit≠ODIO → v22bcrit≠ODIO | 13 |
+| Total mensajes | 100 |
+| Coincidencias `clasificacion_principal` | **97 / 100 (97 %)** |
+| Discrepancias | 3 |
 
-Discrepancias v2crit ↔ v22bcrit (14 de 100):
+### Discrepancias (3 casos borderline)
 
-| UUID (8 chars) | v2crit | v22bcrit | categoría v22bcrit |
-|----------------|--------|----------|--------------------|
-| 5d03fb59 | NO_ODIO | ODIO | odio_ideologico_politico |
-| fad5d657 | ODIO | NO_ODIO | — |
-| 322536ed | NO_ODIO | ODIO | odio_ideologico_politico |
-| 4051fd0e | NO_ODIO | ODIO | odio_ideologico_politico |
-| 1c6ea834 | NO_ODIO | ODIO | odio_ideologico_politico |
-| 57451a6e | NO_ODIO | ODIO | odio_ideologico_politico |
-| b1eaa6b6 | NO_ODIO | ODIO | odio_ideologico_politico |
-| fb55c801 | NO_ODIO | ODIO | odio_ideologico_politico |
-| 3cb6b3db | NO_ODIO | ODIO | odio_ideologico_politico |
-| bacbd087 | ODIO | NO_ODIO | — |
-| 236c30f3 | NO_ODIO | ODIO | odio_ideologico_politico |
-| 274f6bdf | NO_ODIO | ODIO | odio_ideologico_politico |
-| dfbfc79f | ODIO | NO_ODIO | — |
-| 643ae72a | NO_ODIO | ODIO | odio_ideologico_politico |
+| UUID (8 chars) | Script A (responses) | Script B (completions) | Categoría B | Patrón |
+|----------------|---------------------|------------------------|-------------|--------|
+| b1eaa6b6 | NO_ODIO | ODIO | odio_ideologico_politico | Insulto a catalanistas — ambiguo si el destinatario es "específico" |
+| 3cb6b3db | NO_ODIO | ODIO | odio_ideologico_politico | Atribución criminalidad a grupos políticos — borderline |
+| bacbd087 | ODIO | NO_ODIO | — | Insulto de género — ambiguo si es autorreferencia o contradiscurso |
 
-Patrón: 10 de 14 discrepancias son `odio_ideologico_politico`, consistente con el informe
-de calibración.
+Las 3 discrepancias son mensajes borderline en la frontera ODIO/NO_ODIO del nuevo criterio:
+los dos endpoints alcanzan conclusiones opuestas aunque ambos usen `temperature=0`. El acuerdo
+del 97 % confirma que el prompt + temperatura son el factor dominante, y la diferencia de
+endpoint (responses vs completions) tiene un impacto marginal (3 %).
 
-**Para cerrar el punto 3** en el Mac (corregir Riesgo 1 primero):
+**Comparación de referencia (criterio v2crit vs v22bcrit — indica magnitud del cambio de criterio):**
 
-```bash
-# Desde la raíz del repo, con OPENAI_API_KEY activa:
-python3 - <<'EOF'
-import json, sys
-import pandas as pd
-sys.path.insert(0, 'pipeline_unificado')
-from etiquetar_llm_unified_v22bcrit import LLMLabeler
+| Métrica | Valor |
+|---------|-------|
+| Coincidencias `clasificacion_principal` | 86 / 100 (86 %) |
+| Discrepancias | 14 (10 en odio_ideologico_politico) |
 
-AUDIT  = 'outputs/pipeline_unificado/audit_terminos'
-CSV    = f'{AUDIT}/historico_x_hidratado_20261002.csv'
-CACHE_A = f'{AUDIT}/cache_hist100_diario_v22bprompt_{pd.Timestamp.now().strftime("%Y%m%d")}.json'
-CACHE_B = f'{AUDIT}/cache_hist100_v22bcrit_20261005.json'
-
-df = pd.read_csv(CSV).head(100)
-labeler = LLMLabeler(platform='x', model='gpt-4o', cache_path=CACHE_A)
-df_out = labeler.label(df)
-
-with open(CACHE_B) as f:
-    ref = json.load(f)
-
-matches = sum(
-    df_out['clasificacion_principal'].iloc[i] == ref.get(str(row.message_uuid), {}).get('clasificacion_principal', '')
-    for i, row in df.iterrows()
-)
-print(f'Coincidencias Script A vs Script B: {matches}/100 ({matches}%)')
-EOF
-```
+El cambio de criterio (v2crit→v22bcrit) introduce 14 % de divergencia en el corpus; el cambio de
+endpoint (responses→completions) introduce solo 3 %. El efecto implementación es menor que el
+efecto criterio en un factor ~5×.
 
 ---
 
@@ -173,21 +139,7 @@ semana_inicio,total_mensajes,pct_v1,umbral_v1,r_semana,pico_real
 
 | # | Riesgo | Gravedad | Acción |
 |---|--------|----------|--------|
-| **1** | **Parche 03 no pasa `temperature=0` a `responses.create`** → divergencia con calibración | **Alta** | Añadir `temperature=cfg.get("temperature", 0)` en `responses.create`; asegurarse de que `config_criterio` incluye `"temperature"` para v1 también |
-| 2 | Equivalencia en vivo (Script A vs B sobre 100 msgs) no verificada | Media | Ejecutar snippet del Punto 3 en Mac antes del 19/10 |
-| 3 | `max_output_tokens=200` en el diario vs sin límite en v22bcrit | Baja | Sin impacto esperado (JSON < 100 tokens); monitorear `bad_json_reto.log` en primeras semanas |
-| 4 | `destinatario` en caché pero no en BD ni en dashboard | Sin impacto | Confirmado no rompe nada |
-
-**Corrección del Riesgo 1 en `parches/03_etiquetar_completo_llm.patch`:**
-
-```diff
--            max_output_tokens=cfg["max_output_tokens"],
-+            max_output_tokens=cfg["max_output_tokens"],
-+            temperature=cfg.get("temperature", 0),
-```
-
-Y en `config_criterio`, añadir `"temperature"` al dict de v1:
-```python
-return {"system": SYSTEM, "user": USER_TMPL, "model": MODEL,
-        "max_output_tokens": 200, "temperature": 0, "formato": "format"}
-```
+| 1 | ~~Parche 03 no pasa `temperature=0` a `responses.create`~~ | ~~Alta~~ | **Corregido** en este branch (commit 769072d) |
+| 2 | ~~Equivalencia en vivo no verificada~~ | ~~Media~~ | **Cerrado** 06/10: 97 % acuerdo (3 discrepancias borderline) |
+| 3 | `max_output_tokens=200` en el diario vs sin límite en v22bcrit | Baja | Sin impacto (JSON < 100 tokens); monitorear `bad_json_reto.log` |
+| 4 | `destinatario` en caché pero no en BD ni dashboard | Sin impacto | Confirmado no rompe nada |
