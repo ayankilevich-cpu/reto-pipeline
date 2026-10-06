@@ -93,29 +93,40 @@ def test_es_spike_reglas():
     assert ce.es_spike(9.0, 299, 5.70) is False    # volumen insuficiente
 
 
-# ── Replay ───────────────────────────────────────────────────────────────────
+# ── Replay (r_semana = proporción de ODIO(v1) que sigue siendo ODIO con v22bcrit) ──
 def test_replay_sintetico_5_de_6():
-    res = rp.replay(rp.leer_csv(FIXTURE))
+    res = rp.replay(rp.leer_csv(FIXTURE), r100=0.80)
     m = rp.resumen(res)
     assert (m["picos_reales"], m["detectados"]) == (6, 5)
     assert m["perdidos"] == ["2026-08-10"]
     assert m["falsos_positivos"] == []
-    assert all(r.provisional and r.umbral == 5.70 for r in res)
+
+
+def test_replay_formula():
+    s = rp.Semana("2026-07-27", 790, 8.0, 6.0, 0.80, True)
+    (r,) = rp.replay([s], r100=0.80)
+    assert r.pct_sim == pytest.approx(6.4)       # pct_v1 × r_semana
+    assert r.umbral_sim == pytest.approx(4.8)    # umbral_v1 × r_100
+    assert r.spike is True
+
+
+def test_replay_exige_300_mensajes():
+    (r,) = rp.replay([rp.Semana("2026-07-27", 299, 9.0, 6.0, 0.9, True)], r100=0.8)
+    assert r.spike is False
+
+
+def test_replay_rechaza_r_semana_que_parece_porcentaje(tmp_path):
+    f = tmp_path / "x.csv"
+    f.write_text("semana_inicio,total_mensajes,pct_v1,umbral_v1,r_semana,pico_real\n"
+                 "2026-07-27,800,8.0,6.0,5.7,1\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="proporción"):
+        rp.leer_csv(f)
 
 
 def test_replay_cli_coincide_y_discrepa():
-    assert rp.main([str(FIXTURE), "--esperado-picos", "6", "--esperado-detectados", "5"]) == 0
-    assert rp.main([str(FIXTURE), "--esperado-picos", "6", "--esperado-detectados", "6"]) == 1
-
-
-def test_replay_cambia_a_definitivo_con_12_previas():
-    semanas = rp.leer_csv(FIXTURE)
-    res = rp.replay(semanas, previas_postcorte=12)
-    # primera fila: sin anteriores en el CSV → sigue provisional (no hay promedio); resto definitivo
-    assert res[0].provisional is True
-    assert all(not r.provisional for r in res[1:])
-    prom = sum(s.r_semana_pct for s in semanas[:3]) / 3
-    assert res[3].umbral == round(prom * 1.5, 2)
+    base = [str(FIXTURE), "--r100", "0.80", "--esperado-picos", "6"]
+    assert rp.main(base + ["--esperado-detectados", "5"]) == 0
+    assert rp.main(base + ["--esperado-detectados", "6"]) == 1
 
 
 # ── Consistencia de la constante de corte entre copias ───────────────────────

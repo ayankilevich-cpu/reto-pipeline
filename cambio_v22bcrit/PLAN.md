@@ -131,28 +131,27 @@ cambio_v22bcrit/
 │   ├── 05_dashboard_v3_monolito.patch
 │   └── 06_schema_reto_db.patch        (solo documenta el DDL para instalaciones nuevas)
 └── pruebas/
-    ├── test_replay_umbral.py          28 pruebas sin BD (corte, umbral, replay, loader, etiquetador)
+    ├── test_replay_umbral.py          30 pruebas sin BD (corte, umbral, replay, loader, etiquetador)
     ├── replay_umbral.py               prueba de replay (CLI)
     └── fixtures/replay_ejemplo_SINTETICO.csv   DATOS INVENTADOS, solo prueban el mecanismo
 ```
 
 ### Prueba de replay
 
-`replay_umbral.py` aplica la lógica nueva (las mismas funciones que usará el script semanal) a las
-últimas 12 semanas con `r_semana` ya calculado y compara con "5 de 6 picos" del informe.
+`replay_umbral.py` reproduce la simulación del informe: `r_semana` es la **proporción de ODIO(v1)
+que sigue siendo ODIO con v22bcrit** (0-1), no un % de odio. Fórmula:
+`pct_sim = pct_v1 × r_semana`; `umbral_sim = umbral_v1 × r_100`; spike si `pct_sim >= umbral_sim` y
+`total >= 300`. CSV: `semana_inicio,total_mensajes,pct_v1,umbral_v1,r_semana,pico_real` (documentado
+en el docstring del script). `--r100` es el r global del informe.
 
 ```bash
-python cambio_v22bcrit/pruebas/replay_umbral.py REAL.csv --esperado-picos 6 --esperado-detectados 5
+python cambio_v22bcrit/pruebas/replay_umbral.py REAL.csv --r100 <r_100> --esperado-picos 6 --esperado-detectados 5
 ```
 
-**Importante, honestidad sobre el estado:** el informe de calibración y los `r_semana` **no están en
-el repositorio**, así que *no he podido verificar* el "5 de 6". Lo que sí está probado es que la
-lógica funciona con el fixture sintético (que está construido para dar 5 de 6 y se llama
-`SINTETICO` por eso). La verificación real es: exportar las 12 semanas al formato del CSV
-(`semana_inicio,total_mensajes,r_semana_pct,pico_real`) y ejecutar el comando de arriba. Supuesto:
-`r_semana_pct` = % de odio semanal con el criterio v22bcrit. Si en el informe `r_semana` es otra
-cosa (p. ej. una razón, no un porcentaje), hay que convertirla antes. La prueba también imprime
-falsos positivos y picos perdidos, no solo el recall.
+**Estado:** el informe y los datos reales **no están en el repo**, así que el "5 de 6" **no está
+verificado**; solo se probó con el fixture sintético (`SINTETICO`, construido para dar 5 de 6).
+`pct_v1` y `umbral_v1` salen de `processed.analisis_semanal` (solo lectura). Duda abierta: qué es
+exactamente `r_100` (aquí se trata como un escalar global 0-1 que da el informe).
 
 ---
 

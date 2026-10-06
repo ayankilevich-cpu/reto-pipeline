@@ -61,7 +61,7 @@ Estado: **preparado, no aplicado.** Sin `ALTER TABLE`, sin escrituras en `etique
    (modelo, parámetros, system prompt), si no el umbral 5,70 % no vale.
 2. **El "5 de 6" no está verificado:** no están en el repo el informe ni los `r_semana`. La prueba de
    replay está lista y probada con datos **sintéticos** (marcados como tales); falta ejecutarla con
-   los reales. Supuesto: `r_semana` = % de odio semanal v22bcrit.
+   los reales. `r_semana` = proporción de ODIO(v1) que sigue siendo ODIO con v22bcrit (corregido).
 3. **El etiquetador corre en el Mac**, fuera de CI: si allí no se hace `git pull` antes del 19/10,
    etiquetará post-corte con el prompt viejo. Fallo seguro: el loader (modo estricto) omite esas
    filas y avisa; quedan pendientes. Además, el CSV de salida actual no tiene `llm_criterio`: hay que
