@@ -1,8 +1,6 @@
-diff --git a/Medios/ML/etiquetado_llm/etiquetar_completo_llm.py b/Medios/ML/etiquetado_llm/etiquetar_completo_llm.py
-index 35c4a0f..4926926 100644
 --- a/Medios/ML/etiquetado_llm/etiquetar_completo_llm.py
 +++ b/Medios/ML/etiquetado_llm/etiquetar_completo_llm.py
-@@ -35,7 +35,22 @@ CACHE_SAVE_INTERVAL = 10
+@@ -43,7 +43,22 @@
  
  # ========= DB CONFIG =========
  DB_UTILS_DIR = str(RETO_ROOT / "automatizacion_diaria")
@@ -26,7 +24,7 @@ index 35c4a0f..4926926 100644
  # ==========================
  
  # ---- TAXONOMÍA OFICIAL RETO (LISTA CERRADA) ----
-@@ -72,6 +87,49 @@ MENSAJE:
+@@ -80,6 +95,49 @@
  {{txt}}
  """
  
@@ -58,7 +56,7 @@ index 35c4a0f..4926926 100644
 +
 +
 +def criterio_de_fila(row: Dict[str, Any]) -> str:
-+    return criterio_para_fecha(row.get("created_at"))
++    return criterio_para_fecha(row.get("created_at"), platform="x")
 +
 +
 +def verificar_cabecera_salida() -> None:
@@ -76,7 +74,7 @@ index 35c4a0f..4926926 100644
  # =============================================================================
  # FUNCIONES DE CACHÉ
  # =============================================================================
-@@ -226,7 +283,7 @@ def upload_results_to_db(results: List[Dict[str, Any]]) -> int:
+@@ -234,7 +292,7 @@
  
      columns = [
          "message_uuid", "clasificacion_principal", "categoria_odio_pred",
@@ -85,7 +83,7 @@ index 35c4a0f..4926926 100644
      ]
      db_rows = []
      for r in results:
-@@ -240,6 +297,7 @@ def upload_results_to_db(results: List[Dict[str, Any]]) -> int:
+@@ -248,6 +306,7 @@
              r.get("intensidad_pred", ""),
              r.get("resumen_motivo", ""),
              DB_LLM_VERSION,
@@ -93,7 +91,7 @@ index 35c4a0f..4926926 100644
          ))
  
      if not db_rows:
-@@ -251,7 +309,7 @@ def upload_results_to_db(results: List[Dict[str, Any]]) -> int:
+@@ -259,7 +318,7 @@
                  conn, "processed.etiquetas_llm", columns, db_rows,
                  conflict_columns=["message_uuid", "llm_version"],
                  update_columns=["clasificacion_principal", "categoria_odio_pred",
@@ -102,15 +100,15 @@ index 35c4a0f..4926926 100644
              )
          print(f"  ✓ {len(db_rows)} etiquetas subidas a BD (processed.etiquetas_llm)")
          return len(db_rows)
-@@ -345,20 +403,26 @@ def norm_intensidad(x: Any) -> str:
-     return s if s in {"1", "2", "3"} else ""
+@@ -413,21 +472,27 @@
+     raise RuntimeError("Bucle de reintentos finalizado inesperadamente")
  
  
 -def llm_tag(client: OpenAI, txt: str) -> Dict[str, Any]:
 +def llm_tag(client: OpenAI, txt: str, criterio: str = CRITERIO_V1) -> Dict[str, Any]:
 +    cfg = config_criterio(criterio)
      last_raw = ""
-     for attempt in range(MAX_RETRIES):
+     for attempt in range(JSON_MAX_ATTEMPTS):
 -        user_content = USER_TMPL.format(txt=txt)
 +        if cfg["formato"] == "replace":
 +            user_content = cfg["user"].replace("{txt}", txt)
@@ -120,7 +118,8 @@ index 35c4a0f..4926926 100644
              user_content = "IMPORTANTE: devolvé SOLO JSON válido. Sin texto extra.\n\n" + user_content
  
 +        temperature = cfg.get("temperature")
-         resp = client.responses.create(
+         resp = _create_response_with_rate_limit_retry(
+             client,
 -            model=MODEL,
 +            model=cfg["model"],
              input=[
@@ -134,16 +133,16 @@ index 35c4a0f..4926926 100644
          )
  
          last_raw = getattr(resp, "output_text", "") or ""
-@@ -367,7 +429,7 @@ def llm_tag(client: OpenAI, txt: str) -> Dict[str, Any]:
+@@ -436,7 +501,7 @@
              break
          except Exception:
-             if attempt == MAX_RETRIES - 1:
+             if attempt == JSON_MAX_ATTEMPTS - 1:
 -                log_bad_json(MODEL, txt, last_raw)
 +                log_bad_json(cfg["model"], txt, last_raw)
                  # No cortamos el proceso por un JSON mal formado
                  obj = {
                      "clasificacion_principal": "DUDOSO",
-@@ -392,6 +454,7 @@ def llm_tag(client: OpenAI, txt: str) -> Dict[str, Any]:
+@@ -461,6 +526,7 @@
          "categoria_odio_pred": categoria,
          "intensidad_pred": intensidad,
          "resumen_motivo": str(obj.get("resumen_motivo", "")).strip(),
@@ -151,7 +150,7 @@ index 35c4a0f..4926926 100644
      }
  
  
-@@ -407,6 +470,7 @@ def main():
+@@ -476,6 +542,7 @@
      print("ETIQUETADO LLM - ReTo (con caché + BD)")
      print("=" * 70)
      print(f"Modelo: {MODEL}")
@@ -159,7 +158,7 @@ index 35c4a0f..4926926 100644
      print(f"Output: {OUTPUT_FILE}")
      print(f"Caché:  {CACHE_FILE}")
      print()
-@@ -457,7 +521,9 @@ def main():
+@@ -526,7 +593,9 @@
          msg_id = str(r.get(ID_COL, "")).strip()
          if msg_id in processed_ids:
              continue
@@ -170,7 +169,7 @@ index 35c4a0f..4926926 100644
              rows_from_cache.append((r, cache[msg_id]))
          else:
              rows_to_process.append(r)
-@@ -478,11 +544,14 @@ def main():
+@@ -547,11 +616,14 @@
          "categoria_odio_pred",
          "intensidad_pred",
          "resumen_motivo",
@@ -185,7 +184,7 @@ index 35c4a0f..4926926 100644
      mode = "a" if file_exists else "w"
  
      print(f"\nModo de escritura: {'Agregar a existente' if file_exists else 'Crear nuevo'}")
-@@ -506,6 +575,7 @@ def main():
+@@ -577,6 +649,7 @@
          # 5a. Filas que ya están en caché
          for r, cached_labels in rows_from_cache:
              merged = {**{str(k): str(v) for k, v in r.items()}, **cached_labels}
@@ -193,7 +192,7 @@ index 35c4a0f..4926926 100644
              w.writerow(merged)
              all_new_results.append(merged)
              desde_cache += 1
-@@ -521,14 +591,16 @@ def main():
+@@ -592,14 +665,16 @@
              msg_id = str(r.get(ID_COL, "")).strip()
              txt = str(r.get(TEXT_COL) or "").strip()
  

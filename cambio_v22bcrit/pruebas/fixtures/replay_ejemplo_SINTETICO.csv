@@ -1,0 +1,22 @@
+# semana_inicio : lunes YYYY-MM-DD
+# total_mensajes: mensajes de la semana (entero >= 0)
+# pct_v1        : % odio con criterio v1 (float, ej: 6.17)
+# umbral_v1     : umbral_spike_pct de esa semana con v1 (float, ej: 5.97)
+# r_semana      : proporcion ODIO(v1)->ODIO(v22bcrit) en esa semana (0 a 1, NO un %)
+# pico_real     : 1 si spike real, 0 si no
+# Diseñado para: r100=0.80, esperado-picos=6, esperado-detectados=5
+# Spike perdido: 2026-08-10 (r_sem=0.70 → pct_sim=4.55 < umbral_sim=4.80)
+# Sin falsos positivos.
+semana_inicio,total_mensajes,pct_v1,umbral_v1,r_semana,pico_real
+2026-07-13,12500,4.50,6.00,0.85,0
+2026-07-20,11800,5.00,6.00,0.80,0
+2026-07-27,18000,7.00,6.00,0.85,1
+2026-08-03,22000,8.00,6.00,0.90,1
+2026-08-10,14000,6.50,6.00,0.70,1
+2026-08-17,11200,5.50,6.00,0.80,0
+2026-08-24,16500,7.50,6.00,0.82,1
+2026-08-31,19000,9.00,6.00,0.80,1
+2026-09-07,13200,4.00,6.00,0.90,0
+2026-09-14,25000,8.50,6.00,0.83,1
+2026-09-21,10900,5.80,6.00,0.75,0
+2026-09-28,11200,4.80,6.00,0.85,0

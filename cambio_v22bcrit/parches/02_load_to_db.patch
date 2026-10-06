@@ -1,8 +1,6 @@
-diff --git a/automatizacion_diaria/load_to_db.py b/automatizacion_diaria/load_to_db.py
-index 13f8e8a..80306ad 100644
 --- a/automatizacion_diaria/load_to_db.py
 +++ b/automatizacion_diaria/load_to_db.py
-@@ -37,6 +37,7 @@ import psycopg2
+@@ -37,6 +37,7 @@
  # Añadir este directorio al path para importar db_utils
  sys.path.insert(0, str(Path(__file__).parent))
  from db_utils import get_conn, upsert_rows
@@ -10,18 +8,18 @@ index 13f8e8a..80306ad 100644
  
  # Reintentos ante errores TRANSITORIOS de conexión durante un loader (p. ej.
  # "SSL connection has been closed unexpectedly" a mitad de un upsert grande).
-@@ -59,6 +60,10 @@ CSV_ANON = Path(os.getenv("CSV_ANON", str(RETO_ROOT / "outputs" / "pipeline_unif
+@@ -58,6 +59,10 @@
+ CSV_ANON = Path(os.getenv("CSV_ANON", str(RETO_ROOT / "outputs" / "pipeline_unificado" / "x" / "x_full_anon.csv")))
  # Orquestador unificado: x_scored.csv reemplaza a x_manual_label_scored.csv
  CSV_SCORED = Path(os.getenv("CSV_SCORED", str(RETO_ROOT / "outputs" / "pipeline_unificado" / "x" / "x_scored.csv")))
- 
++
 +# Criterio de etiquetado (v1 | v22bcrit): las filas cuyo criterio no corresponde a su semana
 +# de publicación NO se cargan (así una semana nunca mezcla criterios). "0" lo desactiva.
 +LLM_CRITERIO_STRICT = os.getenv("LLM_CRITERIO_STRICT", "1") != "0"
-+
+ 
  LLM_OUTPUT_GLOB = os.getenv("LLM_OUTPUT_GLOB", str(RETO_ROOT / "Medios" / "ML" / "etiquetado_llm" / "outputs" / "*" / "etiquetado_llm_completo.csv"))
  
- CSV_YT_RAW = Path(os.getenv("CSV_YT_RAW", str(RETO_ROOT / "Medios" / "youtube_hatemedia_comments_30d.csv")))
-@@ -376,14 +381,24 @@ def load_etiquetas_llm(conn, logger: logging.Logger) -> int:
+@@ -376,14 +381,24 @@
  
      columns = [
          "message_uuid", "clasificacion_principal", "categoria_odio_pred",
@@ -41,13 +39,13 @@ index 13f8e8a..80306ad 100644
              continue
 +        criterio = safe_val(r.get("llm_criterio")) or CRITERIO_V1
 +        if LLM_CRITERIO_STRICT and tiene_fecha:
-+            if criterio != criterio_para_fecha(r.get("created_at")):
++            if criterio != criterio_para_fecha(r.get("created_at"), platform="x"):
 +                n_incoherentes += 1
 +                continue
          rows.append((
              uuid,
              safe_val(r.get("clasificacion_principal")),
-@@ -391,13 +406,21 @@ def load_etiquetas_llm(conn, logger: logging.Logger) -> int:
+@@ -391,13 +406,21 @@
              safe_val(r.get("intensidad_pred")),
              safe_val(r.get("resumen_motivo")),
              "v1",  # versión del LLM; cambiar cuando iteres el modelo/prompt
@@ -69,4 +67,29 @@ index 13f8e8a..80306ad 100644
 +                        "intensidad_pred", "resumen_motivo", "llm_criterio"],
      )
      logger.info("processed.etiquetas_llm: %d filas procesadas (upsert)", len(rows))
+     return len(rows)
+@@ -425,7 +448,7 @@
+ 
+     columns = [
+         "message_uuid", "clasificacion_principal", "categoria_odio_pred",
+-        "intensidad_pred", "resumen_motivo", "llm_version",
++        "intensidad_pred", "resumen_motivo", "llm_version", "llm_criterio",
+     ]
+ 
+     rows = []
+@@ -440,13 +463,14 @@
+             safe_val(r.get("intensidad_pred")),
+             safe_val(r.get("resumen_motivo")),
+             "v1",
++            "v1",  # YouTube: siempre v1; criterio_para_fecha no se llama
+         ))
+ 
+     n = upsert_rows(
+         conn, "processed.etiquetas_llm", columns, rows,
+         conflict_columns=["message_uuid", "llm_version"],
+         update_columns=["clasificacion_principal", "categoria_odio_pred",
+-                        "intensidad_pred", "resumen_motivo"],
++                        "intensidad_pred", "resumen_motivo", "llm_criterio"],
+     )
+     logger.info("processed.etiquetas_llm (YouTube): %d filas procesadas (upsert)", len(rows))
      return len(rows)
