@@ -378,7 +378,7 @@ def _render_guia() -> None:
     with st.expander("📘 Guía rápida de anotación (leer antes de empezar)", expanded=False):
         st.markdown(
             """
-**Objetivo.** Esta muestra alimenta el informe europeo T2.4 sobre discurso de odio en España:
+**Objetivo.** Esta muestra genera información para el informe entregable T2.4 sobre discurso de odio en España:
 cuánto odio hay, contra quién y cómo se cruzan las identidades atacadas.
 
 **1. ¿Es odio?** Agresión, insulto, estigmatización o incitación **dirigida a un destinatario
