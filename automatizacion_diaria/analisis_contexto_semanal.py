@@ -41,6 +41,13 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent))
 from db_utils import get_conn
 from contexto_resumen_limpieza import preparar_textos_contexto
+from criterio_etiquetado import (
+    CRITERIO_CORTE_SEMANA,
+    UMBRAL_PROVISIONAL_PCT,  # 5.70 %, IC 95 % [5.13, 6.10] (calibración v22bcrit)
+    criterio_para_fecha,
+    es_spike as _es_spike,
+    umbral_spike as _umbral_spike,
+)
 
 try:
     from dotenv import load_dotenv
@@ -53,6 +60,14 @@ from openai import OpenAI
 
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 SPIKE_THRESHOLD = 1.5
+
+# Criterio v22bcrit (mensajes de X desde CRITERIO_CORTE_SEMANA):
+#   - semanas anteriores al corte → igual que siempre (1,5 × promedio de semanas previas).
+#   - semanas desde el corte, con < MIN_SEMANAS_POSTCORTE (12) semanas previas con el
+#     criterio nuevo → umbral fijo UMBRAL_PROVISIONAL_PCT (5,70 %; IC 95 % [5,13; 6,10]).
+#   - con >= 12 semanas previas post-corte → 1,5 × promedio de las semanas post-corte
+#     (las semanas v1 ya NO entran en esa media: no son comparables).
+# Las constantes viven en criterio_etiquetado.py y se importan arriba.
 
 TARGET_PATTERNS = {
     "Inmigrantes (genérico)": r"inmigran|migrante|migración|extranjero|irregular|sin papeles",
@@ -169,8 +184,14 @@ def compute_week_stats(
     total, odio = row[0], row[1]
     pct = round(odio / max(total, 1) * 100, 2)
     promedio_ref = round(float(avg_pct), 2)
-    umbral_spike_pct = round(promedio_ref * SPIKE_THRESHOLD, 2)
-    es_spike = pct >= umbral_spike_pct and total >= 300
+    llm_criterio = criterio_para_fecha(week_start)
+    if week_start >= CRITERIO_CORTE_SEMANA:
+        umbral_spike_pct, _ = _umbral_spike(
+            n_semanas_base, avg_pct if n_semanas_base else None,
+        )
+    else:
+        umbral_spike_pct = round(promedio_ref * SPIKE_THRESHOLD, 2)
+    es_spike = _es_spike(pct, total, umbral_spike_pct)
 
     cur.execute("""
         SELECT e.categoria_odio_pred, COUNT(*) as cnt
@@ -299,6 +320,7 @@ def compute_week_stats(
         "promedio_referencia_pct": promedio_ref,
         "umbral_spike_pct": umbral_spike_pct,
         "n_semanas_base": int(n_semanas_base),
+        "llm_criterio": llm_criterio,
         "categorias": categorias,
         "targets": dict(sorted(targets.items(), key=lambda x: -x[1])),
         "temas": dict(sorted(temas.items(), key=lambda x: -x[1])),
@@ -488,8 +510,8 @@ def save_week(conn, stats: Dict[str, Any], resumen: str, eventos: str):
              es_spike, promedio_referencia_pct, umbral_spike_pct, n_semanas_base,
              categorias, targets, temas, intensidad,
              dia_pico, dia_pico_odio, dia_pico_pct,
-             resumen_contexto, eventos_relacionados, analisis_date)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+             resumen_contexto, eventos_relacionados, llm_criterio, analisis_date)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
         ON CONFLICT (semana_inicio) DO UPDATE SET
             semana_fin = EXCLUDED.semana_fin,
             total_mensajes = EXCLUDED.total_mensajes,
@@ -513,6 +535,7 @@ def save_week(conn, stats: Dict[str, Any], resumen: str, eventos: str):
             dia_pico_pct = EXCLUDED.dia_pico_pct,
             resumen_contexto = EXCLUDED.resumen_contexto,
             eventos_relacionados = EXCLUDED.eventos_relacionados,
+            llm_criterio = EXCLUDED.llm_criterio,
             analisis_date = NOW()
     """, (
         stats["semana_inicio"], stats["semana_fin"],
@@ -527,6 +550,7 @@ def save_week(conn, stats: Dict[str, Any], resumen: str, eventos: str):
         json.dumps(stats["intensidad"], ensure_ascii=False),
         stats["dia_pico"], stats["dia_pico_odio"], stats["dia_pico_pct"],
         resumen, eventos,
+        stats["llm_criterio"],
     ))
     cur.close()
 
@@ -630,8 +654,22 @@ MIN_MSGS_REF_WEEK = 100
 def compute_avg_pct_prior_to_week(
     conn, week_start: date, min_msgs: int = MIN_MSGS_REF_WEEK,
 ) -> Tuple[float, int]:
-    """Promedio % odio en semanas estrictamente anteriores a week_start (≥ min_msgs)."""
-    df = pd.read_sql("""
+    """
+    Promedio % odio en semanas estrictamente anteriores a week_start (≥ min_msgs).
+
+    Para semanas desde CRITERIO_CORTE_SEMANA solo cuentan las semanas desde el corte
+    (criterio v22bcrit); las semanas v1 no son comparables y quedan fuera.
+    """
+    solo_postcorte = week_start >= CRITERIO_CORTE_SEMANA
+    filtro_corte = (
+        "AND DATE_TRUNC('week', pm.created_at)::date >= %s" if solo_postcorte else ""
+    )
+    params = (
+        (week_start, CRITERIO_CORTE_SEMANA, min_msgs)
+        if solo_postcorte
+        else (week_start, min_msgs)
+    )
+    df = pd.read_sql(f"""
         SELECT
             DATE_TRUNC('week', pm.created_at)::date as semana,
             COUNT(*) as total,
@@ -642,10 +680,14 @@ def compute_avg_pct_prior_to_week(
         LEFT JOIN processed.gold_dataset g USING (message_uuid)
         WHERE pm.created_at IS NOT NULL
           AND DATE_TRUNC('week', pm.created_at)::date < %s
+          {filtro_corte}
         GROUP BY 1
         HAVING COUNT(*) >= %s
-    """, conn, params=(week_start, min_msgs))
+    """, conn, params=params)
     if df.empty:
+        if solo_postcorte:
+            # Sin semanas post-corte todavía: referencia coherente con el umbral provisional.
+            return round(UMBRAL_PROVISIONAL_PCT / SPIKE_THRESHOLD, 2), 0
         return 3.0, 0
     df["pct"] = df["odio"] / df["total"] * 100
     return float(df["pct"].mean()), int(len(df))

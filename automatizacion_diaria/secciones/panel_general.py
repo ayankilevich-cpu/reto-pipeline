@@ -30,6 +30,7 @@ from components.ui import (
     _ui_label,
 )
 from components.exports import render_section_exports
+from components.aviso_criterio import render_aviso_cambio_criterio
 from components.db_helpers import load_filter_options, _pooled_conn
 
 
@@ -630,6 +631,7 @@ def render_panel_general():
         "Indicadores clave del proyecto ReTo · visión consolidada de volumen, "
         "clasificaciones y validación humana.",
     )
+    render_aviso_cambio_criterio()
 
     if st.session_state.get("user_role") != "viewer":
         render_pipeline_status_banner()
