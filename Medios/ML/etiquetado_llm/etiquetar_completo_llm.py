@@ -3,13 +3,19 @@ from __future__ import annotations
 import csv
 import json
 import os
+import random
+import re
+import shutil
 import sys
+import tempfile
+import time
 from datetime import datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Set, Tuple
 
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import OpenAI, RateLimitError
 
 # ========= CONFIG =========
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -25,7 +31,11 @@ ID_COL = "message_uuid"
 MODEL = os.getenv("OPENAI_MODEL", "gpt-5.2")
 OUT_DIR = str(SCRIPT_DIR / "outputs" / "Febrero_2026_V2")
 MAX_ROWS = 0  # 0 = todos
-MAX_RETRIES = 2
+JSON_MAX_ATTEMPTS = 2
+RATE_LIMIT_MAX_RETRIES = int(os.getenv("OPENAI_RATE_LIMIT_MAX_RETRIES", "8"))
+RATE_LIMIT_INITIAL_DELAY = float(os.getenv("OPENAI_RATE_LIMIT_INITIAL_DELAY", "0.5"))
+RATE_LIMIT_MAX_DELAY = float(os.getenv("OPENAI_RATE_LIMIT_MAX_DELAY", "60"))
+RATE_LIMIT_JITTER = 0.25
 BAD_JSON_LOG = os.path.join(OUT_DIR, "bad_json_reto.log")
 
 # ========= CACHE CONFIG =========
@@ -35,7 +45,22 @@ CACHE_SAVE_INTERVAL = 10
 
 # ========= DB CONFIG =========
 DB_UTILS_DIR = str(RETO_ROOT / "automatizacion_diaria")
-DB_LLM_VERSION = "v1"
+DB_LLM_VERSION = "v1"  # llm_version NO cambia (la PK es message_uuid + llm_version)
+
+# ========= CRITERIO DE ETIQUETADO (v1 → v22bcrit) =========
+# Cada mensaje se etiqueta con el criterio de la semana en que se PUBLICÓ (created_at),
+# no de la semana en que se etiqueta. Ver automatizacion_diaria/criterio_etiquetado.py.
+sys.path.insert(0, DB_UTILS_DIR)
+from criterio_etiquetado import (  # noqa: E402
+    CRITERIO_CORTE_SEMANA,
+    CRITERIO_V1,
+    CRITERIO_V22BCRIT,
+    criterio_para_fecha,
+)
+
+# Prompt, modelo y parámetros EXACTOS de v22bcrit (los de la calibración).
+PROMPT_V22BCRIT_FILE = SCRIPT_DIR / "prompt_v22bcrit.json"
+_CONFIG_V22BCRIT: Optional[Dict[str, Any]] = None
 # ==========================
 
 # ---- TAXONOMÍA OFICIAL RETO (LISTA CERRADA) ----
@@ -72,6 +97,139 @@ MENSAJE:
 {{txt}}
 """
 
+def config_criterio(criterio: str) -> Dict[str, Any]:
+    """Prompt/modelo para un criterio. v1 = el prompt de este script (sin cambios)."""
+    global _CONFIG_V22BCRIT
+    if criterio != CRITERIO_V22BCRIT:
+        return {"system": SYSTEM, "user": USER_TMPL, "model": MODEL,
+                "max_output_tokens": 200, "formato": "format"}
+    if _CONFIG_V22BCRIT is None:
+        if not PROMPT_V22BCRIT_FILE.exists():
+            raise RuntimeError(f"Falta {PROMPT_V22BCRIT_FILE.name} (prompt del criterio v22bcrit).")
+        cfg = json.loads(PROMPT_V22BCRIT_FILE.read_text(encoding="utf-8"))
+        user = str(cfg.get("user") or "")
+        if "__PENDIENTE__" in user or "{txt}" not in user or not cfg.get("system"):
+            raise RuntimeError(
+                f"{PROMPT_V22BCRIT_FILE.name} está incompleto: pega el prompt real de "
+                "v22bcrit (claves 'system' y 'user'; 'user' debe contener {txt})."
+            )
+        _CONFIG_V22BCRIT = {
+            "system": str(cfg["system"]),
+            "user": user,
+            "model": cfg.get("model") or MODEL,
+            "temperature": int(cfg["temperature"]) if cfg.get("temperature") is not None else 0,
+            "max_output_tokens": int(cfg.get("max_output_tokens") or 200),
+            "formato": "replace",  # el prompt puede llevar llaves {} literales
+        }
+    return _CONFIG_V22BCRIT
+
+
+def criterio_de_fila(row: Dict[str, Any]) -> str:
+    return criterio_para_fecha(row.get("created_at"), platform="x")
+
+
+OUTPUT_COLUMNS = [
+    "message_uuid", "platform", "content_original", "source_media", "created_at",
+    "language", "url", "matched_terms", "has_hate_terms_match", "match_count",
+    "proba_odio", "pred_odio", "priority", "clasificacion_principal",
+    "categoria_odio_pred", "intensidad_pred", "resumen_motivo", "llm_criterio",
+]
+
+# Esquema que usaba el fallback CSV antiguo. Varias ejecuciones lo anexaron al
+# mismo fichero aunque su cabecera correspondía al esquema compacto de la BD.
+LEGACY_INPUT_COLUMNS = [
+    "message_uuid", "platform", "tweet_id", "created_at", "content_original",
+    "source_media", "batch_id", "scrape_date", "language", "url",
+    "retweet_count", "reply_count", "like_count", "quote_count",
+    "author_id_anon", "author_username_anon", "matched_terms",
+    "has_hate_terms_match", "match_count", "matched_terms_sample",
+    "strong_phrase", "is_candidate", "candidate_reason", "processed_at",
+    "proba_odio", "pred_odio", "priority", "model_version", "score_date",
+]
+LLM_RESULT_COLUMNS = [
+    "clasificacion_principal", "categoria_odio_pred", "intensidad_pred",
+    "resumen_motivo",
+]
+
+
+def _normalizar_fila_historica(row: List[str], header: List[str]) -> Dict[str, str]:
+    """Convierte las tres variantes históricas del output al esquema canónico."""
+    if len(row) == len(header):
+        values = dict(zip(header, row))
+    elif len(row) == 6:
+        # Variante compacta: UUID, texto y las cuatro respuestas del LLM.
+        columns = ["message_uuid", "content_original", *LLM_RESULT_COLUMNS]
+        values = dict(zip(columns, row))
+        values["platform"] = "x"
+    elif len(row) == len(LEGACY_INPUT_COLUMNS) + len(LLM_RESULT_COLUMNS):
+        columns = [*LEGACY_INPUT_COLUMNS, *LLM_RESULT_COLUMNS]
+        values = dict(zip(columns, row))
+    else:
+        raise RuntimeError(
+            f"Fila histórica con {len(row)} columnas; se esperaban "
+            f"{len(header)}, 6 o {len(LEGACY_INPUT_COLUMNS) + len(LLM_RESULT_COLUMNS)}."
+        )
+
+    normalized = {column: str(values.get(column, "")) for column in OUTPUT_COLUMNS}
+    # La ausencia de esta columna identifica resultados creados con el prompt v1.
+    normalized["llm_criterio"] = str(values.get("llm_criterio") or CRITERIO_V1)
+    return normalized
+
+
+def verificar_cabecera_salida() -> None:
+    """Valida el output y migra de forma segura las variantes anteriores a v22bcrit.
+
+    La reescritura es atómica y conserva una copia del fichero original. Además de
+    añadir ``llm_criterio=v1``, corrige las filas que fueron anexadas con un orden de
+    columnas distinto al de la cabecera.
+    """
+    if not os.path.exists(OUTPUT_FILE):
+        return
+
+    with open(OUTPUT_FILE, "r", encoding="utf-8", newline="") as f:
+        reader = csv.reader(f)
+        header = next(reader, [])
+        rows = list(reader)
+
+    if header == OUTPUT_COLUMNS and all(len(row) == len(OUTPUT_COLUMNS) for row in rows):
+        return
+    if "message_uuid" not in header:
+        raise RuntimeError(f"{OUTPUT_FILE} no tiene una cabecera reconocible.")
+
+    try:
+        normalized_rows = [_normalizar_fila_historica(row, header) for row in rows]
+    except RuntimeError as exc:
+        raise RuntimeError(f"No se puede migrar {OUTPUT_FILE}: {exc}") from exc
+
+    output_path = Path(OUTPUT_FILE)
+    backup_path = output_path.with_suffix(output_path.suffix + ".pre_llm_criterio.bak")
+    if not backup_path.exists():
+        shutil.copy2(output_path, backup_path)
+
+    tmp_name = ""
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", newline="", dir=output_path.parent,
+            prefix=f".{output_path.name}.", suffix=".tmp", delete=False,
+        ) as tmp:
+            tmp_name = tmp.name
+            writer = csv.DictWriter(tmp, fieldnames=OUTPUT_COLUMNS, quoting=csv.QUOTE_ALL)
+            writer.writeheader()
+            writer.writerows(normalized_rows)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        os.replace(tmp_name, output_path)
+    finally:
+        if tmp_name and os.path.exists(tmp_name):
+            os.unlink(tmp_name)
+
+    print(
+        f"  ✓ Output histórico migrado: {len(normalized_rows)} filas con "
+        f"llm_criterio={CRITERIO_V1}"
+    )
+    print(f"  ✓ Copia de seguridad: {backup_path}")
+
+
 # =============================================================================
 # FUNCIONES DE CACHÉ
 # =============================================================================
@@ -102,7 +260,15 @@ def save_cache(cache: Dict[str, Dict[str, Any]]) -> None:
 
 def get_processed_ids_from_output() -> Set[str]:
     """Lee el archivo de salida existente y devuelve los IDs ya procesados."""
-    processed = set()
+    processed = set(load_results_from_output())
+    if processed:
+        print(f"  ✓ Archivo de salida existente: {len(processed)} filas ya escritas")
+    return processed
+
+
+def load_results_from_output() -> Dict[str, Dict[str, str]]:
+    """Devuelve el último resultado local de cada UUID para poder resincronizarlo."""
+    results: Dict[str, Dict[str, str]] = {}
     if os.path.exists(OUTPUT_FILE):
         try:
             with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
@@ -110,11 +276,10 @@ def get_processed_ids_from_output() -> Set[str]:
                 for row in reader:
                     msg_id = row.get(ID_COL, "").strip()
                     if msg_id:
-                        processed.add(msg_id)
-            print(f"  ✓ Archivo de salida existente: {len(processed)} filas ya escritas")
+                        results[msg_id] = row
         except Exception as e:
             print(f"  ⚠ Error al leer archivo de salida: {e}")
-    return processed
+    return results
 
 
 # =============================================================================
@@ -163,6 +328,42 @@ def fetch_pending_from_db() -> Optional[List[Dict[str, Any]]]:
     except Exception as e:
         print(f"  ⚠ No se pudo conectar a la BD: {e}")
         return None
+
+
+def verificar_esquema_subida_bd() -> None:
+    """Falla antes de llamar al LLM si la tabla no admite el payload actual."""
+    required = {
+        "message_uuid", "clasificacion_principal", "categoria_odio_pred",
+        "intensidad_pred", "resumen_motivo", "llm_version", "llm_criterio",
+    }
+    get_conn, _ = _get_db_module()
+    if get_conn is None:
+        raise RuntimeError("db_utils no disponible; no se puede validar la subida a BD.")
+
+    try:
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'processed' AND table_name = 'etiquetas_llm'
+            """)
+            available = {row[0] for row in cur.fetchall()}
+            cur.close()
+    except Exception as exc:
+        raise RuntimeError(
+            "No se pudo validar el esquema de processed.etiquetas_llm; "
+            "se aborta antes de llamar al LLM."
+        ) from exc
+
+    missing = sorted(required - available)
+    if missing:
+        raise RuntimeError(
+            "La BD no admite la subida del etiquetador. Faltan columnas en "
+            f"processed.etiquetas_llm: {', '.join(missing)}. Ejecuta "
+            "cambio_v22bcrit/migraciones/20261019_llm_criterio.sql antes de continuar."
+        )
+    print("  ✓ Esquema de subida a BD verificado")
 
 
 def print_db_pending_diagnostics() -> None:
@@ -218,46 +419,78 @@ def print_db_pending_diagnostics() -> None:
 
 
 def upload_results_to_db(results: List[Dict[str, Any]]) -> int:
-    """Sube etiquetas LLM a processed.etiquetas_llm via upsert."""
+    """Sube etiquetas LLM y comprueba dentro de la transacción que quedaron iguales."""
     get_conn, upsert_rows = _get_db_module()
     if get_conn is None or upsert_rows is None:
-        print("  ⚠ db_utils no disponible — resultados NO subidos a BD")
-        return 0
+        raise RuntimeError("db_utils no disponible: resultados NO subidos a BD.")
 
     columns = [
         "message_uuid", "clasificacion_principal", "categoria_odio_pred",
-        "intensidad_pred", "resumen_motivo", "llm_version",
+        "intensidad_pred", "resumen_motivo", "llm_version", "llm_criterio",
     ]
-    db_rows = []
+    # El output puede contener UUID repetidos de ejecuciones antiguas. El último
+    # resultado es el que queda en el CSV y el que debe persistirse en la BD.
+    rows_by_uuid: Dict[str, Tuple[str, str, str, str, str, str, str]] = {}
     for r in results:
-        uuid = (r.get("message_uuid") or "").strip()
-        if not uuid:
+        msg_uuid = (r.get("message_uuid") or "").strip()
+        if not msg_uuid:
             continue
-        db_rows.append((
-            uuid,
-            r.get("clasificacion_principal", ""),
-            r.get("categoria_odio_pred", ""),
-            r.get("intensidad_pred", ""),
-            r.get("resumen_motivo", ""),
+        rows_by_uuid[msg_uuid] = (
+            msg_uuid,
+            str(r.get("clasificacion_principal", "") or ""),
+            str(r.get("categoria_odio_pred", "") or ""),
+            str(r.get("intensidad_pred", "") or ""),
+            str(r.get("resumen_motivo", "") or ""),
             DB_LLM_VERSION,
-        ))
+            str(r.get("llm_criterio") or criterio_de_fila(r)),
+        )
+    db_rows = list(rows_by_uuid.values())
 
     if not db_rows:
         return 0
 
     try:
         with get_conn() as conn:
-            n = upsert_rows(
+            upsert_rows(
                 conn, "processed.etiquetas_llm", columns, db_rows,
                 conflict_columns=["message_uuid", "llm_version"],
                 update_columns=["clasificacion_principal", "categoria_odio_pred",
-                                "intensidad_pred", "resumen_motivo"],
+                                "intensidad_pred", "resumen_motivo", "llm_criterio"],
             )
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT message_uuid::text, clasificacion_principal,
+                       COALESCE(categoria_odio_pred, ''),
+                       COALESCE(intensidad_pred::text, ''),
+                       COALESCE(resumen_motivo, ''), llm_version,
+                       COALESCE(llm_criterio, '')
+                FROM processed.etiquetas_llm
+                WHERE llm_version = %s AND message_uuid::text = ANY(%s)
+            """, (DB_LLM_VERSION, list(rows_by_uuid)))
+            stored = {
+                row[0]: tuple("" if value is None else str(value) for value in row)
+                for row in cur.fetchall()
+            }
+            cur.close()
+
+            expected = {row[0]: tuple(str(value) for value in row) for row in db_rows}
+            bad = sorted(
+                msg_uuid for msg_uuid, expected_row in expected.items()
+                if stored.get(msg_uuid) != expected_row
+            )
+            if bad:
+                sample = ", ".join(bad[:5])
+                raise RuntimeError(
+                    f"la verificación posterior al upsert falló para {len(bad)} UUID"
+                    f" (ejemplos: {sample})"
+                )
         print(f"  ✓ {len(db_rows)} etiquetas subidas a BD (processed.etiquetas_llm)")
         return len(db_rows)
-    except Exception as e:
-        print(f"  ⚠ Error subiendo a BD: {e}")
-        return 0
+    except Exception as exc:
+        raise RuntimeError(
+            "Error subiendo etiquetas a la BD. Los resultados siguen guardados en "
+            "el CSV/caché y se reintentarán en la próxima ejecución."
+        ) from exc
 
 
 # =============================================================================
@@ -345,20 +578,87 @@ def norm_intensidad(x: Any) -> str:
     return s if s in {"1", "2", "3"} else ""
 
 
-def llm_tag(client: OpenAI, txt: str) -> Dict[str, Any]:
+def _retry_after_seconds(exc: RateLimitError) -> Optional[float]:
+    """Obtiene la espera solicitada por la API desde la cabecera o el mensaje."""
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None)
+    retry_after = headers.get("retry-after") if headers is not None else None
+
+    if retry_after:
+        try:
+            return max(0.0, float(retry_after))
+        except (TypeError, ValueError):
+            try:
+                retry_at = parsedate_to_datetime(str(retry_after))
+                now = datetime.now(retry_at.tzinfo) if retry_at.tzinfo else datetime.now()
+                return max(0.0, (retry_at - now).total_seconds())
+            except (TypeError, ValueError, OverflowError):
+                pass
+
+    # Algunos 429 incluyen la espera solamente en el cuerpo del error.
+    match = re.search(
+        r"(?:after|in)\s+(\d+(?:\.\d+)?)\s*seconds?",
+        str(exc),
+        flags=re.IGNORECASE,
+    )
+    return float(match.group(1)) if match else None
+
+
+def _create_response_with_rate_limit_retry(client: OpenAI, **kwargs: Any) -> Any:
+    """Llama a Responses API y recupera errores 429 temporales con backoff."""
+    for retry_number in range(RATE_LIMIT_MAX_RETRIES + 1):
+        try:
+            return client.responses.create(**kwargs)
+        except RateLimitError as exc:
+            if retry_number >= RATE_LIMIT_MAX_RETRIES:
+                print("  ✗ Límite de reintentos por rate limit alcanzado")
+                raise
+
+            server_delay = _retry_after_seconds(exc)
+            fallback_delay = min(
+                RATE_LIMIT_INITIAL_DELAY * (2 ** retry_number),
+                RATE_LIMIT_MAX_DELAY,
+            )
+
+            if server_delay is not None and server_delay > RATE_LIMIT_MAX_DELAY:
+                print(
+                    "  ✗ La API solicitó esperar "
+                    f"{server_delay:.1f}s (máximo configurado: {RATE_LIMIT_MAX_DELAY:.1f}s)"
+                )
+                raise
+
+            base_delay = server_delay if server_delay is not None else fallback_delay
+            delay = base_delay + random.uniform(0, RATE_LIMIT_JITTER)
+            print(
+                f"  ⚠ Rate limit (429). Reintento "
+                f"{retry_number + 1}/{RATE_LIMIT_MAX_RETRIES} en {delay:.2f}s..."
+            )
+            time.sleep(delay)
+
+    raise RuntimeError("Bucle de reintentos finalizado inesperadamente")
+
+
+def llm_tag(client: OpenAI, txt: str, criterio: str = CRITERIO_V1) -> Dict[str, Any]:
+    cfg = config_criterio(criterio)
     last_raw = ""
-    for attempt in range(MAX_RETRIES):
-        user_content = USER_TMPL.format(txt=txt)
+    for attempt in range(JSON_MAX_ATTEMPTS):
+        if cfg["formato"] == "replace":
+            user_content = cfg["user"].replace("{txt}", txt)
+        else:
+            user_content = cfg["user"].format(txt=txt)
         if attempt > 0:
             user_content = "IMPORTANTE: devolvé SOLO JSON válido. Sin texto extra.\n\n" + user_content
 
-        resp = client.responses.create(
-            model=MODEL,
+        temperature = cfg.get("temperature")
+        resp = _create_response_with_rate_limit_retry(
+            client,
+            model=cfg["model"],
             input=[
-                {"role": "system", "content": SYSTEM},
+                {"role": "system", "content": cfg["system"]},
                 {"role": "user", "content": user_content},
             ],
-            max_output_tokens=200,
+            max_output_tokens=cfg["max_output_tokens"],
+            **({} if temperature is None else {"temperature": temperature}),
         )
 
         last_raw = getattr(resp, "output_text", "") or ""
@@ -366,8 +666,8 @@ def llm_tag(client: OpenAI, txt: str) -> Dict[str, Any]:
             obj = extract_json(last_raw)
             break
         except Exception:
-            if attempt == MAX_RETRIES - 1:
-                log_bad_json(MODEL, txt, last_raw)
+            if attempt == JSON_MAX_ATTEMPTS - 1:
+                log_bad_json(cfg["model"], txt, last_raw)
                 # No cortamos el proceso por un JSON mal formado
                 obj = {
                     "clasificacion_principal": "DUDOSO",
@@ -392,14 +692,13 @@ def llm_tag(client: OpenAI, txt: str) -> Dict[str, Any]:
         "categoria_odio_pred": categoria,
         "intensidad_pred": intensidad,
         "resumen_motivo": str(obj.get("resumen_motivo", "")).strip(),
+        "llm_criterio": criterio,
     }
 
 
 def main():
     load_dotenv()
     load_dotenv(Path(DB_UTILS_DIR) / ".env")  # credenciales BD
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("Falta OPENAI_API_KEY en .env")
 
     os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -407,6 +706,7 @@ def main():
     print("ETIQUETADO LLM - ReTo (con caché + BD)")
     print("=" * 70)
     print(f"Modelo: {MODEL}")
+    print(f"Criterio v22bcrit desde la semana del {CRITERIO_CORTE_SEMANA} (antes: v1)")
     print(f"Output: {OUTPUT_FILE}")
     print(f"Caché:  {CACHE_FILE}")
     print()
@@ -415,14 +715,21 @@ def main():
     # 1. Cargar caché y detectar progreso previo
     # -------------------------------------------------------------------------
     print("Cargando estado previo...")
+    verificar_cabecera_salida()
     cache = load_cache()
-    processed_ids = get_processed_ids_from_output()
+    output_results = load_results_from_output()
+    processed_ids = set(output_results)
+    if processed_ids:
+        print(f"  ✓ Archivo de salida existente: {len(processed_ids)} filas ya escritas")
 
     # -------------------------------------------------------------------------
     # 2. Obtener datos pendientes — primero BD, luego CSV como fallback
     # -------------------------------------------------------------------------
     source = "BD"
     db_rows = fetch_pending_from_db()
+    if db_rows is not None:
+        # Debe ocurrir antes de cualquier llamada facturable al LLM.
+        verificar_esquema_subida_bd()
 
     if db_rows is not None and len(db_rows) > 0:
         rows = db_rows
@@ -432,7 +739,13 @@ def main():
         print_db_pending_diagnostics()
         return
     else:
-        print("  Sin conexión a BD — usando CSV local.")
+        if os.getenv("LLM_ALLOW_OFFLINE", "").strip().lower() not in {"1", "true", "yes"}:
+            raise RuntimeError(
+                "Sin conexión a BD. Se aborta antes de llamar al LLM para no generar "
+                "resultados que no puedan subirse. Usa LLM_ALLOW_OFFLINE=1 solo si "
+                "quieres trabajar deliberadamente sin sincronización."
+            )
+        print("  Sin conexión a BD — modo offline explícito, usando CSV local.")
         rows = _load_rows_from_csv()
         source = "CSV"
 
@@ -452,49 +765,63 @@ def main():
     # -------------------------------------------------------------------------
     rows_to_process = []
     rows_from_cache = []
+    rows_from_output = []
 
     for r in rows:
         msg_id = str(r.get(ID_COL, "")).strip()
         if msg_id in processed_ids:
+            local_result = output_results[msg_id]
+            local_criterio = local_result.get("llm_criterio") or CRITERIO_V1
+            if source == "BD" and local_criterio == criterio_de_fila(r):
+                # La BD lo devolvió como pendiente: resincronizar el resultado local
+                # sin repetir una llamada al modelo.
+                rows_from_output.append(local_result)
+            elif source == "BD":
+                # No subir una etiqueta creada con un criterio que ya no corresponde.
+                rows_to_process.append(r)
             continue
-        elif msg_id in cache:
+        elif msg_id in cache and cache[msg_id].get("llm_criterio", CRITERIO_V1) == criterio_de_fila(r):
+            # (entradas de caché antiguas, sin llm_criterio, son v1; si ya no coinciden
+            # con el criterio que le toca a ese mensaje, se reetiqueta)
             rows_from_cache.append((r, cache[msg_id]))
         else:
             rows_to_process.append(r)
 
     print(f"\n  - Ya procesados (en archivo): {len(processed_ids)}")
+    print(f"  - En archivo pendientes de subir: {len(rows_from_output)}")
     print(f"  - En caché (a escribir): {len(rows_from_cache)}")
     print(f"  - Pendientes (llamar LLM): {len(rows_to_process)}")
 
-    if not rows_to_process and not rows_from_cache:
+    if not rows_to_process and not rows_from_cache and not rows_from_output:
         print("\n✅ Todo ya está procesado. Nada que hacer.")
         return
 
     # -------------------------------------------------------------------------
     # 4. Preparar archivo de salida
     # -------------------------------------------------------------------------
-    LLM_EXTRA_COLS = [
-        "clasificacion_principal",
-        "categoria_odio_pred",
-        "intensidad_pred",
-        "resumen_motivo",
-    ]
-    first_row = rows_to_process[0] if rows_to_process else rows_from_cache[0][0]
-    fieldnames = list(first_row.keys()) + LLM_EXTRA_COLS
+    # Usar siempre un esquema estable: el orden de claves del cursor de BD o del
+    # CSV de fallback no debe cambiar el significado de las columnas al anexar.
+    fieldnames = OUTPUT_COLUMNS
 
     file_exists = os.path.exists(OUTPUT_FILE) and len(processed_ids) > 0
     mode = "a" if file_exists else "w"
 
     print(f"\nModo de escritura: {'Agregar a existente' if file_exists else 'Crear nuevo'}")
 
-    client = OpenAI()
+    client = None
+    if rows_to_process:
+        if not os.getenv("OPENAI_API_KEY"):
+            raise RuntimeError("Falta OPENAI_API_KEY en .env")
+        # Los 429 se gestionan arriba para respetar Retry-After y evitar reintentos
+        # anidados con los que el SDK activa por defecto.
+        client = OpenAI(max_retries=0)
 
     # -------------------------------------------------------------------------
     # 5. Procesar filas
     # -------------------------------------------------------------------------
     nuevos_procesados = 0
     desde_cache = 0
-    all_new_results: List[Dict[str, Any]] = []
+    all_new_results: List[Dict[str, Any]] = list(rows_from_output)
 
     with open(OUTPUT_FILE, mode, encoding="utf-8", newline="") as fo:
         w = csv.DictWriter(fo, fieldnames=fieldnames, extrasaction="ignore",
@@ -506,6 +833,7 @@ def main():
         # 5a. Filas que ya están en caché
         for r, cached_labels in rows_from_cache:
             merged = {**{str(k): str(v) for k, v in r.items()}, **cached_labels}
+            merged.setdefault("llm_criterio", criterio_de_fila(r))
             w.writerow(merged)
             all_new_results.append(merged)
             desde_cache += 1
@@ -521,14 +849,16 @@ def main():
             msg_id = str(r.get(ID_COL, "")).strip()
             txt = str(r.get(TEXT_COL) or "").strip()
 
+            criterio = criterio_de_fila(r)
             if txt:
-                extra = llm_tag(client, txt)
+                extra = llm_tag(client, txt, criterio)
             else:
                 extra = {
                     "clasificacion_principal": "DUDOSO",
                     "categoria_odio_pred": "",
                     "intensidad_pred": "",
                     "resumen_motivo": "Texto vacío",
+                    "llm_criterio": criterio,
                 }
 
             merged = {**{str(k): str(v) for k, v in r.items()}, **extra}
@@ -569,6 +899,7 @@ def main():
     print(f"  - Fuente de datos:             {source}")
     print(f"  - Filas recuperadas del caché:  {desde_cache}")
     print(f"  - Filas procesadas con LLM:     {nuevos_procesados}")
+    print(f"  - Resincronizadas desde CSV:    {len(rows_from_output)}")
     print(f"  - Total en caché:               {len(cache)}")
     print(f"  - Subidas a BD:                 {db_uploaded}")
     print(f"  - Output: {OUTPUT_FILE}")

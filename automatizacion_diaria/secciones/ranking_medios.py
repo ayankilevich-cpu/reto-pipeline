@@ -22,6 +22,7 @@ from components.ui import (
     _apply_horizontal_bar_labels,
 )
 from components.exports import render_section_exports
+from components.aviso_criterio import render_aviso_cambio_criterio
 
 
 @st.cache_data(ttl=3600)
@@ -391,6 +392,7 @@ def render_ranking_medios():
         "Ranking de medios",
         "Top 10 medios de comunicación por volumen de mensajes y porcentaje de odio.",
     )
+    render_aviso_cambio_criterio()
 
     col_fd, col_fh = st.columns(2)
     with col_fd:

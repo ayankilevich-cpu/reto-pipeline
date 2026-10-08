@@ -15,6 +15,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from components.constants import COLORS
+from components.aviso_criterio import render_aviso_cambio_criterio
 from components.db_helpers import _pooled_conn
 from components.ui import (
     _render_section_header,
@@ -137,6 +138,7 @@ def render_analisis_contextual():
             "cada semana a partir de los datos agregados (mensajes clasificados por LLM)."
         ),
     )
+    render_aviso_cambio_criterio(con_umbral=True)
     st.info(
         _ui_label(
             "📌 Esta sección analiza exclusivamente mensajes de **X (Twitter)** "

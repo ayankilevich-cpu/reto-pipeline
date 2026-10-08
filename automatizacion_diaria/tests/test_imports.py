@@ -18,6 +18,7 @@ if str(_HERE) not in sys.path:
 
 COMPONENT_MODULES = [
     "components.art510_shared",
+    "components.aviso_criterio",
     "components.auth",
     "components.constants",
     "components.db_helpers",
