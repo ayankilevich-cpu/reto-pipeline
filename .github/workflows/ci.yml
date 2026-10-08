@@ -36,3 +36,6 @@ jobs:
 
       - name: Test layout — "Refrescar datos" invalida KPIs de session_state
         run: pytest automatizacion_diaria/tests/test_layout_refrescar_datos.py -v
+
+      - name: Test anotación T2.4 — validación y mapeo al gold dataset
+        run: pytest automatizacion_diaria/tests/test_anotacion_t24.py -v

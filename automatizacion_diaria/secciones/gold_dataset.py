@@ -487,6 +487,7 @@ def render_gold_dataset():
         source_counts["Origen"] = source_counts["Origen"].map({
             "llm_validated": "LLM validado por humano",
             "human_explicit": "Etiquetado humano explícito",
+            "human_t24": "Muestra T2.4 (anotación humana)",
         }).fillna(source_counts["Origen"])
         fig_source = px.pie(
             source_counts, names="Origen", values="Cantidad",

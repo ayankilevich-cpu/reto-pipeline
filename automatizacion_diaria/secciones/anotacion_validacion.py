@@ -29,6 +29,7 @@ from components.db_helpers import (
     load_art510_summary,
 )
 from components.art510_shared import _render_art510_validacion_humana
+from anotacion_t24 import render_anotacion_t24
 from components.validacion_shared import (
     _render_vllm_label_error_analysis,
     _render_vllm_yt_error_analysis,
@@ -2834,12 +2835,20 @@ def render_anotacion():
         return
 
     # --- Tabs ---
-    tab_yt, tab_510, tab_vllm_yt, tab_vllm_x = st.tabs([
+    tab_t24, tab_yt, tab_510, tab_vllm_yt, tab_vllm_x = st.tabs([
+        "Muestra T2.4 (interseccional)",
         "Anotación odio YouTube",
         "Validación Art. 510 (X + YouTube)",
         "Validación etiquetado LLM (YT)",
         "Validación Etiquetado LLM X",
     ])
+
+    with tab_t24:
+        render_anotacion_t24(
+            annotator.strip(),
+            _pooled_conn,
+            es_admin=(st.session_state.get("user_role") == "admin"),
+        )
 
     with tab_yt:
         _render_anotacion_youtube(annotator.strip())
