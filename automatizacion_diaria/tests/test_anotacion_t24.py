@@ -62,3 +62,25 @@ def test_campos_gold_mismo_formato_que_otras_pestanas():
 def test_categorias_coinciden_con_constants():
     from components.constants import CATEGORIAS_LABELS
     assert set(m.CATEGORIAS) == set(CATEGORIAS_LABELS)
+
+
+def test_avance_incluye_sin_empezar_y_calcula_estado():
+    import pandas as pd
+    db = pd.DataFrame([
+        {"annotator_id": "Cppa", "anotados": 240, "hoy": 10, "ult_7d": 50, "odio": 30, "seg_medios": 20, "ultima": None},
+        {"annotator_id": "Movi", "anotados": 60, "hoy": 0, "ult_7d": 60, "odio": 5, "seg_medios": 25, "ultima": None},
+        {"annotator_id": "Admin", "anotados": 3, "hoy": 3, "ult_7d": 3, "odio": 1, "seg_medios": 9, "ultima": None},
+    ])
+    df = m.combinar_avance(db, ["Cifal", "Cppa", "Movi"], meta=240)
+    est = dict(zip(df["Usuario"], df["Estado"]))
+    assert est == {"Cppa": "Completado", "Movi": "En curso", "Cifal": "Sin empezar", "Admin": "Fuera de campaña"}
+    av = dict(zip(df["Usuario"], df["Avance"]))
+    assert av["Cppa"] == 100 and av["Movi"] == 25 and av["Cifal"] == 0
+    assert list(df["Usuario"])[-1] == "Admin"  # fuera de campaña al final
+
+
+def test_avance_bd_vacia():
+    import pandas as pd
+    df = m.combinar_avance(pd.DataFrame(), ["Cppa", "Guajira"])
+    assert set(df["Usuario"]) == {"Cppa", "Guajira"}
+    assert (df["Anotados"] == 0).all() and (df["Estado"] == "Sin empezar").all()
