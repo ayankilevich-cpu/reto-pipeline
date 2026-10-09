@@ -39,3 +39,6 @@ jobs:
 
       - name: Test anotación T2.4 — validación y mapeo al gold dataset
         run: pytest automatizacion_diaria/tests/test_anotacion_t24.py -v
+
+      - name: Test auth — verificación de contraseñas pbkdf2
+        run: pytest automatizacion_diaria/tests/test_auth_password.py -v
