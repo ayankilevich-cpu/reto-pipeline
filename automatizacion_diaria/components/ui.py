@@ -1,6 +1,8 @@
 """Helpers de UI compartidos entre secciones del dashboard RETO."""
+import base64
 import html
 import re
+from io import BytesIO
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -18,6 +20,34 @@ def _reto_asset_file(*parts: str) -> Optional[Path]:
         if p.is_file():
             return p
     return None
+
+
+@st.cache_data(show_spinner=False)
+def _logo_data_uri(path_str: str, max_width: int = 480) -> str:
+    """Logo como data URI (redimensionado y cacheado).
+
+    st.image sirve las imágenes desde la memoria del servidor (/media/...);
+    tras reiniciar la app esas URL dejan de existir y las pestañas abiertas
+    (p. ej. el iframe de ciedes.es) muestran el logo roto. El data URI viaja
+    dentro de la página y no depende del servidor.
+    """
+    from PIL import Image
+
+    with Image.open(path_str) as im:
+        im.load()
+        if im.width > max_width:
+            im = im.resize((max_width, round(im.height * max_width / im.width)), Image.LANCZOS)
+        buf = BytesIO()
+        im.save(buf, format="PNG", optimize=True)
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def _logo_img_html(path: Path, alt: str, width_css: str = "100%") -> str:
+    """<img> con el logo incrustado (data URI)."""
+    return (
+        f'<img src="{_logo_data_uri(str(path))}" alt="{html.escape(alt)}" '
+        f'style="width:{width_css};max-width:100%;height:auto;display:block;margin:0 auto;">'
+    )
 
 
 def _require_role(*allowed_roles: str, section: str = "esta sección") -> bool:

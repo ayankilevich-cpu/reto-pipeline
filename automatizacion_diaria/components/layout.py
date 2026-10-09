@@ -13,7 +13,7 @@ if str(_HERE) not in sys.path:
 
 from db_utils import postgres_configured
 from components.db_helpers import _pooled_conn
-from components.ui import _is_viewer, _reto_asset_file, _role_can_access_raw
+from components.ui import _is_viewer, _logo_img_html, _reto_asset_file, _role_can_access_raw
 from components.auth import (
     _ROLE_DISPLAY,
     _get_sections_for_role,
@@ -93,7 +93,7 @@ def render_sidebar():
 
     logo_path = _reto_asset_file("logo_reto.png")
     if logo_path is not None:
-        st.sidebar.image(str(logo_path), use_container_width=True)
+        st.sidebar.markdown(_logo_img_html(logo_path, "ReTo — Red de Tolerancia"), unsafe_allow_html=True)
     else:
         st.sidebar.title("ReTo")
     st.sidebar.caption("Red de Tolerancia contra los delitos de odio")
@@ -206,7 +206,7 @@ def render_sidebar():
     eu_logo = _reto_asset_file("logos", "07_eu.png")
     if eu_logo is not None:
         st.sidebar.markdown("---")
-        st.sidebar.image(str(eu_logo), use_container_width=True)
+        st.sidebar.markdown(_logo_img_html(eu_logo, "Financiado por la Unión Europea"), unsafe_allow_html=True)
         st.sidebar.caption(
             "Proyecto financiado por la Unión Europea — Programa CERV (2024)."
         )

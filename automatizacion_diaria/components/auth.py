@@ -8,7 +8,7 @@ from typing import Dict, List
 
 import streamlit as st
 
-from components.ui import _reto_asset_file
+from components.ui import _logo_img_html, _reto_asset_file
 
 
 # ============================================================
@@ -132,9 +132,7 @@ def _render_login():
     """Pantalla de login con rate limiting y soporte de contraseñas hasheadas."""
     logo_path = _reto_asset_file("logo_reto.png")
     if logo_path is not None:
-        col_l, col_c, col_r = st.columns([1, 1, 1])
-        with col_c:
-            st.image(str(logo_path), width=200)
+        st.markdown(_logo_img_html(logo_path, "ReTo — Red de Tolerancia", width_css="200px"), unsafe_allow_html=True)
 
     st.markdown(
         "<h2 style='text-align:center; margin-top:0.5rem; margin-bottom:0.25rem;'>"
