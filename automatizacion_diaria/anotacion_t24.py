@@ -251,21 +251,74 @@ def cargar_progreso(conn_factory: ConnFactory, annotator: str) -> Dict[str, int]
     return {c: int(v or 0) for c, v in zip(cols, row)}
 
 
-def cargar_ranking(conn_factory: ConnFactory) -> pd.DataFrame:
+META_POR_ANOTADOR = 240  # ~1.433 anotaciones / 6 entidades
+
+
+def anotadores_esperados() -> List[str]:
+    """Usuarios con rol editor en st.secrets['users'] (los socios de la campaña)."""
+    try:
+        users = st.secrets["users"]
+        return sorted(u for u, d in users.items() if str(d.get("role", "")) == "editor")
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def combinar_avance(df_db: pd.DataFrame, esperados: List[str], meta: int = META_POR_ANOTADOR) -> pd.DataFrame:
+    """Une lo anotado en BD con la lista de anotadores esperados (incluye a quien
+    todavía no empezó, con 0) y calcula meta, % de avance y estado."""
+    cols = ["annotator_id", "anotados", "hoy", "ult_7d", "odio", "seg_medios", "ultima"]
+    df = df_db.copy() if not df_db.empty else pd.DataFrame(columns=cols)
+    faltan = [u for u in esperados if u not in set(df["annotator_id"])]
+    if faltan:
+        df = pd.concat([df, pd.DataFrame({"annotator_id": faltan})], ignore_index=True)
+    for c in ("anotados", "hoy", "ult_7d", "odio"):
+        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).astype(int)
+    en_campana = df["annotator_id"].isin(esperados)
+    df["meta"] = pd.Series([meta if x else None for x in en_campana], index=df.index, dtype="object")
+    df["avance"] = pd.Series(
+        [round(100 * a / meta) if x else None for a, x in zip(df["anotados"], en_campana)],
+        index=df.index, dtype="object",
+    )
+
+    def _estado(r):
+        if r["meta"] is None:
+            return "Fuera de campaña"
+        if r["anotados"] == 0:
+            return "Sin empezar"
+        if r["anotados"] >= r["meta"]:
+            return "Completado"
+        return "En curso"
+
+    df["estado"] = df.apply(_estado, axis=1)
+    df["_fuera"] = ~en_campana
+    df["_av"] = pd.to_numeric(df["avance"], errors="coerce").fillna(-1)
+    df = df.sort_values(["_fuera", "_av", "anotados"], ascending=[True, False, False]).drop(columns=["_fuera", "_av"])
+    return df.rename(columns={
+        "annotator_id": "Usuario", "anotados": "Anotados", "meta": "Meta", "avance": "Avance",
+        "estado": "Estado", "hoy": "Hoy", "ult_7d": "Últimos 7 días", "odio": "Odio",
+        "seg_medios": "Seg. medios", "ultima": "Última actividad",
+    })[["Usuario", "Estado", "Anotados", "Meta", "Avance", "Hoy", "Últimos 7 días",
+        "Odio", "Seg. medios", "Última actividad"]].reset_index(drop=True)
+
+
+def cargar_avance_anotadores(conn_factory: ConnFactory) -> pd.DataFrame:
     with conn_factory() as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT annotator_id AS "Anotador", COUNT(*) AS "Anotados",
-                   COUNT(*) FILTER (WHERE clasificacion = 'ODIO') AS "Odio",
-                   ROUND(AVG(segundos_anotacion))::int AS "Seg. medios"
+            SELECT annotator_id,
+                   COUNT(*)                                                           AS anotados,
+                   COUNT(*) FILTER (WHERE annotation_ts::date = CURRENT_DATE)         AS hoy,
+                   COUNT(*) FILTER (WHERE annotation_ts >= NOW() - INTERVAL '7 days') AS ult_7d,
+                   COUNT(*) FILTER (WHERE clasificacion = 'ODIO')                     AS odio,
+                   ROUND(AVG(segundos_anotacion))::int                                AS seg_medios,
+                   MAX(annotation_ts)                                                 AS ultima
             FROM processed.anotacion_t24
             GROUP BY annotator_id
-            ORDER BY 2 DESC
         """)
         cols = [d[0] for d in cur.description]
         rows = cur.fetchall()
         cur.close()
-    return pd.DataFrame(rows, columns=cols)
+    return combinar_avance(pd.DataFrame(rows, columns=cols), anotadores_esperados())
 
 
 def _split_estratificado(cur, target_ratio: float = 0.85) -> str:
@@ -418,16 +471,54 @@ def _render_progreso(conn_factory: ConnFactory, annotator: str, es_admin: bool) 
     c4.metric("Pendientes (total)", max(p["total_muestra"] - p["completos"], 0))
     st.progress(min(pct / 100, 1.0))
     if es_admin:
-        with st.expander("Detalle por bloque y por anotador (solo admin)"):
-            st.markdown(
-                f"- **Bloque A (prevalencia):** {p['hechos_a']} / {p['total_a']}\n"
-                f"- **Bloque B (interseccional):** {p['hechos_b']} / {p['total_b']}\n"
-                f"- **Doble anotación completa:** {p['hechos_doble']} / {p['total_doble']}"
-            )
-            try:
-                st.dataframe(cargar_ranking(conn_factory), hide_index=True, width="stretch")
-            except Exception as e:  # noqa: BLE001
-                st.caption(f"Ranking no disponible: {e}")
+        _render_avance_admin(conn_factory, p)
+
+
+def _render_avance_admin(conn_factory: ConnFactory, p: Dict[str, int]) -> None:
+    """Seguimiento de la campaña por entidad/usuario (solo admin)."""
+    with st.expander("📊 Avance por entidad (solo admin)", expanded=True):
+        try:
+            df = cargar_avance_anotadores(conn_factory)
+        except Exception as e:  # noqa: BLE001
+            st.caption(f"Avance no disponible: {e}")
+            return
+        camp = df[df["Estado"] != "Fuera de campaña"]
+        total_meta = int(camp["Meta"].sum()) if not camp.empty else 0
+        total_hecho = int(camp["Anotados"].sum()) if not camp.empty else 0
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Anotaciones de campaña", f"{total_hecho} / {total_meta}")
+        k2.metric("Completados", int((camp["Estado"] == "Completado").sum()))
+        k3.metric("En curso", int((camp["Estado"] == "En curso").sum()))
+        k4.metric("Sin empezar", int((camp["Estado"] == "Sin empezar").sum()))
+        st.dataframe(
+            df,
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "Avance": st.column_config.ProgressColumn(
+                    "Avance", min_value=0, max_value=100, format="%d%%",
+                    help=f"Anotados / meta ({META_POR_ANOTADOR} por entidad)",
+                ),
+                "Meta": st.column_config.NumberColumn("Meta", format="%d"),
+                "Última actividad": st.column_config.DatetimeColumn(
+                    "Última actividad", format="DD/MM/YYYY HH:mm"
+                ),
+            },
+        )
+        st.caption(
+            f"Bloque A (prevalencia): {p['hechos_a']} / {p['total_a']} · "
+            f"Bloque B (interseccional): {p['hechos_b']} / {p['total_b']} · "
+            f"Doble anotación completa: {p['hechos_doble']} / {p['total_doble']}. "
+            "Los usuarios de la campaña son los de rol editor en Secrets; "
+            "«Fuera de campaña» = otros IDs (admin, pruebas)."
+        )
+        st.download_button(
+            "Descargar avance (CSV)",
+            df.to_csv(index=False).encode("utf-8"),
+            file_name=f"avance_t24_{date.today().isoformat()}.csv",
+            mime="text/csv",
+            key="t24_avance_csv",
+        )
 
 
 def _render_mensaje(msg: pd.Series, n_cola: int) -> None:
