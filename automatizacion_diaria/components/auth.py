@@ -1,6 +1,7 @@
 """Autenticación, roles y control de acceso del dashboard RETO."""
 import binascii as _binascii
 import hashlib as _hashlib
+import hmac as _hmac
 import os as _os_auth
 import time as _time
 from typing import Dict, List
@@ -63,7 +64,7 @@ def _verify_password(plain: str, stored: str) -> bool:
             expected = _binascii.unhexlify(hash_hex)
             actual = _hashlib.pbkdf2_hmac("sha256", plain.encode("utf-8"), salt, iters)
             # Comparación de tiempo constante para evitar timing attacks
-            return _hashlib.compare_digest(actual, expected)
+            return _hmac.compare_digest(actual, expected)
         except Exception:
             return False
     # Legado: plain text — funcional pero inseguro; se mostrará aviso al admin
