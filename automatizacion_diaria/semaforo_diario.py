@@ -22,9 +22,12 @@ NO fue backtesteada (el backtest completo se hizo solo sobre X); tratar
 sus alertas con más cautela hasta validarla o hasta que se mergee PR #6
 y se pueda migrar a la misma señal que X.
 
-Se ejecuta todos los días (a diferencia de analisis_contexto_semanal.py,
-que solo corre los lunes) — es justamente el punto: adelantar la ventana
-temporal de lo reactivo/semanal a lo diario.
+Se ejecuta todos los días, igual que analisis_contexto_semanal.py. La
+diferencia es que el semáforo NO depende del etiquetado LLM/humano (usa
+el score de prioridad que el pipeline calcula solo) y recalcula la serie
+completa en cada corrida (upsert), así que un día cargado con retraso se
+corrige solo al día siguiente — es justamente el punto: adelantar la
+ventana temporal de lo reactivo/semanal a lo diario.
 
 Uso:
     python semaforo_diario.py

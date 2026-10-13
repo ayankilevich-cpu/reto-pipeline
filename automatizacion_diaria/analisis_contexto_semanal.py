@@ -19,8 +19,19 @@ Si el análisis corrió cuando aún solo estaban cargados los del lunes (o falta
 el valor queda desactualizado hasta que vuelvas a ejecutar, p. ej.:
 `python analisis_contexto_semanal.py --week 2026-04-06` (lunes de la semana a refrescar).
 
+Semanas que se procesan en cada corrida (sin flags):
+  - Ventana móvil: toda semana cuyo domingo esté a ≤ DIAS_VENTANA_RECALCULO (7) días
+    de hoy se recalcula SIEMPRE (semana en curso + semana anterior). Así entran los
+    mensajes del domingo que se cargan el lunes y el etiquetado LLM manual que llega
+    con retraso.
+  - Fuera de la ventana: se procesa solo si nunca se analizó DESPUÉS de su domingo
+    (analisis_date > domingo). Una vez cerrada así, queda congelada.
+  El umbral de spike y el promedio de referencia siguen congelados desde la primera
+  inserción (ver save_week); solo se actualizan totales, % odio y es_spike.
+
 Uso:
   python analisis_contexto_semanal.py               # analiza semanas pendientes
+  python analisis_contexto_semanal.py --dry-run     # lista qué semanas procesaría, sin escribir
   python analisis_contexto_semanal.py --all          # recalcula todo el histórico
   python analisis_contexto_semanal.py --week 2026-01-13  # analiza una semana específica
 """
@@ -628,24 +639,65 @@ def get_temas_semana_anterior(conn, week_start: date) -> Dict[str, int]:
     return val if isinstance(val, dict) else {}
 
 
-def get_already_analyzed(conn) -> set:
-    """
-    Considera "ya analizada" solo aquella semana cuyo analisis_date
-    es posterior o igual al cierre real de la semana (semana_inicio + 6 días).
+# Días después del domingo durante los que una semana se sigue recalculando a diario.
+# 7 = la semana en curso + la semana anterior completa (cubre la carga del domingo que
+# entra el lunes y una semana de margen para el etiquetado LLM manual de X).
+DIAS_VENTANA_RECALCULO = 7
 
-    De esta forma, una semana que se guardó antes de cerrarse (p. ej. ejecución
-    del propio lunes de inicio) no queda bloqueada como "ya analizada" y puede
-    recalcularse en la corrida siguiente, ya con la semana completa.
-    """
+
+def get_ultimo_analisis(conn) -> Dict[date, date]:
+    """Devuelve {semana_inicio: fecha (date) del último análisis guardado}."""
     df = pd.read_sql(
         """
-        SELECT semana_inicio
+        SELECT semana_inicio, analisis_date::date AS analisis_dia
         FROM processed.analisis_semanal
-        WHERE analisis_date::date >= (semana_inicio + INTERVAL '6 days')::date
+        WHERE analisis_date IS NOT NULL
         """,
         conn,
     )
-    return {_to_py_date(x) for x in df["semana_inicio"].tolist()}
+    return {
+        _to_py_date(r.semana_inicio): _to_py_date(r.analisis_dia)
+        for r in df.itertuples(index=False)
+    }
+
+
+def motivo_pendiente(
+    week_start: date,
+    ultimo_analisis: Dict[date, date],
+    hoy: date,
+    ventana_dias: int = DIAS_VENTANA_RECALCULO,
+) -> Optional[str]:
+    """
+    Devuelve el motivo por el que la semana debe procesarse, o None si está cerrada.
+
+    - "ventana": su domingo está a <= ventana_dias de hoy -> se recalcula siempre.
+    - "sin_analisis": nunca se guardó.
+    - "cierre_incompleto": el último análisis fue el domingo o antes (semana parcial).
+    """
+    domingo = week_start + timedelta(days=6)
+    if domingo + timedelta(days=ventana_dias) >= hoy:
+        return "ventana"
+    ultimo = ultimo_analisis.get(week_start)
+    if ultimo is None:
+        return "sin_analisis"
+    if ultimo <= domingo:
+        return "cierre_incompleto"
+    return None
+
+
+def semanas_pendientes(
+    all_weeks: List[date],
+    ultimo_analisis: Dict[date, date],
+    hoy: date,
+    ventana_dias: int = DIAS_VENTANA_RECALCULO,
+) -> List[date]:
+    """Filtra all_weeks dejando solo las que hay que (re)procesar hoy."""
+    out: List[date] = []
+    for w in all_weeks:
+        d = w if isinstance(w, date) else _to_py_date(w)
+        if motivo_pendiente(d, ultimo_analisis, hoy, ventana_dias) is not None:
+            out.append(d)
+    return out
 
 
 MIN_MSGS_REF_WEEK = 100
@@ -782,6 +834,11 @@ def main():
         action="store_true",
         help="Reescribe resumen/eventos en BD sin LLM (solo datos agregados; útil antes de presentación)",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Solo lista qué semanas se procesarían y por qué; no escribe nada en la BD",
+    )
     args = parser.parse_args()
 
     if args.sanitize_db:
@@ -799,8 +856,10 @@ def main():
     print("=" * 60, flush=True)
 
     hoy = date.today()
+    ultimo: Dict[date, date] = {}
     with get_conn() as conn:
-        ensure_analisis_semanal_columns(conn)
+        if not args.dry_run:
+            ensure_analisis_semanal_columns(conn)
         if args.week:
             weeks = [date.fromisoformat(args.week)]
         else:
@@ -808,11 +867,22 @@ def main():
             if args.all:
                 weeks = all_weeks
             else:
-                already = get_already_analyzed(conn)
-                weeks = [w for w in all_weeks if w not in already]
+                ultimo = get_ultimo_analisis(conn)
+                weeks = semanas_pendientes(all_weeks, ultimo, hoy)
 
     if not weeks:
         print("No hay semanas pendientes de análisis.", flush=True)
+        return
+
+    if args.dry_run:
+        print(f"[DRY-RUN] Hoy={hoy} · ventana={DIAS_VENTANA_RECALCULO} días · "
+              f"{len(weeks)} semana(s) a procesar:", flush=True)
+        for w in sorted(weeks):
+            motivo = ("forzada (--week/--all)" if (args.week or args.all)
+                      else motivo_pendiente(w, ultimo, hoy))
+            print(f"  {w} → {w + timedelta(days=6)} | último análisis: "
+                  f"{ultimo.get(w, '—')} | motivo: {motivo}", flush=True)
+        print("[DRY-RUN] No se escribió nada.", flush=True)
         return
 
     weeks = sort_weeks_closed_first(weeks, hoy)
