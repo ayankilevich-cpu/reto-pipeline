@@ -121,3 +121,6 @@ models/hate_classifier/.env
 models/hate_classifier/venv/
 models/hate_classifier/*.pkl
 !models/hate_classifier/results/training_log.csv
+
+# Salidas de referencia validadas del extractor de víctimas (se usan para comprobar reproducibilidad)
+!Delitos de Odio/output_victimas/*.csv
