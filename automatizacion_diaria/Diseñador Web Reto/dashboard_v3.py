@@ -2083,18 +2083,20 @@ def load_kpis(
         total_medios = cur.fetchone()[0]
 
         # gold validados (odio confirmado por humano)
+        # y_odio_bin IS NOT NULL garantiza que solo se cuentan entradas etiquetadas,
+        # igual que en load_gold_stats() para mantener consistencia con la sección.
         q_gold = """
             SELECT count(*),
                    count(*) FILTER (WHERE g.y_odio_bin = 1)
             FROM processed.gold_dataset g
             JOIN processed.mensajes pm USING (message_uuid)
         """
-        conds_g, params_g = [], []
+        conds_g, params_g = ["g.y_odio_bin IS NOT NULL"], []
         if platforms:
             conds_g.append("pm.platform IN %s"); params_g.append(tuple(platforms))
         if medios:
             conds_g.append("pm.source_media IN %s"); params_g.append(tuple(medios))
-        wg = f"WHERE {' AND '.join(conds_g)}" if conds_g else ""
+        wg = f"WHERE {' AND '.join(conds_g)}"
         cur.execute(f"{q_gold} {wg}", params_g)
         row_g = cur.fetchone()
         total_gold = row_g[0] or 0
