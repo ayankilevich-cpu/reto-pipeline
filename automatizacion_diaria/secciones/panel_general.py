@@ -557,8 +557,7 @@ def load_gold_stats() -> dict:
                   AND g.y_odio_bin IS NOT NULL
             )
             SELECT
-                (SELECT COUNT(*) FROM processed.gold_dataset
-                 WHERE y_odio_bin IS NOT NULL)                    AS total_gold,
+                (SELECT COUNT(*) FROM processed.gold_dataset)     AS total_gold,
                 COUNT(*)                                          AS total_llm,
                 COUNT(*) FILTER (WHERE corrigio_odio)             AS n_corrigio_odio,
                 COUNT(*) FILTER (WHERE corrigio_categoria)        AS n_corrigio_categoria,
