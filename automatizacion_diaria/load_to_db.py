@@ -148,6 +148,17 @@ def safe_val(val, target_type="str"):
     return str(val).strip() if val is not None else None
 
 
+def _norm_intensidad(val):
+    """Normaliza intensidad_pred: '2.0' → '2' (pandas convierte a float cuando hay NaNs)."""
+    s = safe_val(val)
+    if not s:
+        return s
+    try:
+        return str(int(float(s)))
+    except (ValueError, TypeError):
+        return s
+
+
 def _normalize_platform(val) -> Optional[str]:
     """Unifica 'twitter' → 'x' para evitar duplicados de plataforma."""
     s = safe_val(val)
@@ -403,7 +414,7 @@ def load_etiquetas_llm(conn, logger: logging.Logger) -> int:
             uuid,
             safe_val(r.get("clasificacion_principal")),
             safe_val(r.get("categoria_odio_pred")),
-            safe_val(r.get("intensidad_pred")),
+            _norm_intensidad(r.get("intensidad_pred")),
             safe_val(r.get("resumen_motivo")),
             "v1",  # versión del LLM; cambiar cuando iteres el modelo/prompt
             criterio,
@@ -460,7 +471,7 @@ def load_etiquetas_llm_youtube(conn, logger: logging.Logger) -> int:
             uuid,
             safe_val(r.get("clasificacion_principal")),
             safe_val(r.get("categoria_odio_pred")),
-            safe_val(r.get("intensidad_pred")),
+            _norm_intensidad(r.get("intensidad_pred")),
             safe_val(r.get("resumen_motivo")),
             "v1",
             "v1",  # YouTube: siempre v1; criterio_para_fecha no se llama
