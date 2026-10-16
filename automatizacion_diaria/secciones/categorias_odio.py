@@ -471,14 +471,52 @@ def render_categorias():
     )
     if not df_int.empty:
         df_int["categoria_label"] = df_int["categoria_odio_pred"].map(CATEGORIAS_LABELS).fillna(df_int["categoria_odio_pred"])
-        fig3 = px.bar(
-            df_int, x="categoria_label", y="total", color="intensidad_pred",
-            barmode="group",
-            color_discrete_map=INTENSITY_COLORS,
-            labels={"total": "Mensajes", "categoria_label": "", "intensidad_pred": "Intensidad"},
-            title="Distribución de intensidad (1=baja, 2=media, 3=alta)",
+        df_int["intensidad_pred"] = df_int["intensidad_pred"].astype(str)
+        df_int["total_categoria"] = df_int.groupby("categoria_label")["total"].transform("sum")
+        df_int["pct"] = (df_int["total"] / df_int["total_categoria"] * 100).round(1)
+        df_int["pct_txt"] = df_int["pct"].map(lambda v: f"{v:.0f}%" if v >= 5 else "")
+
+        orden_cat = (
+            df_int[df_int["intensidad_pred"] == "3"]
+            .set_index("categoria_label")["pct"]
+            .reindex(df_int["categoria_label"].unique(), fill_value=0)
+            .sort_values(ascending=False)
+            .index.tolist()
         )
-        fig3.update_layout(height=400, xaxis_tickangle=-30)
+
+        fig3 = px.bar(
+            df_int, x="pct", y="categoria_label", color="intensidad_pred",
+            orientation="h", barmode="stack", text="pct_txt",
+            category_orders={"intensidad_pred": ["1", "2", "3"], "categoria_label": orden_cat},
+            color_discrete_map=INTENSITY_COLORS,
+            custom_data=["total", "total_categoria"],
+            labels={
+                "pct": "% de los mensajes de odio de cada categoría",
+                "categoria_label": "",
+                "intensidad_pred": "Intensidad",
+            },
+            title="Distribución de intensidad por categoría (1=baja, 2=media, 3=alta)",
+        )
+        fig3.update_traces(
+            textposition="inside",
+            insidetextanchor="middle",
+            textfont=dict(color="#FFFFFF", size=12),
+            hovertemplate=(
+                "<b>%{y}</b><br>Intensidad %{fullData.name}: %{x:.1f}%"
+                "<br>%{customdata[0]:,} de %{customdata[1]:,} mensajes<extra></extra>"
+            ),
+        )
+        fig3.for_each_trace(
+            lambda t: t.update(textfont_color="#1A202C") if t.name == "1" else None
+        )
+        fig3.update_layout(
+            height=420,
+            bargap=0.3,
+            margin=dict(l=10, r=10, t=90, b=10),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        fig3.update_xaxes(range=[0, 100], ticksuffix="%", automargin=True)
+        fig3.update_yaxes(autorange="reversed", automargin=True, tickfont=dict(size=12))
         st.plotly_chart(fig3, use_container_width=True, theme=None)
 
     render_section_exports(
