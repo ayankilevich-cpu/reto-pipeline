@@ -1323,6 +1323,56 @@ def _apply_horizontal_bar_labels(fig):
     return fig
 
 
+def _fig_intensidad_apilada(df: pd.DataFrame) -> go.Figure:
+    """Requiere columnas: categoria_label (str), intensidad_pred ("1"/"2"/"3"), total (num)."""
+    df = df.copy()
+    df["intensidad_pred"] = df["intensidad_pred"].astype(str)
+    df["total_categoria"] = df.groupby("categoria_label")["total"].transform("sum")
+    df["pct"] = (df["total"] / df["total_categoria"] * 100).round(1)
+    df["pct_txt"] = df["pct"].map(lambda v: f"{v:.0f}%" if v >= 5 else "")
+    orden_cat = (
+        df[df["intensidad_pred"] == "3"]
+        .set_index("categoria_label")["pct"]
+        .reindex(df["categoria_label"].unique(), fill_value=0)
+        .sort_values(ascending=False)
+        .index.tolist()
+    )
+    fig = px.bar(
+        df, x="pct", y="categoria_label", color="intensidad_pred",
+        orientation="h", barmode="stack", text="pct_txt",
+        category_orders={"intensidad_pred": ["1", "2", "3"], "categoria_label": orden_cat},
+        color_discrete_map=INTENSITY_COLORS,
+        custom_data=["total", "total_categoria"],
+        labels={
+            "pct": "% de mensajes de odio de la categoría",
+            "categoria_label": "",
+            "intensidad_pred": "Intensidad",
+        },
+        title="Distribución de intensidad por categoría (1=baja, 2=media, 3=alta)",
+    )
+    fig.update_traces(
+        textposition="inside",
+        insidetextanchor="middle",
+        textfont=dict(color="#FFFFFF", size=12),
+        hovertemplate=(
+            "<b>%{y}</b><br>Intensidad %{fullData.name}: %{x:.1f}%"
+            "<br>%{customdata[0]:,} de %{customdata[1]:,} mensajes<extra></extra>"
+        ),
+    )
+    fig.for_each_trace(
+        lambda t: t.update(textfont_color="#1A202C") if t.name == "1" else None
+    )
+    fig.update_layout(
+        height=420,
+        bargap=0.3,
+        margin=dict(l=10, r=10, t=90, b=10),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    fig.update_xaxes(range=[0, 100], ticksuffix="%", automargin=True)
+    fig.update_yaxes(autorange="reversed", automargin=True, tickfont=dict(size=12))
+    return fig
+
+
 # Paleta fija por categoría de odio (orden estable, vinculada a las etiquetas visibles)
 # Mapea la LABEL visible (no la key interna) para funcionar con cualquier gráfico que use el label.
 # 6 tonos navy institucional derivados de #1F4E79 (luminosidad creciente, contraste AA sobre blanco).
@@ -1407,10 +1457,12 @@ def _register_plotly_theme() -> None:
         xaxis=dict(
             gridcolor="#EDF2F7", linecolor="#CBD5E0", zerolinecolor="#E2E8F0",
             tickcolor="#A0AEC0", tickfont=dict(size=12, color="#4A5568"),
+            automargin=True,
         ),
         yaxis=dict(
             gridcolor="#EDF2F7", linecolor="#CBD5E0", zerolinecolor="#E2E8F0",
             tickcolor="#A0AEC0", tickfont=dict(size=12, color="#4A5568"),
+            automargin=True,
         ),
         legend=dict(
             font=dict(size=12, color="#2D3748"),
@@ -1424,6 +1476,8 @@ def _register_plotly_theme() -> None:
             bgcolor="#1F4E79", bordercolor="#1F4E79",
             font=dict(color="#FFFFFF", family=_PLOTLY_FONT_FAMILY, size=12),
         ),
+        coloraxis=dict(showscale=False),
+        uniformtext=dict(minsize=9, mode="hide"),
     )
     pio.templates["reto"] = template
     pio.templates.default = "reto"
@@ -3819,52 +3873,7 @@ def render_categorias():
     )
     if not df_int.empty:
         df_int["categoria_label"] = df_int["categoria_odio_pred"].map(CATEGORIAS_LABELS).fillna(df_int["categoria_odio_pred"])
-        df_int["intensidad_pred"] = df_int["intensidad_pred"].astype(str)
-        df_int["total_categoria"] = df_int.groupby("categoria_label")["total"].transform("sum")
-        df_int["pct"] = (df_int["total"] / df_int["total_categoria"] * 100).round(1)
-        df_int["pct_txt"] = df_int["pct"].map(lambda v: f"{v:.0f}%" if v >= 5 else "")
-
-        orden_cat = (
-            df_int[df_int["intensidad_pred"] == "3"]
-            .set_index("categoria_label")["pct"]
-            .reindex(df_int["categoria_label"].unique(), fill_value=0)
-            .sort_values(ascending=False)
-            .index.tolist()
-        )
-
-        fig3 = px.bar(
-            df_int, x="pct", y="categoria_label", color="intensidad_pred",
-            orientation="h", barmode="stack", text="pct_txt",
-            category_orders={"intensidad_pred": ["1", "2", "3"], "categoria_label": orden_cat},
-            color_discrete_map=INTENSITY_COLORS,
-            custom_data=["total", "total_categoria"],
-            labels={
-                "pct": "% de los mensajes de odio de cada categoría",
-                "categoria_label": "",
-                "intensidad_pred": "Intensidad",
-            },
-            title="Distribución de intensidad por categoría (1=baja, 2=media, 3=alta)",
-        )
-        fig3.update_traces(
-            textposition="inside",
-            insidetextanchor="middle",
-            textfont=dict(color="#FFFFFF", size=12),
-            hovertemplate=(
-                "<b>%{y}</b><br>Intensidad %{fullData.name}: %{x:.1f}%"
-                "<br>%{customdata[0]:,} de %{customdata[1]:,} mensajes<extra></extra>"
-            ),
-        )
-        fig3.for_each_trace(
-            lambda t: t.update(textfont_color="#1A202C") if t.name == "1" else None
-        )
-        fig3.update_layout(
-            height=420,
-            bargap=0.3,
-            margin=dict(l=10, r=10, t=90, b=10),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        )
-        fig3.update_xaxes(range=[0, 100], ticksuffix="%", automargin=True)
-        fig3.update_yaxes(autorange="reversed", automargin=True, tickfont=dict(size=12))
+        fig3 = _fig_intensidad_apilada(df_int)
         st.plotly_chart(fig3, use_container_width=True, theme=None)
 
     render_section_exports(
@@ -5809,6 +5818,8 @@ def render_dataset_validado_guest() -> None:
             },
             text_auto=True,
         )
+        fig_int.update_traces(cliponaxis=False)
+        fig_int.update_yaxes(range=[0, int_counts["Mensajes"].max() * 1.15])
         fig_int.update_layout(height=360, showlegend=False, xaxis_title="", yaxis_title="Mensajes")
         st.plotly_chart(fig_int, use_container_width=True, theme=None)
 
@@ -5874,6 +5885,8 @@ def render_dataset_validado_guest() -> None:
             color_discrete_map=PLATFORM_COLORS,
             text_auto=True,
         )
+        fig_plat.update_traces(cliponaxis=False)
+        fig_plat.update_yaxes(range=[0, plat_counts["Mensajes"].max() * 1.15])
         fig_plat.update_layout(height=340, showlegend=False, xaxis_title="", yaxis_title="Mensajes")
         st.plotly_chart(fig_plat, use_container_width=True, theme=None)
 
@@ -6165,30 +6178,21 @@ def render_gold_dataset():
             st.plotly_chart(fig_int, use_container_width=True, theme=None)
 
         with col_int2:
-            # Intensidad por categoría
-            int_cat = (
+            int_cat_g = (
                 df_odio.dropna(subset=["y_categoria_final", "y_intensidad_final"])
                 .groupby(["y_categoria_final", "y_intensidad_final"])
                 .size()
-                .reset_index(name="Cantidad")
+                .reset_index(name="total")
             )
-            int_cat["Categoría"] = int_cat["y_categoria_final"].map(
+            int_cat_g["categoria_label"] = int_cat_g["y_categoria_final"].map(
                 lambda x: CATEGORIAS_LABELS.get(x, x)
             )
-            int_cat["Intensidad"] = int_cat["y_intensidad_final"].astype(int).map(
-                {1: "1 — Leve", 2: "2 — Ofensivo", 3: "3 — Hostil"}
+            int_cat_g["intensidad_pred"] = (
+                pd.to_numeric(int_cat_g["y_intensidad_final"], errors="coerce")
+                .astype(int).astype(str)
             )
-            fig_int_cat = px.bar(
-                int_cat, x="Categoría", y="Cantidad", color="Intensidad",
-                barmode="stack",
-                color_discrete_map={
-                    "1 — Leve": "#F39C12",
-                    "2 — Ofensivo": "#E67E22",
-                    "3 — Hostil": "#E74C3C",
-                },
-                title="Intensidad por categoría",
-            )
-            fig_int_cat.update_layout(height=350, xaxis_tickangle=-30)
+            fig_int_cat = _fig_intensidad_apilada(int_cat_g)
+            fig_int_cat.update_layout(title="Intensidad por categoría")
             st.plotly_chart(fig_int_cat, use_container_width=True, theme=None)
 
         df_cat_int = df_odio.dropna(
@@ -6213,9 +6217,11 @@ def render_gold_dataset():
                 text_auto=".2f",
             )
             fig_avg_gold.update_layout(
-                height=380, yaxis=dict(autorange="reversed"),
-                coloraxis_colorbar=dict(title="Intensidad"),
+                height=max(320, 60 * len(avg_int_gold) + 100),
+                yaxis=dict(autorange="reversed"),
+                coloraxis_showscale=False,
             )
+            fig_avg_gold.update_xaxes(range=[0, 3], dtick=0.5)
             _apply_horizontal_bar_labels(fig_avg_gold)
             st.plotly_chart(fig_avg_gold, use_container_width=True, theme=None)
     else:
@@ -6323,7 +6329,7 @@ def render_gold_dataset():
             color_discrete_sequence=[COLORS["danger"], COLORS["warning"], COLORS["accent"]],
             title="% de correcciones humanas por categoría",
         )
-        fig_corr_cat.update_layout(height=420, xaxis_tickangle=-25)
+        fig_corr_cat.update_layout(height=420, margin=dict(b=80))
         st.plotly_chart(fig_corr_cat, use_container_width=True, theme=None)
 
     # ── 6. Análisis por anotador ──
@@ -7113,7 +7119,7 @@ def _render_art510_preview(sel_platforms, sel_sources):
     total = len(df)
     n_llm = (df["label_source"] == "llm").sum()
     n_human = (df["label_source"] == "humano").sum()
-    n_int3 = (df["intensidad"].astype(str) == "3").sum()
+    n_int3 = pd.to_numeric(df["intensidad"], errors="coerce").eq(3).sum()
 
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Total candidatos", f"{total:,}")
@@ -10136,10 +10142,9 @@ def _render_vllm_label_error_analysis(
             df_ambos_odio["llm_categoria"].fillna("") !=
             df_ambos_odio["humano_categoria"].fillna("")
         ).sum()
-        corrigio_int = (
-            df_ambos_odio["llm_intensidad"].astype(str).fillna("") !=
-            df_ambos_odio["humano_intensidad"].astype(str).fillna("")
-        ).sum()
+        _llm_i = pd.to_numeric(df_ambos_odio["llm_intensidad"], errors="coerce").astype("Int64")
+        _hum_i = pd.to_numeric(df_ambos_odio["humano_intensidad"], errors="coerce").astype("Int64")
+        corrigio_int = ((_llm_i != _hum_i) & _llm_i.notna() & _hum_i.notna()).sum()
 
     # ── KPIs ──
     st.markdown("#### Resumen de concordancia")
@@ -11960,7 +11965,7 @@ def render_buscador_terminos() -> None:
                     "categoria_label": "Categoría",
                 },
             )
-            fig_cat.update_layout(height=500, xaxis_tickangle=-30, margin=dict(t=20))
+            fig_cat.update_layout(height=500, margin=dict(t=20, b=80))
             st.plotly_chart(fig_cat, use_container_width=True, theme=None)
 
     # 8) Muestra de mensajes
