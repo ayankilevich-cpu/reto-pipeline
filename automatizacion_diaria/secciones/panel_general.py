@@ -753,6 +753,10 @@ def render_panel_general():
             st.plotly_chart(fig_plat, use_container_width=True, theme=None)
 
         df_odio = df_comb[df_comb["odio_label"] == "Odio"].copy()
+        # '' (cadena vacía) pasa .notna() → normalizamos a NA para no generar barra sin nombre
+        df_odio["categoria"] = (
+            df_odio["categoria"].astype("string").str.strip().replace("", pd.NA)
+        )
 
         col_g3, col_g4 = st.columns(2)
 
@@ -771,7 +775,11 @@ def render_panel_general():
                     title="Distribución de intensidad",
                     text_auto=True,
                 )
+                fig_int.update_traces(textposition="outside", cliponaxis=False)
                 fig_int.update_layout(height=380, showlegend=False)
+                fig_int.update_xaxes(type="category", categoryorder="array",
+                                     categoryarray=["1", "2", "3"])
+                fig_int.update_yaxes(range=[0, int_data["Cantidad"].max() * 1.15])
                 st.plotly_chart(
                     fig_int,
                     use_container_width=True,
@@ -811,7 +819,7 @@ def render_panel_general():
                 )
                 _apply_horizontal_bar_labels(fig_cat)
                 # Deja que Plotly reserve el ancho necesario para categorías largas.
-                fig_cat.update_yaxes(automargin=True, tickfont=dict(size=11))
+                fig_cat.update_yaxes(title_text="", automargin=True, tickfont=dict(size=11))
                 fig_cat.update_layout(margin=dict(l=10, r=20, t=40, b=40))
                 st.plotly_chart(fig_cat, use_container_width=True, theme=None)
             else:
@@ -840,10 +848,15 @@ def render_panel_general():
                 text_auto=".2f",
             )
             fig_avg.update_layout(
-                height=380, yaxis=dict(autorange="reversed"),
-                coloraxis_colorbar=dict(title="Intensidad"),
+                height=max(320, 60 * len(avg_int) + 100),
+                yaxis=dict(autorange="reversed"),
+                coloraxis_showscale=False,
             )
             _apply_horizontal_bar_labels(fig_avg)
+            fig_avg.update_yaxes(title_text="", automargin=True, tickfont=dict(size=12))
+            fig_avg.update_xaxes(range=[0, 3], dtick=0.5,
+                                 title_text="Intensidad promedio (1=baja, 3=alta)")
+            fig_avg.update_layout(margin=dict(l=10, r=70, t=50, b=40))
             st.plotly_chart(fig_avg, use_container_width=True, theme=None)
 
         render_section_exports(
