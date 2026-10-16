@@ -1398,7 +1398,7 @@ def _register_plotly_theme() -> None:
     template.layout = go.Layout(
         font=dict(family=_PLOTLY_FONT_FAMILY, size=13, color="#1A202C"),
         title=dict(
-            font=dict(size=15, color="#1A202C", family="Inter"),
+            font=dict(size=15, color="#1A202C", family=_PLOTLY_FONT_FAMILY),
             x=0.0, xanchor="left", pad=dict(t=4, b=8),
         ),
         paper_bgcolor="#FFFFFF",
@@ -2601,12 +2601,14 @@ def load_intensidad_por_categoria(
 
     with get_conn() as conn:
         df = pd.read_sql(f"""
-            SELECT e.categoria_odio_pred, e.intensidad_pred, count(*) AS total
+            SELECT e.categoria_odio_pred,
+                   split_part(trim(e.intensidad_pred), '.', 1) AS intensidad_pred,
+                   count(*) AS total
             FROM processed.etiquetas_llm e
             JOIN processed.mensajes pm USING (message_uuid)
             WHERE {where}
-            GROUP BY e.categoria_odio_pred, e.intensidad_pred
-            ORDER BY e.categoria_odio_pred, e.intensidad_pred
+            GROUP BY 1, 2
+            ORDER BY 1, 2
         """, conn, params=params)
     return df
 
@@ -3804,14 +3806,23 @@ def render_categorias():
     )
     if not df_int.empty:
         df_int["categoria_label"] = df_int["categoria_odio_pred"].map(CATEGORIAS_LABELS).fillna(df_int["categoria_odio_pred"])
+        df_int["intensidad_pred"] = df_int["intensidad_pred"].astype(str)
+        df_int["categoria_wrap"] = df_int["categoria_label"].str.replace(" / ", " /<br>", n=1, regex=False)
         fig3 = px.bar(
-            df_int, x="categoria_label", y="total", color="intensidad_pred",
+            df_int, x="categoria_wrap", y="total", color="intensidad_pred",
             barmode="group",
+            category_orders={"intensidad_pred": ["1", "2", "3"]},
             color_discrete_map=INTENSITY_COLORS,
-            labels={"total": "Mensajes", "categoria_label": "", "intensidad_pred": "Intensidad"},
+            labels={"total": "Mensajes", "categoria_wrap": "", "intensidad_pred": "Intensidad"},
             title="Distribución de intensidad (1=baja, 2=media, 3=alta)",
         )
-        fig3.update_layout(height=400, xaxis_tickangle=-30)
+        fig3.update_layout(
+            height=460,
+            margin=dict(l=10, r=10, t=90, b=10),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        fig3.update_xaxes(tickangle=0, automargin=True, tickfont=dict(size=11))
+        fig3.update_yaxes(automargin=True)
         st.plotly_chart(fig3, use_container_width=True, theme=None)
 
     render_section_exports(
