@@ -29,6 +29,7 @@ from components.db_helpers import (
     load_art510_summary,
 )
 from components.art510_shared import _render_art510_validacion_humana
+from components.anonimizacion import enmascarar_texto_ui
 from anotacion_t24 import render_anotacion_t24
 from components.validacion_shared import (
     _render_vllm_label_error_analysis,
@@ -1336,7 +1337,7 @@ def _fragment_anotacion_youtube(
     with col_msg:
         st.markdown("**Texto del comentario:**")
         st.text_area(
-            "contenido", value=str(msg["content_original"]),
+            "contenido", value=enmascarar_texto_ui(msg["content_original"]),
             height=130, disabled=True, label_visibility="collapsed",
         )
     with col_meta:
@@ -1616,7 +1617,7 @@ def _fragment_validacion_art510(annotator: str) -> None:
     with col_msg:
         st.markdown("**Texto del mensaje:**")
         st.text_area(
-            "contenido_510", value=str(msg["content_original"]),
+            "contenido_510", value=enmascarar_texto_ui(msg["content_original"]),
             height=150, disabled=True, label_visibility="collapsed",
         )
         plat_raw = str(msg.get("platform", ""))
@@ -2258,7 +2259,7 @@ def _fragment_validacion_llm_youtube(
     with col_msg:
         st.markdown("**Texto del comentario:**")
         st.text_area(
-            "contenido_vllm", value=str(msg["content_original"]),
+            "contenido_vllm", value=enmascarar_texto_ui(msg["content_original"]),
             height=140, disabled=True, label_visibility="collapsed",
         )
         plat_v = platform_label(str(msg.get("platform") or ""))
@@ -2589,7 +2590,7 @@ def _fragment_validacion_llm_x(
     with col_msg:
         st.markdown("**Texto del mensaje:**")
         st.text_area(
-            "contenido_vllm_x", value=str(msg["content_original"]),
+            "contenido_vllm_x", value=enmascarar_texto_ui(msg["content_original"]),
             height=140, disabled=True, label_visibility="collapsed",
         )
 

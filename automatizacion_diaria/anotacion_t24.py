@@ -30,6 +30,8 @@ from typing import Any, Callable, ContextManager, Dict, List, Optional, Tuple
 import pandas as pd
 import streamlit as st
 
+from components.anonimizacion import enmascarar_texto_ui, url_contexto_segura
+
 ConnFactory = Callable[[], ContextManager[Any]]
 
 LABEL_SOURCE = "human_t24"
@@ -526,20 +528,23 @@ def _render_mensaje(msg: pd.Series, n_cola: int) -> None:
     col_msg, col_meta = st.columns([3, 1])
     with col_msg:
         st.text_area(
-            "Texto del comentario", value=str(msg["content_original"]),
+            "Texto del comentario", value=enmascarar_texto_ui(msg["content_original"]),
             height=140, disabled=True, label_visibility="collapsed",
         )
     with col_meta:
         plat = str(msg.get("platform") or "")
         st.markdown(f"**Plataforma:** {'X' if plat in ('x', 'twitter') else plat.capitalize()}")
-        medio = msg.get("source_media")
-        if medio and pd.notna(medio):
-            st.markdown(f"**Medio / cuenta:** {medio}")
+        # Nunca mostrar source_media en crudo: en X puede ser la cuenta del autor.
+        # Solo se muestra si es un medio de la lista maestra (mismo criterio que las otras pestañas).
+        from components.db_helpers import _public_medio_label
+        medio = _public_medio_label(msg.get("source_media"))
+        if medio:
+            st.markdown(f"**Medio monitorizado:** {medio}")
         fecha = msg.get("created_at")
         if fecha is not None and pd.notna(fecha):
             st.markdown(f"**Fecha:** {pd.to_datetime(fecha).strftime('%d/%m/%Y')}")
-        url = msg.get("url")
-        if url and pd.notna(url) and str(url).startswith("http"):
+        url = url_contexto_segura(msg.get("url"))
+        if url:
             st.markdown(f"[Ver contexto original]({url})")
 
 

@@ -15,6 +15,7 @@ if str(_HERE) not in sys.path:
 
 from components.constants import CATEGORIAS_LABELS, COLORS
 from components.db_helpers import _load_vllm_yt_corrections
+from components.anonimizacion import enmascarar_texto_ui
 
 
 def _render_vllm_label_error_analysis(
@@ -214,6 +215,7 @@ def _render_vllm_label_error_analysis(
             "LLM Intens.", "Humano Intens.",
             "Humor", "Anotador",
         ]
+        display_df["Texto"] = display_df["Texto"].map(enmascarar_texto_ui)
         display_df["LLM Categoría"] = display_df["LLM Categoría"].map(
             lambda x: CATEGORIAS_LABELS.get(x, x) if pd.notna(x) else "—"
         )
@@ -232,7 +234,7 @@ def _render_vllm_label_error_analysis(
     else:
         few_shot_lines = []
         for _, row in df_err.iterrows():
-            txt = str(row["content_original"])[:500]
+            txt = enmascarar_texto_ui(row["content_original"])[:500]
             h_clasif = row["humano_clasif"]
             h_cat = row.get("humano_categoria") or ""
             h_int = row.get("humano_intensidad") or ""
