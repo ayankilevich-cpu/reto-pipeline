@@ -15,6 +15,7 @@ Uso:
 """
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import math
@@ -178,6 +179,37 @@ def _load_csv_column(path: Path, column: str) -> List[str]:
 
 
 # ---------------------------------------------------------------------------
+# Extra labels (CSV suplementario, sin BD)
+# ---------------------------------------------------------------------------
+
+def _load_extra_labels(
+    path_str: str,
+    sources_filter: Optional[Set[str]] = None,
+) -> List[Tuple[str, str, str]]:
+    """Lee --extra-labels-csv (message_uuid, platform, matched_terms,
+    clasificacion_principal, fuente) y devuelve tuplas (platform, matched_terms,
+    clasificacion_principal) filtrando filas sin matched_terms, con DUDOSO, o
+    cuya columna 'fuente' no esté en sources_filter (si se especifica)."""
+    p = Path(path_str)
+    if not p.exists():
+        sys.exit(f"ERROR: --extra-labels-csv no existe: {p}")
+    rows: List[Tuple[str, str, str]] = []
+    with open(p, encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            clasif   = (row.get("clasificacion_principal") or "").strip().upper()
+            platform = (row.get("platform") or "").strip()
+            matched  = (row.get("matched_terms") or "").strip()
+            fuente   = (row.get("fuente") or "").strip()
+            if clasif not in {"ODIO", "NO_ODIO"} or not matched:
+                continue
+            if sources_filter is not None and fuente not in sources_filter:
+                continue
+            rows.append((platform, matched, clasif))
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # Fetch + conteo
 # ---------------------------------------------------------------------------
 
@@ -258,6 +290,16 @@ def term_stats(a: int, c: int, total_odio: int, total_no_odio: int) -> Dict[str,
 # ---------------------------------------------------------------------------
 
 def main() -> int:
+    ap = argparse.ArgumentParser(description="Auditoría estadística de hate_terms_clean.csv")
+    ap.add_argument("--extra-labels-csv", default=None,
+                    help="CSV adicional con etiquetas revisadas (ver build_etiquetas_extra.py)")
+    ap.add_argument("--tag", default="",
+                    help="Sufijo para los CSV de salida, ej. '20261019' (no pisa el audit anterior)")
+    ap.add_argument("--extra-sources", default=None,
+                    help="Fuentes del CSV extra a incluir, separadas por coma. "
+                         "Sin este flag se usan todas. Ej: X_revisado2,YT_humano")
+    args = ap.parse_args()
+
     dotenv_path = _REPO_ROOT / "automatizacion_diaria" / ".env"
     load_dotenv(dotenv_path=dotenv_path, override=True)
     print(f"✓ .env: {dotenv_path} (existe={dotenv_path.exists()})")
@@ -276,7 +318,16 @@ def main() -> int:
     finally:
         conn.close()
 
-    print(f"  Filas ODIO/NO_ODIO con matched_terms: {len(rows):,}")
+    print(f"  Filas ODIO/NO_ODIO con matched_terms (BD): {len(rows):,}")
+
+    if args.extra_labels_csv:
+        sources_filter: Optional[Set[str]] = None
+        if args.extra_sources:
+            sources_filter = {s.strip() for s in args.extra_sources.split(",") if s.strip()}
+            print(f"  Filtrando fuentes extra:                   {sorted(sources_filter)}")
+        extra = _load_extra_labels(args.extra_labels_csv, sources_filter)
+        print(f"  Filas extra desde CSV:                     {len(extra):,}")
+        rows = rows + extra
 
     odio_counts, no_odio_counts, total_odio, total_no_odio = count_terms(rows)
     print(f"  total_odio    = {total_odio:,}")
@@ -338,7 +389,7 @@ def main() -> int:
         else:
             buckets["descartar"].append(record)
 
-    _write_outputs(buckets, general_norm)
+    _write_outputs(buckets, general_norm, tag=args.tag)
     _print_summary(buckets)
     return 0
 
@@ -346,11 +397,13 @@ def main() -> int:
 def _write_outputs(
     buckets: Dict[str, List[Dict[str, Any]]],
     general_norm: Set[str],
+    tag: str = "",
 ) -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
+    sfx = f"_{tag}" if tag else ""
 
-    # 1) hate_terms_clean_v2.csv — mantener y NO ya presentes en hate_general_terms.csv
-    v2_path = OUT_DIR / "hate_terms_clean_v2.csv"
+    # 1) hate_terms_clean_v2{sfx}.csv — mantener y NO ya presentes en hate_general_terms.csv
+    v2_path = OUT_DIR / f"hate_terms_clean_v2{sfx}.csv"
     with open(v2_path, "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
         w.writerow(["Lemas"])
@@ -359,11 +412,11 @@ def _write_outputs(
                 w.writerow([r["Lemas"]])
 
     # 2) descartados
-    desc_path = OUT_DIR / "hate_terms_clean_descartados.csv"
+    desc_path = OUT_DIR / f"hate_terms_clean_descartados{sfx}.csv"
     _write_detail_csv(desc_path, buckets["descartar"])
 
     # 3) revisión manual
-    rev_path = OUT_DIR / "hate_terms_clean_revision_manual.csv"
+    rev_path = OUT_DIR / f"hate_terms_clean_revision_manual{sfx}.csv"
     _write_detail_csv(rev_path, buckets["revision_manual"])
 
     print()
