@@ -16,6 +16,7 @@ if str(_HERE) not in sys.path:
 
 from components.constants import APARTADO_LABELS, ART510_COLORS, COLORS
 from components.db_helpers import load_art510_validaciones_humanas
+from components.anonimizacion import enmascarar_texto_ui
 
 
 def _art510_escape(s) -> str:
@@ -192,7 +193,7 @@ def _render_art510_validacion_humana(summary: dict):
                 )
                 parts_conf.append(
                     "<div class=\"art510-card\">"
-                    f"<blockquote>{_art510_escape(r.get('content_original'))}</blockquote>"
+                    f"<blockquote>{_art510_escape(enmascarar_texto_ui(r.get('content_original')))}</blockquote>"
                     f"<div class=\"meta\"><b>Apartado:</b> {_art510_escape(r.get('apartado_510_final')) or '—'}</div>"
                     f"<div class=\"meta\"><b>Grupo protegido:</b> {_art510_escape(r.get('grupo_protegido_final')) or '—'}</div>"
                     f"<div class=\"meta\"><b>Revisor:</b> {_art510_escape(r.get('annotator_id')) or '—'}</div>"
@@ -219,7 +220,7 @@ def _render_art510_validacion_humana(summary: dict):
             for _, r in df_r.iterrows():
                 parts_rech.append(
                     "<div class=\"art510-card\">"
-                    f"<blockquote>{_art510_escape(r.get('content_original'))}</blockquote>"
+                    f"<blockquote>{_art510_escape(enmascarar_texto_ui(r.get('content_original')))}</blockquote>"
                     f"<div class=\"meta\"><b>Confianza LLM:</b> {_art510_escape(r.get('llm_confianza')) or '—'}</div>"
                     f"<div class=\"meta\"><b>Grupo (LLM):</b> {_art510_escape(r.get('llm_grupo')) or '—'}</div>"
                     f"<div class=\"meta\"><b>Revisor:</b> {_art510_escape(r.get('annotator_id')) or '—'}</div>"
@@ -254,7 +255,7 @@ def _render_art510_validacion_humana(summary: dict):
             parts_all.append(
                 "<div class=\"art510-card\">"
                 f'<span class="art510-badge">{_art510_escape(badge)}</span>'
-                f"<blockquote>{_art510_escape(r.get('content_original'))}</blockquote>"
+                f"<blockquote>{_art510_escape(enmascarar_texto_ui(r.get('content_original')))}</blockquote>"
                 f"<div class=\"meta\"><b>Apartado (humano):</b> {_art510_escape(r.get('apartado_510_final')) or '—'}</div>"
                 f"<div class=\"meta\"><b>Grupo (humano):</b> {_art510_escape(r.get('grupo_protegido_final')) or '—'}</div>"
                 f"{extra_cond}{extra_com}"
