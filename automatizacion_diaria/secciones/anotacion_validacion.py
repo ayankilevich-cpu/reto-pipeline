@@ -30,6 +30,7 @@ from components.db_helpers import (
 )
 from components.art510_shared import _render_art510_validacion_humana
 from components.anonimizacion import enmascarar_texto_ui
+from components.theme import marcar_scroll_mensaje, subheader_mensaje
 from anotacion_t24 import render_anotacion_t24
 from components.validacion_shared import (
     _render_vllm_label_error_analysis,
@@ -340,8 +341,14 @@ def _ann_queue_drop(
     st.session_state[cache_key] = (saved_args, df.loc[mask].copy())
 
 
-def _ann_rerun_fragment() -> None:
-    """Re-ejecuta solo el fragmento activo (fallback a rerun de página)."""
+def _ann_rerun_fragment(clave_scroll: Optional[str] = None) -> None:
+    """Re-ejecuta solo el fragmento activo (fallback a rerun de página).
+
+    Con `clave_scroll`, al volver a pintar se hace scroll al visor de mensaje
+    de esa pestaña (tras Guardar/Saltar el anotador queda abajo del formulario).
+    """
+    if clave_scroll:
+        marcar_scroll_mensaje(clave_scroll)
     try:
         st.rerun(scope="fragment")
     except TypeError:
@@ -1331,7 +1338,7 @@ def _fragment_anotacion_youtube(
     msg = _ann_pick_sticky_row(queue, state_key="_ann_yt_current_uuid")
     msg_uuid = str(msg["message_uuid"])
 
-    st.subheader(f"Mensaje a anotar  ({queue.shape[0]} en cola)")
+    subheader_mensaje(f"Mensaje a anotar  ({queue.shape[0]} en cola)", "yt")
 
     col_msg, col_meta = st.columns([3, 1])
     with col_msg:
@@ -1498,13 +1505,13 @@ def _fragment_anotacion_youtube(
             st.session_state["_ann_last_status"] = ("ok", msg_uuid[:8])
         else:
             st.session_state["_ann_last_status"] = ("error", "")
-        _ann_rerun_fragment()
+        _ann_rerun_fragment("yt")
 
     if skipped:
         st.session_state.setdefault("ann_skipped", set()).add(msg_uuid)
         _ann_queue_drop("_ann_yt_queue_cache", msg_uuid)
         st.session_state.pop("_ann_yt_current_uuid", None)
-        _ann_rerun_fragment()
+        _ann_rerun_fragment("yt")
 
 
 def _render_anotacion_youtube(annotator: str):
@@ -1611,7 +1618,7 @@ def _fragment_validacion_art510(annotator: str) -> None:
     msg_label_source = str(msg["label_source"])
     msg_key = f"{msg_uuid}|{msg_label_source}"
 
-    st.subheader(f"Mensaje a validar  ({queue.shape[0]} en cola)")
+    subheader_mensaje(f"Mensaje a validar  ({queue.shape[0]} en cola)", "v510")
 
     col_msg, col_eval = st.columns([3, 2])
     with col_msg:
@@ -1764,13 +1771,13 @@ def _fragment_validacion_art510(annotator: str) -> None:
             st.session_state["_v510_last_status"] = ("ok", msg_uuid[:8])
         else:
             st.session_state["_v510_last_status"] = ("error", "")
-        _ann_rerun_fragment()
+        _ann_rerun_fragment("v510")
 
     if skipped:
         st.session_state.setdefault("v510_skipped", set()).add(msg_key)
         _ann_queue_drop("_v510_queue_cache", msg_key, id_col="_v510_id")
         st.session_state.pop("_v510_current_id", None)
-        _ann_rerun_fragment()
+        _ann_rerun_fragment("v510")
 
 
 def _render_validacion_art510(annotator: str):
@@ -2252,7 +2259,7 @@ def _fragment_validacion_llm_youtube(
     msg = _ann_pick_sticky_row(queue, state_key="_vllm_yt_current_uuid")
     msg_uuid = str(msg["message_uuid"])
 
-    st.subheader(f"Mensaje a validar  ({queue.shape[0]} en cola)")
+    subheader_mensaje(f"Mensaje a validar  ({queue.shape[0]} en cola)", "vllm_yt")
 
     # --- Contenido y predicción LLM ---
     col_msg, col_llm = st.columns([3, 2])
@@ -2439,13 +2446,13 @@ def _fragment_validacion_llm_youtube(
             st.session_state["_vllm_yt_last_status"] = ("ok", msg_uuid[:8])
         else:
             st.session_state["_vllm_yt_last_status"] = ("error", "")
-        _ann_rerun_fragment()
+        _ann_rerun_fragment("vllm_yt")
 
     if skipped:
         st.session_state.setdefault("vllm_yt_skipped", set()).add(msg_uuid)
         _ann_queue_drop("_vllm_yt_queue_cache", msg_uuid)
         st.session_state.pop("_vllm_yt_current_uuid", None)
-        _ann_rerun_fragment()
+        _ann_rerun_fragment("vllm_yt")
 
 
 def _render_validacion_llm_x(annotator: str):
@@ -2584,7 +2591,7 @@ def _fragment_validacion_llm_x(
     msg = _ann_pick_sticky_row(queue, state_key="_vllm_x_current_uuid")
     msg_uuid = str(msg["message_uuid"])
 
-    st.subheader(f"Mensaje a validar  ({queue.shape[0]} en cola)")
+    subheader_mensaje(f"Mensaje a validar  ({queue.shape[0]} en cola)", "vllm_x")
 
     col_msg, col_llm = st.columns([3, 2])
     with col_msg:
@@ -2757,13 +2764,13 @@ def _fragment_validacion_llm_x(
             st.session_state["_vllm_x_last_status"] = ("ok", msg_uuid[:8])
         else:
             st.session_state["_vllm_x_last_status"] = ("error", "")
-        _ann_rerun_fragment()
+        _ann_rerun_fragment("vllm_x")
 
     if skipped:
         st.session_state.setdefault("vllm_x_skipped", set()).add(msg_uuid)
         _ann_queue_drop("_vllm_x_queue_cache", msg_uuid)
         st.session_state.pop("_vllm_x_current_uuid", None)
-        _ann_rerun_fragment()
+        _ann_rerun_fragment("vllm_x")
 
 
 

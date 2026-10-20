@@ -938,3 +938,50 @@ def _scroll_main_to_top() -> None:
         height=0,
         width=0,
     )
+
+
+# ── Scroll al visor de mensaje tras Guardar/Saltar (Anotación y validación) ──
+def _ancla_mensaje(clave: str) -> str:
+    return f"ann-msg-{clave}"
+
+
+def marcar_scroll_mensaje(clave: str) -> None:
+    """Pide que en el próximo rerun se haga scroll al visor de mensaje de `clave`.
+
+    Llamar justo antes de st.rerun() al Guardar o Saltar. Una bandera por pestaña
+    para que el scroll lo haga solo la pestaña donde se pulsó el botón.
+    """
+    st.session_state[f"_scroll_pend_{clave}"] = True
+
+
+def subheader_mensaje(texto: str, clave: str) -> None:
+    """st.subheader del visor de mensaje con ancla fija + scroll si quedó pendiente."""
+    st.subheader(texto, anchor=_ancla_mensaje(clave))
+    if not st.session_state.pop(f"_scroll_pend_{clave}", False):
+        return
+    import time as _time
+    ancla = _ancla_mensaje(clave)
+    # El nonce cambia el HTML en cada llamada: sin él Streamlit reutiliza el
+    # iframe anterior y el script no se vuelve a ejecutar.
+    components.html(
+        f"""
+        <!-- nonce {_time.time_ns()} -->
+        <script>
+        (function () {{
+            var intentos = 0;
+            function ir() {{
+                var el = window.parent.document.getElementById("{ancla}");
+                if (el) {{
+                    el.style.scrollMarginTop = "110px";
+                    el.scrollIntoView({{ block: "start", behavior: "auto" }});
+                    return;
+                }}
+                if (++intentos < 20) setTimeout(ir, 50);
+            }}
+            setTimeout(ir, 30);
+        }})();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
