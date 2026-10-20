@@ -31,6 +31,7 @@ import pandas as pd
 import streamlit as st
 
 from components.anonimizacion import enmascarar_texto_ui, url_contexto_segura
+from components.theme import marcar_scroll_mensaje, subheader_mensaje
 
 ConnFactory = Callable[[], ContextManager[Any]]
 
@@ -524,7 +525,7 @@ def _render_avance_admin(conn_factory: ConnFactory, p: Dict[str, int]) -> None:
 
 
 def _render_mensaje(msg: pd.Series, n_cola: int) -> None:
-    st.subheader(f"Mensaje a anotar  ({n_cola} en cola)")
+    subheader_mensaje(f"Mensaje a anotar  ({n_cola} en cola)", "t24")
     col_msg, col_meta = st.columns([3, 1])
     with col_msg:
         st.text_area(
@@ -681,6 +682,7 @@ def render_anotacion_t24(annotator: str, conn_factory: ConnFactory, es_admin: bo
     if saltar:
         skipped.add(current)
         st.session_state.pop(_K_CURRENT, None)
+        marcar_scroll_mensaje("t24")
         st.rerun()
 
     if guardar:
@@ -711,4 +713,5 @@ def render_anotacion_t24(annotator: str, conn_factory: ConnFactory, es_admin: bo
             st.cache_data.clear()  # que Panel general / Gold dataset reflejen el alta
         except Exception:
             pass
+        marcar_scroll_mensaje("t24")
         st.rerun()
