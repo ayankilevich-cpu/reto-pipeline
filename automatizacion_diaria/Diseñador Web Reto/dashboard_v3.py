@@ -4999,7 +4999,7 @@ _TEMAS_SEMAFORO = {
     "Israel / Gaza": r"israel|gaza|palestin|genocid|hamás",
     "LGTB / transexualidad": r"trans\b|lgtb|orgullo|drag|homosexual",
     "Economía / vivienda": r"inflaci|precio|sueldo|paro|desempleo|vivienda|hipoteca",
-    "Educación": r"educaci|colegio|uni|adoctrin",
+    "Educación": r"educaci|colegio|universidad|profesor|adoctrin",
     "Sanidad": r"sanidad|hospital|médico|salud|enferm",
     "Fútbol / deporte": (
         r"f[uú]tbol|\brfef\b|eurocopa|\bestadios?\b|\bgradas?\b|\bhinchas?\b|"
@@ -5017,7 +5017,7 @@ _COLECTIVOS_SEMAFORO = {
     "Mujeres / feministas": r"mujer|feminista|feminaz",
     "LGTB+": r"homosexual|gay|maricón|lgtb|trans\b|homofob|lesbiana",
     "Políticos (genérico)": r"polític|gobernante|gobierno|diputad|senador",
-    "Sánchez / PSOE / izquierda": r"sánchez|sanchez|\bpsoe\b|izquierista|moncloa",
+    "Sánchez / PSOE / izquierda": r"sánchez|sanchez|\bpsoe\b|izquierd|socialista|comunista|moncloa",
     "PP / Vox / derecha": r"\bvox\b|abascal|ayuso|\bpp\b|feijó|derech",
     "Periodistas / medios": r"periodista|prensa|medio de comunicación|televisión",
     "Jueces / policía": r"policía|guardia civil|juez|jueces|fiscal",

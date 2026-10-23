@@ -2,7 +2,7 @@ from datetime import date
 import pandas as pd
 from secciones.semaforo_diario import (
     _rangos_alerta, _contar_patrones, _tabla_crecimiento,
-    _diagnostico_volumen, _TEMAS_SEMAFORO,
+    _diagnostico_volumen, _TEMAS_SEMAFORO, _COLECTIVOS_SEMAFORO,
 )
 
 
@@ -37,3 +37,9 @@ def test_diagnostico_mas_odio():
 
 def test_diagnostico_menos_volumen():
     assert _diagnostico_volumen(_serie(30, 150), date(2026, 10, 22))["tipo"] == "menos_volumen"
+
+
+def test_regex_sin_falsos_positivos():
+    s = pd.Series(["los estados unidos y la comunidad", "la izquierda socialista"])
+    assert _contar_patrones(s, _TEMAS_SEMAFORO)["Educación"] == 0
+    assert _contar_patrones(s, _COLECTIVOS_SEMAFORO)["Sánchez / PSOE / izquierda"] == 1
