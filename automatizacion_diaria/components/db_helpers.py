@@ -137,7 +137,7 @@ def _public_medio_label(source_media: Any) -> Optional[str]:
 # ============================================================
 # DATA LOADING — filter-aware
 # ============================================================
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600, show_spinner="Cargando opciones de filtro…")
 def load_filter_options(access_raw: bool) -> dict:
     """Load distinct values for all filter dropdowns."""
     platform_sql = (

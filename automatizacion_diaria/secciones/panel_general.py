@@ -34,7 +34,7 @@ from components.aviso_criterio import render_aviso_cambio_criterio
 from components.db_helpers import load_filter_options, _pooled_conn
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner="Cargando datos…")
 def load_kpis(
     access_raw: bool,
     platforms: Optional[Tuple] = None,
@@ -880,7 +880,7 @@ def render_panel_general():
         _render_gold_dataset_card()
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner="Cargando datos…")
 def _load_panel_combined(
     platforms: Optional[Tuple] = None,
     medios: Optional[Tuple] = None,

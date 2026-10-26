@@ -226,8 +226,37 @@ def _render_db_retry_notice() -> None:
         st.rerun()
 
 
+def _probe_db_connection(probe_table: str):
+    """Ejecuta SELECT 1 + COUNT para verificar conexión y permisos.
+
+    Devuelve (schema_ok, perm_denied). Lanza excepción si hay error de red/timeout.
+    """
+    schema_ok = False
+    perm_denied = False
+    with _pooled_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+            try:
+                cur.execute(f"SELECT COUNT(*) FROM {probe_table}")
+                cur.fetchone()
+                schema_ok = True
+            except Exception as probe_exc:
+                err_name = type(probe_exc).__name__
+                if err_name == "InsufficientPrivilege":
+                    perm_denied = True
+                elif err_name == "UndefinedTable":
+                    schema_ok = False
+                else:
+                    raise  # errores de red/timeout: subir para que el retry los capture
+    return schema_ok, perm_denied
+
+
 def _ensure_db_connection() -> bool:
-    """Comprueba PostgreSQL una vez por sesión; evita cuelgues sin connect_timeout."""
+    """Comprueba PostgreSQL una vez por sesión; evita cuelgues sin connect_timeout.
+
+    Incluye 1 reintento automático (espera 1.5 s) antes de mostrar el error,
+    para absorber el cold start de Neon serverless sin molestar al usuario.
+    """
     if st.session_state.get("_db_ok") is True:
         return True
     if st.session_state.get("_db_ok") is False:
@@ -250,51 +279,56 @@ En **Hugging Face Docker** configurá los secrets como variables de entorno:
                 """
             )
         return False
-    try:
-        access_raw = _role_can_access_raw()
-        probe_table = "raw.mensajes" if access_raw else "processed.mensajes"
-        schema_ok = False
-        perm_denied = False
-        with _pooled_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT 1")
-                try:
-                    cur.execute(f"SELECT COUNT(*) FROM {probe_table}")
-                    cur.fetchone()
-                    schema_ok = True
-                except Exception as probe_exc:
-                    err_name = type(probe_exc).__name__
-                    if err_name == "InsufficientPrivilege":
-                        perm_denied = True
-                    elif err_name == "UndefinedTable":
-                        schema_ok = False
-                    else:
-                        raise
-        if perm_denied:
-            st.session_state["_db_ok"] = False
-            st.error("El usuario de base de datos no tiene permisos suficientes para este perfil.")
-            if is_admin:
-                st.markdown(
-                    """
-**[Admin]** El usuario de BD configurado no tiene permisos de lectura sobre el esquema requerido.
-Revisá los GRANTs en Neon para el usuario de visualización.
-Script de referencia: `automatizacion_diaria/migrations/grant_analista_01_viewer.sql`
-                    """
-                )
-            return False
-        if not schema_ok:
-            st.session_state["_db_ok"] = False
-            st.error("La base de datos no está configurada correctamente.")
-            if is_admin:
-                st.caption(
-                    "[Admin] Verificá que DATABASE_URL apunte al proyecto y base de datos correctos."
-                )
-            return False
-        st.session_state["_db_ok"] = True
-        return True
-    except Exception as exc:
+
+    import time as _t
+
+    access_raw = _role_can_access_raw()
+    probe_table = "raw.mensajes" if access_raw else "processed.mensajes"
+
+    last_exc: Exception | None = None
+    schema_ok = False
+    perm_denied = False
+
+    for attempt in range(2):  # intento 0 + 1 reintento automático
+        try:
+            schema_ok, perm_denied = _probe_db_connection(probe_table)
+            last_exc = None
+            break  # conexión exitosa
+        except Exception as exc:
+            last_exc = exc
+            if attempt == 0:
+                # Neon puede estar despertando del cold start: esperamos antes del reintento
+                _t.sleep(1.5)
+
+    # Errores de permiso o esquema: no son transitorios, no reintentar
+    if last_exc is not None:
         st.session_state["_db_ok"] = False
         _render_db_retry_notice()
         if is_admin:
-            st.caption(f"[Admin] Detalle técnico: {type(exc).__name__}")
+            st.caption(f"[Admin] Detalle técnico: {type(last_exc).__name__}")
         return False
+
+    if perm_denied:
+        st.session_state["_db_ok"] = False
+        st.error("El usuario de base de datos no tiene permisos suficientes para este perfil.")
+        if is_admin:
+            st.markdown(
+                """
+**[Admin]** El usuario de BD configurado no tiene permisos de lectura sobre el esquema requerido.
+Revisá los GRANTs en Neon para el usuario de visualización.
+Script de referencia: `automatizacion_diaria/migrations/grant_analista_01_viewer.sql`
+                """
+            )
+        return False
+
+    if not schema_ok:
+        st.session_state["_db_ok"] = False
+        st.error("La base de datos no está configurada correctamente.")
+        if is_admin:
+            st.caption(
+                "[Admin] Verificá que DATABASE_URL apunte al proyecto y base de datos correctos."
+            )
+        return False
+
+    st.session_state["_db_ok"] = True
+    return True

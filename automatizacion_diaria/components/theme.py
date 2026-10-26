@@ -470,15 +470,60 @@ hr { border-color: #E2E8F0; margin: 1.2rem 0; }
     color: #2D3748;
 }
 
-/* --- Alert/info boxes: quitar color azul neon Streamlit --- */
+/* --- Alert/info boxes: estilo institucional navy --- */
 div[data-baseweb="notification"] {
     border-radius: 10px !important;
 }
+/* Contenedor externo */
 [data-testid="stAlert"] {
     background: #E8EEF4;
     border-left: 5px solid #1F4E79;
     border-radius: 0 8px 8px 0;
     color: #1A202C;
+}
+/* Div interno (Streamlit ≥1.32 lo necesita para el fondo) */
+[data-testid="stAlert"] > div {
+    background: #E8EEF4 !important;
+    border-radius: 0 8px 8px 0 !important;
+    color: #1A202C !important;
+}
+/* Texto dentro del alert */
+[data-testid="stAlert"] p,
+[data-testid="stAlert"] > div p {
+    color: #1A202C !important;
+}
+/* st.warning — acento ámbar, fondo cálido (#B7791F sobre #FFF8E6 = ratio ~5:1 AA) */
+[data-testid="stAlert"]:has([data-testid="stAlertContentWarning"]) {
+    border-left-color: #B7791F;
+    background: #FFF8E6;
+}
+[data-testid="stAlert"]:has([data-testid="stAlertContentWarning"]) > div {
+    border-left-color: #B7791F;
+    background: #FFF8E6 !important;
+    color: #744210 !important;
+}
+[data-testid="stAlert"]:has([data-testid="stAlertContentWarning"]) p,
+[data-testid="stAlert"]:has([data-testid="stAlertContentWarning"]) > div p {
+    color: #744210 !important;
+}
+/* st.error — rojo, distinguible del info/warning */
+[data-testid="stAlert"]:has([data-testid="stAlertContentError"]) {
+    border-left-color: #C53030;
+    background: #FFF5F5;
+}
+[data-testid="stAlert"]:has([data-testid="stAlertContentError"]) > div {
+    border-left-color: #C53030;
+    background: #FFF5F5 !important;
+    color: #742A2A !important;
+}
+[data-testid="stAlert"]:has([data-testid="stAlertContentError"]) p,
+[data-testid="stAlert"]:has([data-testid="stAlertContentError"]) > div p {
+    color: #742A2A !important;
+}
+/* Texto técnico de estado ("Running …") — atenuar sin ocultar */
+[data-testid="stStatusWidget"] {
+    font-size: 0.8rem !important;
+    opacity: 0.7 !important;
 }
 
 /* --- Foco accesible --- */

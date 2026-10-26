@@ -8,8 +8,6 @@ import json
 import re
 import unicodedata
 from collections import Counter
-from wordcloud import WordCloud
-import matplotlib.pyplot as plt
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -222,7 +220,11 @@ def generate_wordcloud_array(freqs: Tuple[Tuple[str, int], ...], max_words: int)
     para @st.cache_data) a partir de una tupla de frecuencias ya ordenada
     (hasheable). Evita recalcular el layout de la nube de palabras —
     relativamente costoso — si counter y top_n no cambiaron entre reruns.
+
+    Imports perezosos: wordcloud y matplotlib solo se cargan la primera vez
+    que se visita esta sección, no en el arranque del proceso.
     """
+    from wordcloud import WordCloud  # lazy: ~400ms en cold start
     wc = WordCloud(
         width=800, height=500, background_color="white",
         colormap="Reds", max_words=max_words, min_font_size=10,
@@ -350,6 +352,7 @@ def render_terminos():
                 freqs = tuple(counter.most_common())  # tupla ordenada y hasheable, para la caché
                 wc_array = generate_wordcloud_array(freqs, top_n)
 
+                import matplotlib.pyplot as plt  # lazy: ~300ms en cold start
                 fig_wc, ax = plt.subplots(figsize=(10, 6))
                 ax.imshow(wc_array, interpolation="bilinear")
                 ax.axis("off")
