@@ -11,6 +11,7 @@ Uso:
 
 from __future__ import annotations
 
+import logging as _logging
 import os
 import sys
 import threading
@@ -24,11 +25,24 @@ import streamlit as st
 _DEBUG_TIMING = os.environ.get("RETO_DEBUG_TIMING", "0") == "1"
 _T_PROCESS_START = _time.perf_counter()
 
+# Logger dedicado → stderr → capturado por el log del servidor (local y Streamlit Cloud).
+# Solo se configura cuando RETO_DEBUG_TIMING=1 para evitar overhead en producción.
+if _DEBUG_TIMING:
+    _timing_log = _logging.getLogger("reto.timing")
+    _timing_log.setLevel(_logging.INFO)
+    if not _timing_log.handlers:          # evita duplicados en reloads de Streamlit
+        _h = _logging.StreamHandler()     # escribe a stderr
+        _h.setFormatter(_logging.Formatter("%(message)s"))
+        _timing_log.addHandler(_h)
+        _timing_log.propagate = False     # no hereda el handler raíz de Streamlit
+
 
 def _tlog(phase: str, t0: float) -> None:
-    """Imprime al console/log del servidor; nunca aparece en la UI."""
+    """Escribe [TIMING] al log del servidor; activo solo con RETO_DEBUG_TIMING=1."""
     if _DEBUG_TIMING:
-        print(f"[TIMING] {phase}: {(_time.perf_counter() - t0)*1000:.0f} ms", flush=True)
+        _timing_log.info(
+            "[TIMING] %s: %.0f ms", phase, (_time.perf_counter() - t0) * 1000
+        )
 
 _AUTO_DIR = Path(__file__).resolve().parent
 if str(_AUTO_DIR) not in sys.path:
@@ -97,9 +111,9 @@ def _precalentar_cache() -> None:
         t = _time.perf_counter(); load_intensidad_por_categoria();     _tlog("warmup.load_intensidad_por_categoria", t)
         t = _time.perf_counter(); load_semaforo_diario();              _tlog("warmup.load_semaforo_diario", t)
         _tlog("warmup.TOTAL (desde inicio proceso)", _T_PROCESS_START)
-        print("[WARMUP] cache_data de secciones públicas precalentada", flush=True)
+        _logging.getLogger("reto.warmup").info("[WARMUP] cache_data de secciones públicas precalentada")
     except Exception as e:
-        print(f"[WARMUP] falló el precalentado: {e}", flush=True)
+        _logging.getLogger("reto.warmup").warning("[WARMUP] falló el precalentado: %s", e)
 
 
 @st.cache_resource
