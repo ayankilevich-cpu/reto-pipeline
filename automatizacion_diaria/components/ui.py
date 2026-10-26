@@ -104,13 +104,20 @@ def _render_pg_kpi_grid(
 
 
 def _apply_horizontal_bar_labels(fig):
-    """Etiquetas fuera de barras cortas en gráficos horizontales."""
+    """Etiquetas fuera de barras cortas en gráficos horizontales.
+
+    automargin=True deja que Plotly calcule el margen izquierdo según la
+    longitud real de las etiquetas del eje Y (p. ej. 'Condición Social /
+    Económica / Salud'), evitando recortes con el sidebar abierto.
+    margin.l=10 como punto de partida: automargin lo sobreescribe si hace falta.
+    """
     fig.update_traces(
         textposition="outside",
         cliponaxis=False,
         textfont_size=11,
     )
-    fig.update_layout(margin=dict(r=70))
+    fig.update_yaxes(automargin=True)
+    fig.update_layout(margin=dict(l=10, r=70))
     return fig
 
 
