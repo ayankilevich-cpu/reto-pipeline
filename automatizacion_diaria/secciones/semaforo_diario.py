@@ -31,6 +31,8 @@ from components.db_helpers import _pooled_conn
 VENTANA_DIAS_DASHBOARD = 60   # histórico que trae la query (más que los 30 que se muestran)
 DIAS_FRANJA = 30              # ventana de la franja de días
 _ORDEN_PLATAFORMAS = ("x", "youtube")
+_MESES_CORTOS = ("ene", "feb", "mar", "abr", "may", "jun",
+                 "jul", "ago", "sep", "oct", "nov", "dic")
 
 
 @st.cache_data(ttl=300)
@@ -122,8 +124,9 @@ def _day_strip_html(df_p: pd.DataFrame, dias: int = DIAS_FRANJA) -> str:
     hoy = date.today()
 
     cells = []
-    for d, rojo in serie.items():
-        rojo = _norm_semaforo(rojo)          # ← nuevo
+    n = len(serie)
+    for i, (d, rojo) in enumerate(serie.items()):
+        rojo = _norm_semaforo(rojo)
         if rojo is True:
             cls, label = "alert", "Alerta"
         elif rojo is False:
@@ -131,9 +134,15 @@ def _day_strip_html(df_p: pd.DataFrame, dias: int = DIAS_FRANJA) -> str:
         else:
             cls, label = "unknown", "Sin datos suficientes"
         today_cls = " today" if d.date() == hoy else ""
+        mes = _MESES_CORTOS[d.month - 1] if (i == 0 or d.day == 1) else "&nbsp;"
+        skip_cls = " lbl-skip" if (n - 1 - i) % 2 == 1 else ""
         cells.append(
+            f'<div class="reto-day-col{skip_cls}">'
             f'<div class="reto-day {cls}{today_cls}" '
-            f'title="{d.strftime("%d/%m")} — {label}"></div>'
+            f'title="{d.strftime("%d/%m/%Y")} — {label}"></div>'
+            f'<span class="reto-day-num{today_cls}">{d.day}</span>'
+            f'<span class="reto-day-mes">{mes}</span>'
+            "</div>"
         )
     return '<div class="reto-day-strip">' + "".join(cells) + "</div>"
 
@@ -512,7 +521,9 @@ def render_semaforo() -> None:
     st.subheader("Últimos 30 días, de un vistazo")
     for plat in plataformas:
         df_p = df[df["platform"] == plat].sort_values("fecha")
-        n_alertas = int((df_p["semaforo_rojo"] == True).sum())  # noqa: E712
+        corte = df_p["fecha"].max() - pd.Timedelta(days=DIAS_FRANJA - 1)
+        en_franja = df_p.loc[df_p["fecha"] >= corte, "semaforo_rojo"]
+        n_alertas = int(en_franja.map(lambda v: _norm_semaforo(v) is True).sum())
         etiqueta = "día en alerta" if n_alertas == 1 else "días en alerta"
         st.markdown(
             f'<div class="reto-strip-label">{html.escape(PLATFORM_DISPLAY.get(plat, plat))} '
@@ -545,7 +556,7 @@ def render_semaforo() -> None:
         _tbl["Plataforma"] = _tbl["platform"].map(lambda p: PLATFORM_DISPLAY.get(p, p))
         _tbl["Fecha"] = _tbl["fecha"].dt.strftime("%d/%m/%Y")
         _tbl["Estado"] = _tbl["semaforo_rojo"].map(
-            lambda v: "Alerta" if v is True else ("Normal" if v is False else "Sin datos")
+            lambda v: {True: "Alerta", False: "Normal"}.get(_norm_semaforo(v), "Sin datos")
         )
         st.dataframe(
             _tbl[[
