@@ -54,7 +54,7 @@ from db_utils import get_conn
 from contexto_resumen_limpieza import preparar_textos_contexto
 from criterio_etiquetado import (
     CRITERIO_CORTE_SEMANA,
-    UMBRAL_PROVISIONAL_PCT,  # 5.70 %, IC 95 % [5.13, 6.10] (calibración v22bcrit)
+    UMBRAL_PROVISIONAL_PCT,  # 6.13 %, r = 0.904 [0.863, 0.945] (calibración v22bcrit, rev. 2026-10-30)
     criterio_para_fecha,
     es_spike as _es_spike,
     umbral_spike as _umbral_spike,
@@ -75,7 +75,7 @@ SPIKE_THRESHOLD = 1.5
 # Criterio v22bcrit (mensajes de X desde CRITERIO_CORTE_SEMANA):
 #   - semanas anteriores al corte → igual que siempre (1,5 × promedio de semanas previas).
 #   - semanas desde el corte, con < MIN_SEMANAS_POSTCORTE (12) semanas previas con el
-#     criterio nuevo → umbral fijo UMBRAL_PROVISIONAL_PCT (5,70 %; IC 95 % [5,13; 6,10]).
+#     criterio nuevo → umbral fijo UMBRAL_PROVISIONAL_PCT (6,13 %; r = 0,904 [0,863; 0,945]).
 #   - con >= 12 semanas previas post-corte → 1,5 × promedio de las semanas post-corte
 #     (las semanas v1 ya NO entran en esa media: no son comparables).
 # Las constantes viven en criterio_etiquetado.py y se importan arriba.

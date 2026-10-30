@@ -29,8 +29,8 @@ CRITERIO_CORTE_SEMANA = date(2026, 10, 19)
 
 # Umbral de spike (en % de odio semanal) mientras no haya suficientes semanas con el
 # criterio nuevo. Procede del informe de calibración de v22bcrit:
-# media 5.70 %, IC 95 % [5.13, 6.10].
-UMBRAL_PROVISIONAL_PCT = 5.70
+# media 6.13 %, r = 0.904 [0.863, 0.945], IC 95 % del umbral [5.77, 6.50]. Definitivo ~11/01/2027.
+UMBRAL_PROVISIONAL_PCT = 6.13
 
 # Cuántas semanas CERRADAS con el criterio nuevo hacen falta para pasar del umbral
 # provisional al umbral propio (promedio de semanas post-corte × SPIKE_MULTIPLICADOR).

@@ -3374,7 +3374,7 @@ def _render_gold_dataset_card() -> None:
 # (sync_hf.sh), sin el resto de módulos. Si cambia el corte, cambiarlo en los dos sitios
 # (cambio_v22bcrit/pruebas/test_replay_umbral.py::test_corte_consistente lo comprueba).
 CRITERIO_CORTE_SEMANA = date(2026, 10, 19)
-UMBRAL_PROVISIONAL_PCT = 5.70
+UMBRAL_PROVISIONAL_PCT = 6.13
 MIN_SEMANAS_POSTCORTE = 12
 
 
@@ -3390,8 +3390,8 @@ def render_aviso_cambio_criterio(con_umbral: bool = False) -> None:
         umbral = f"{UMBRAL_PROVISIONAL_PCT:.2f}".replace(".", ",")
         st.caption(
             f"Con el criterio nuevo, el umbral de alerta es provisional "
-            f"({umbral}%) hasta acumular {MIN_SEMANAS_POSTCORTE} semanas; "
-            "después se calcula con el promedio de las semanas del criterio nuevo."
+            f"({umbral}%, r = 0,904 [0,863; 0,945]) hasta acumular {MIN_SEMANAS_POSTCORTE} semanas "
+            "(definitivo ~11/01/2027); después se calcula con el promedio de las semanas del criterio nuevo."
         )
 
 

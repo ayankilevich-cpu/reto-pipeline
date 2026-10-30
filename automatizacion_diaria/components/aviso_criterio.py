@@ -20,6 +20,6 @@ def render_aviso_cambio_criterio(con_umbral: bool = False) -> None:
         umbral = f"{UMBRAL_PROVISIONAL_PCT:.2f}".replace(".", ",")
         st.caption(
             f"Con el criterio nuevo, el umbral de alerta es provisional "
-            f"({umbral}%) hasta acumular {MIN_SEMANAS_POSTCORTE} semanas; "
-            "después se calcula con el promedio de las semanas del criterio nuevo."
+            f"({umbral}%, r = 0,904 [0,863; 0,945]) hasta acumular {MIN_SEMANAS_POSTCORTE} semanas "
+            "(definitivo ~11/01/2027); después se calcula con el promedio de las semanas del criterio nuevo."
         )
