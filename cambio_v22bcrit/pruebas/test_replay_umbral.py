@@ -106,10 +106,10 @@ def test_default_platform_es_x():
 
 # ── Umbral ───────────────────────────────────────────────────────────────────
 def test_umbral_provisional_hasta_12_semanas():
-    assert ce.UMBRAL_PROVISIONAL_PCT == 5.70
+    assert ce.UMBRAL_PROVISIONAL_PCT == 6.13
     for n in (0, 1, 11):
-        assert ce.umbral_spike(n, 9.0) == (5.70, True)
-    assert ce.umbral_spike(5, None) == (5.70, True)
+        assert ce.umbral_spike(n, 9.0) == (6.13, True)
+    assert ce.umbral_spike(5, None) == (6.13, True)
 
 
 def test_umbral_definitivo_desde_12_semanas():
@@ -118,9 +118,9 @@ def test_umbral_definitivo_desde_12_semanas():
 
 
 def test_es_spike_reglas():
-    assert ce.es_spike(5.70, 300, 5.70) is True    # pct == umbral cuenta
-    assert ce.es_spike(5.69, 300, 5.70) is False
-    assert ce.es_spike(9.0, 299, 5.70) is False    # volumen insuficiente
+    assert ce.es_spike(6.13, 300, 6.13) is True    # pct == umbral cuenta
+    assert ce.es_spike(6.12, 300, 6.13) is False
+    assert ce.es_spike(9.0, 299, 6.13) is False    # volumen insuficiente
 
 
 # ── Replay (r_semana = proporción de ODIO(v1) que sigue siendo ODIO con v22bcrit) ──
@@ -279,7 +279,7 @@ def test_baseline_postcorte_solo_cuenta_semanas_nuevas(monkeypatch):
     monkeypatch.setattr(acs.pd, "read_sql", falso_read_sql)
     corte = acs.CRITERIO_CORTE_SEMANA
     # semana post-corte sin semanas previas del criterio nuevo → referencia coherente con el provisional
-    assert acs.compute_avg_pct_prior_to_week(None, corte + timedelta(days=14)) == (3.8, 0)
+    assert acs.compute_avg_pct_prior_to_week(None, corte + timedelta(days=14)) == (4.09, 0)
     assert corte in llamadas[-1][1] and ">= %s" in llamadas[-1][0]
     # semana pre-corte → consulta de siempre (sin filtro de corte) y fallback histórico 3.0
     assert acs.compute_avg_pct_prior_to_week(None, corte - timedelta(days=14)) == (3.0, 0)
