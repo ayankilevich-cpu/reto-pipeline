@@ -477,7 +477,15 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
 .reto-strip-label{font-size:.82rem;font-weight:600;color:#4A5568;margin:1rem 0 .35rem;}
 .reto-strip-label-n{font-weight:400;color:#8592A3;}
 .reto-day-strip{display:flex;gap:4px;margin:0 0 .5rem;}
-.reto-day{flex:1 1 0;height:20px;border-radius:5px;}
+.reto-day-col{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;}
+.reto-day{width:100%;height:20px;border-radius:5px;}
+.reto-day-num{font-size:.68rem;line-height:1.1;color:#4A5568;margin-top:3px;font-variant-numeric:tabular-nums;}
+.reto-day-num.today{font-weight:700;color:#1F4E79;}
+.reto-day-mes{font-size:.6rem;line-height:1;color:#8592A3;min-height:.6rem;}
+@media (max-width:640px){
+  .reto-day-col.lbl-skip .reto-day-num,
+  .reto-day-col.lbl-skip .reto-day-mes{visibility:hidden;}
+}
 .reto-day.ok{background:#8FD6AC;}
 .reto-day.alert{background:#C0392B;}
 .reto-day.unknown{background:#E2E8F0;}
@@ -4870,6 +4878,8 @@ def render_analisis_contextual():
 VENTANA_DIAS_DASHBOARD_SEMAFORO = 60
 DIAS_FRANJA_SEMAFORO = 30
 _ORDEN_PLATAFORMAS_SEMAFORO = ("x", "youtube")
+_MESES_CORTOS_SEMAFORO = ("ene", "feb", "mar", "abr", "may", "jun",
+                          "jul", "ago", "sep", "oct", "nov", "dic")
 
 
 @st.cache_data(ttl=300)
@@ -4948,8 +4958,9 @@ def _day_strip_html_v3(df_p: pd.DataFrame, dias: int = DIAS_FRANJA_SEMAFORO) -> 
     hoy = date.today()
 
     cells = []
-    for d, rojo in serie.items():
-        rojo = _norm_semaforo_v3(rojo)       # ← nuevo
+    n = len(serie)
+    for i, (d, rojo) in enumerate(serie.items()):
+        rojo = _norm_semaforo_v3(rojo)
         if rojo is True:
             cls, label = "alert", "Alerta"
         elif rojo is False:
@@ -4957,9 +4968,15 @@ def _day_strip_html_v3(df_p: pd.DataFrame, dias: int = DIAS_FRANJA_SEMAFORO) -> 
         else:
             cls, label = "unknown", "Sin datos suficientes"
         today_cls = " today" if d.date() == hoy else ""
+        mes = _MESES_CORTOS_SEMAFORO[d.month - 1] if (i == 0 or d.day == 1) else "&nbsp;"
+        skip_cls = " lbl-skip" if (n - 1 - i) % 2 == 1 else ""
         cells.append(
+            f'<div class="reto-day-col{skip_cls}">'
             f'<div class="reto-day {cls}{today_cls}" '
-            f'title="{d.strftime("%d/%m")} — {label}"></div>'
+            f'title="{d.strftime("%d/%m/%Y")} — {label}"></div>'
+            f'<span class="reto-day-num{today_cls}">{d.day}</span>'
+            f'<span class="reto-day-mes">{mes}</span>'
+            "</div>"
         )
     return '<div class="reto-day-strip">' + "".join(cells) + "</div>"
 
