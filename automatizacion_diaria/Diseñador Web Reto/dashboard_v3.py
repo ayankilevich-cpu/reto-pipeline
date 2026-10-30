@@ -5336,7 +5336,9 @@ def render_semaforo():
     st.subheader("Últimos 30 días, de un vistazo")
     for plat in plataformas:
         df_p = df[df["platform"] == plat].sort_values("fecha")
-        n_alertas = int((df_p["semaforo_rojo"] == True).sum())  # noqa: E712
+        corte = df_p["fecha"].max() - pd.Timedelta(days=DIAS_FRANJA_SEMAFORO - 1)
+        en_franja = df_p.loc[df_p["fecha"] >= corte, "semaforo_rojo"]
+        n_alertas = int(en_franja.map(lambda v: _norm_semaforo_v3(v) is True).sum())
         etiqueta = "día en alerta" if n_alertas == 1 else "días en alerta"
         st.markdown(
             f'<div class="reto-strip-label">{html.escape(PLATFORM_DISPLAY.get(plat, plat))} '
@@ -5368,7 +5370,7 @@ def render_semaforo():
         _tbl["Plataforma"] = _tbl["platform"].map(lambda p: PLATFORM_DISPLAY.get(p, p))
         _tbl["Fecha"] = _tbl["fecha"].dt.strftime("%d/%m/%Y")
         _tbl["Estado"] = _tbl["semaforo_rojo"].map(
-            lambda v: "Alerta" if v is True else ("Normal" if v is False else "Sin datos")
+            lambda v: {True: "Alerta", False: "Normal"}.get(_norm_semaforo_v3(v), "Sin datos")
         )
         st.dataframe(
             _tbl[[
