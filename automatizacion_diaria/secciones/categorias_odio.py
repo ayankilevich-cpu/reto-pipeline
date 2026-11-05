@@ -16,6 +16,7 @@ from components.constants import (
     CATEGORIAS_LABELS,
     CAT_COLOR_MAP,
     INTENSITY_COLORS,
+    SEMANTIC_COLORS,
     _expand_platforms,
     platform_label,
 )
@@ -144,6 +145,115 @@ def load_intensidad_por_categoria(
             ORDER BY e.categoria_odio_pred, e.intensidad_pred
         """, conn, params=params)
     return df
+
+
+_MIN_MUESTRA_PRECISION = 100
+_ETIQUETAS_CLASIF = {"ODIO": "Odio", "NO_ODIO": "No Odio", "DUDOSO": "Dudoso"}
+
+_SQL_LLM_ULTIMA_CAT = """
+    SELECT DISTINCT ON (message_uuid)
+           message_uuid, clasificacion_principal
+    FROM processed.etiquetas_llm
+    ORDER BY message_uuid, etiquetado_date DESC NULLS LAST
+"""
+
+
+def _fmt_int_es(n) -> str:
+    return f"{int(n):,}".replace(",", ".")
+
+
+@st.cache_data(ttl=300)
+def load_resultado_clasificacion(
+    platforms: Optional[Tuple] = None,
+    medios: Optional[Tuple] = None,
+) -> Tuple[pd.DataFrame, int, int]:
+    """Clasificación LLM (última versión por mensaje) + precisión vs revisión humana."""
+    platforms_l = _expand_platforms(list(platforms) if platforms else None)
+    medios_l = list(medios) if medios else None
+    conds, params = [], []
+    if platforms_l:
+        conds.append("pm.platform IN %s"); params.append(tuple(platforms_l))
+    if medios_l:
+        conds.append("pm.source_media IN %s"); params.append(tuple(medios_l))
+    where = f"WHERE {' AND '.join(conds)}" if conds else ""
+    and_conds = f"AND {' AND '.join(conds)}" if conds else ""
+
+    cte = f"""
+        WITH e AS ({_SQL_LLM_ULTIMA_CAT})
+    """
+    with _pooled_conn() as conn:
+        df = pd.read_sql(f"""
+            {cte}
+            SELECT e.clasificacion_principal, COUNT(*) AS total
+            FROM e JOIN processed.mensajes pm USING (message_uuid)
+            {where}
+            GROUP BY e.clasificacion_principal
+        """, conn, params=params)
+        prec = pd.read_sql(f"""
+            {cte}
+            SELECT COUNT(*) FILTER (WHERE g.y_odio_final IS NOT NULL) AS revisados,
+                   COUNT(*) FILTER (WHERE g.y_odio_final = 'Odio')    AS confirmados
+            FROM e
+            JOIN processed.mensajes pm USING (message_uuid)
+            JOIN processed.gold_dataset g USING (message_uuid)
+            WHERE e.clasificacion_principal = 'ODIO' {and_conds}
+        """, conn, params=params).iloc[0]
+    return df, int(prec["revisados"] or 0), int(prec["confirmados"] or 0)
+
+
+def _render_resultado_clasificacion(sel_platforms, sel_medios):
+    df_res, n_rev, n_conf = load_resultado_clasificacion(
+        platforms=tuple(sel_platforms) if sel_platforms else None,
+        medios=tuple(sel_medios) if sel_medios else None,
+    )
+    if df_res.empty:
+        return None
+    df_res = df_res.copy()
+    df_res["Clasificación"] = (
+        df_res["clasificacion_principal"].map(_ETIQUETAS_CLASIF)
+        .fillna(df_res["clasificacion_principal"])
+    )
+    total = int(df_res["total"].sum())
+
+    st.markdown("### Resultado de la clasificación por IA")
+    col_a, col_b = st.columns([3, 2])
+    with col_a:
+        fig = px.pie(
+            df_res, names="Clasificación", values="total",
+            color="Clasificación", color_discrete_map=SEMANTIC_COLORS,
+            hole=0.6, category_orders={"Clasificación": ["Odio", "No Odio", "Dudoso"]},
+        )
+        fig.update_traces(
+            sort=False, textinfo="percent", textposition="inside",
+            textfont_size=14, textfont_color="white",
+            marker=dict(line=dict(color="#FFFFFF", width=2)),
+        )
+        fig.add_annotation(
+            text=f"<b>{_fmt_int_es(total)}</b><br>mensajes", x=0.5, y=0.5,
+            showarrow=False, font=dict(size=16),
+        )
+        fig.update_layout(
+            height=340, margin=dict(l=10, r=10, t=20, b=40),
+            legend=dict(orientation="h", yanchor="top", y=-0.02, x=0.5, xanchor="center"),
+        )
+        st.plotly_chart(fig, use_container_width=True, theme=None)
+    with col_b:
+        for etiqueta in ["Odio", "No Odio", "Dudoso"]:
+            n = int(df_res.loc[df_res["Clasificación"] == etiqueta, "total"].sum())
+            pct = (n / total * 100) if total else 0
+            st.markdown(f"**{etiqueta}:** {_fmt_int_es(n)} ({f'{pct:.1f}'.replace('.', ',')}%)")
+        nota = (
+            "Mensajes revisados por la IA después del filtro de posible odio. No representa la "
+            "proporción de odio en el total de conversaciones (ver el embudo en el Panel general)."
+        )
+        if n_rev >= _MIN_MUESTRA_PRECISION:
+            nota += (
+                f" En la muestra revisada por personas ({_fmt_int_es(n_rev)} mensajes), "
+                f"el {n_conf / n_rev * 100:.0f}% de lo marcado como odio por la IA fue confirmado."
+            )
+        st.caption(nota)
+    st.markdown("---")
+    return fig
 
 
 def load_muestra_ultima_corrida_llm(limit: int = 20) -> Tuple[pd.DataFrame, Optional[object]]:
@@ -409,6 +519,8 @@ def render_categorias():
         placeholder="Seleccionar…",
     )
 
+    fig_res = _render_resultado_clasificacion(sel_platforms, sel_medios)
+
     df = load_categorias(
         platforms=tuple(sel_platforms) if sel_platforms else None,
         medios=tuple(sel_medios) if sel_medios else None,
@@ -527,6 +639,7 @@ def render_categorias():
             ("intensidad_categoria", df_int if "df_int" in locals() else pd.DataFrame()),
         ],
         fig_items=[
+            {"title": "Resultado de la clasificación por IA", "fig": fig_res, "kind": "plotly"},
             {"title": "Mensajes por categoría", "fig": fig if "fig" in locals() else None, "kind": "plotly"},
             {"title": "Proporción por categoría", "fig": fig2 if "fig2" in locals() else None, "kind": "plotly"},
             {"title": "Intensidad por categoría", "fig": fig3 if "fig3" in locals() else None, "kind": "plotly"},
