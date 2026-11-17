@@ -106,6 +106,10 @@ automatizacion_diaria/daily.yml
 Etiquetado_Modelos/fase05_reentrenamiento/
 Etiquetado_Modelos/fase0_validacion_yt/
 
+# Recálculo histórico de términos YouTube — salidas generadas localmente
+recalculo_yt_cambios.csv
+recalculo_yt_resumen.md
+
 # Datasets y outputs locales grandes
 Etiquetado_Modelos/*.csv
 Etiquetado_Modelos/*.xlsx
