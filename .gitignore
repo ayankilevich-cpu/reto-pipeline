@@ -124,3 +124,9 @@ models/hate_classifier/*.pkl
 
 # Salidas de referencia validadas del extractor de víctimas (se usan para comprobar reproducibilidad)
 !Delitos de Odio/output_victimas/*.csv
+
+# Diagnóstico / simulación de poda y candidatos — salidas generadas localmente
+diagnostico_poda_x.csv
+diagnostico_poda_youtube.csv
+revision_terminos_podados.csv
+simulacion_candidatos.md
