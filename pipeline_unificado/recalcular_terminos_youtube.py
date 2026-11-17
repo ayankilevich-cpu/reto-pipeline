@@ -34,11 +34,18 @@ Mapeo de columnas BD (automatizacion_diaria/load_to_db.py → load_processed_you
 ===========================================================================
 
 Uso:
-  python3 pipeline_unificado/recalcular_terminos_youtube.py           # dry-run
-  python3 pipeline_unificado/recalcular_terminos_youtube.py --validar # validar fidelidad
-  python3 pipeline_unificado/recalcular_terminos_youtube.py --apply   # aplicar a la BD
+  python3 pipeline_unificado/recalcular_terminos_youtube.py           # dry-run (sin poda)
+  python3 pipeline_unificado/recalcular_terminos_youtube.py --validar # validar fidelidad (sin poda)
+  python3 pipeline_unificado/recalcular_terminos_youtube.py --apply   # aplicar a la BD (sin poda)
   python3 pipeline_unificado/recalcular_terminos_youtube.py --cutoff 2026-07-15
   python3 pipeline_unificado/recalcular_terminos_youtube.py --validar --apply
+  python3 pipeline_unificado/recalcular_terminos_youtube.py --no-skip-pruning   # análisis con poda
+
+Notas:
+  --skip-pruning está activado por defecto. La poda per-day no es reproducible
+  desde la BD (en producción se calcula sobre una ventana de 30 días
+  pre-filtrada), y el recálculo definitivo se aplicará una sola vez con las
+  stopwords corregidas, por lo que no corresponde podar aquí.
 """
 
 from __future__ import annotations
@@ -71,22 +78,24 @@ from pipeline_unificado.filter_and_anonymize_unified import (  # noqa: E402
 from automatizacion_diaria.db_utils import get_conn  # noqa: E402
 
 # ---------------------------------------------------------------------------
-# Configuración — refleja exactamente el pipeline diario de YouTube
+# Configuración — refleja el pipeline diario, con ajustes para el recálculo
+# histórico (por defecto SIN poda; el recálculo se aplica una sola vez con
+# la configuración corregida de stopwords).
 # ---------------------------------------------------------------------------
 TERMS_FILES: List[Path] = [
     _REPO_ROOT / "Medios" / "hate_general_terms.csv",
     _REPO_ROOT / "Medios" / "hate_terms_clean.csv",
 ]
-STOPWORDS_FILE: Path = _REPO_ROOT / "Medios" / "stopwords_extras.txt"
+DEFAULT_STOPWORDS_FILE: Path = _REPO_ROOT / "Medios" / "stopwords_extras.txt"
 MIN_MATCHES: int = 1
-SKIP_PRUNING: bool = False   # pruning activo en producción
+SKIP_PRUNING: bool = True   # default del recálculo histórico: sin poda
 DF_MAX_RATIO: float = 0.03
 DF_MIN_COUNT: int = 3
 BATCH_SIZE: int = 5000
 
 VALIDATION_SAMPLE: int = 2000
-VALIDATION_MIN_CAND_MATCH: float = 0.98
-VALIDATION_MIN_TERMS_MATCH: float = 0.95
+VALIDATION_MIN_TERMS_COVERAGE: float = 0.98   # % mensajes con DB ⊆ recalc
+VALIDATION_MIN_CAND_RECALL: float = 0.98      # % mensajes BD True que siguen True
 
 OUT_CSV: Path = _REPO_ROOT / "recalculo_yt_cambios.csv"
 OUT_MD: Path  = _REPO_ROOT / "recalculo_yt_resumen.md"
@@ -96,12 +105,15 @@ OUT_MD: Path  = _REPO_ROOT / "recalculo_yt_resumen.md"
 # Vocabulary
 # ---------------------------------------------------------------------------
 
-def load_vocabulary() -> Tuple[Set[str], List[str], Dict[str, str]]:
-    """Carga diccionario de odio y stopwords idéntico al pipeline diario."""
-    sw_path = STOPWORDS_FILE if STOPWORDS_FILE.exists() else None
+def load_vocabulary(
+    stopwords_file: Optional[Path] = None,
+) -> Tuple[Set[str], List[str], Dict[str, str]]:
+    """Carga diccionario de odio y stopwords."""
+    sw_path = stopwords_file if stopwords_file and stopwords_file.exists() else None
     stopwords = load_stopwords(sw_path)
     single_terms, multi_terms, term_to_type = load_terms(TERMS_FILES, stopwords=stopwords)
     print(
+        f"Stopwords file: {sw_path or '(ninguno)'}\n"
         f"Diccionario: {len(single_terms)} términos single-word, "
         f"{len(multi_terms)} multi-word, stopwords: {len(stopwords)}"
     )
@@ -142,7 +154,13 @@ def get_cutoff_date(conn, override: Optional[str] = None) -> date:
 # ---------------------------------------------------------------------------
 
 def fetch_old_messages(conn, cutoff: date) -> pd.DataFrame:
-    """Carga mensajes de YouTube en formato antiguo (sep ';') o sin términos."""
+    """
+    Carga mensajes de YouTube a recalcular:
+      - Todas las filas con created_at < cutoff (incluye formato antiguo con
+        un solo término sin ';', que el filtro anterior se saltaba).
+      - Filas con created_at >= cutoff cuyo matched_terms contenga ';'
+        (residuos del cambio de formato de julio).
+    """
     cur = conn.cursor()
     cur.execute(
         """
@@ -156,15 +174,13 @@ def fetch_old_messages(conn, cutoff: date) -> pd.DataFrame:
                candidate_reason     AS old_candidate_reason
         FROM processed.mensajes
         WHERE platform = 'youtube'
-          AND created_at < %s
           AND (
-              matched_terms LIKE '%%;%%'
-              OR matched_terms IS NULL
-              OR matched_terms = ''
+              created_at < %s
+              OR (created_at >= %s AND matched_terms LIKE '%%;%%')
           )
         ORDER BY created_at
         """,
-        (str(cutoff),),
+        (str(cutoff), str(cutoff)),
     )
     rows = cur.fetchall()
     cur.close()
@@ -191,14 +207,15 @@ def recalculate_all(
     base_single: Set[str],
     multi_terms: List[str],
     term_to_type: Dict[str, str],
+    skip_pruning: bool = SKIP_PRUNING,
 ) -> pd.DataFrame:
     """
     Recalcula matched_terms, match_count, has_hate_terms_match, is_candidate,
-    strong_phrase y candidate_reason agrupando por día para imitar la
-    ejecución diaria del pipeline (pruning per-day corpus).
+    strong_phrase y candidate_reason. Si skip_pruning=False, se agrupa por día
+    y se aplica la poda per-day; si skip_pruning=True (default histórico) se
+    detecta sobre todo el corpus sin poda alguna.
     """
     df = df.copy().reset_index(drop=True)
-    df["_day"] = df["created_at"].apply(_day_key)
 
     new_matched: List[str] = [""] * len(df)
     new_count: List[int] = [0] * len(df)
@@ -206,29 +223,13 @@ def recalculate_all(
     new_is_cand: List[bool] = [False] * len(df)
     new_reason: List[str] = [""] * len(df)
 
-    day_groups: Dict[str, List[int]] = defaultdict(list)
-    for idx in range(len(df)):
-        day_groups[df.at[idx, "_day"]].append(idx)
-
-    total_days = len(day_groups)
-    for d_i, (day, indices) in enumerate(sorted(day_groups.items()), 1):
-        texts = [
-            str(df.at[i, "content_original"]) if df.at[i, "content_original"] else ""
-            for i in indices
-        ]
-
-        if SKIP_PRUNING:
-            day_single = base_single
-        else:
-            day_single = prune_terms_by_corpus_frequency(
-                texts, base_single, DF_MAX_RATIO, DF_MIN_COUNT
-            )
-
-        for idx in indices:
+    if skip_pruning:
+        total = len(df)
+        for idx in range(total):
             text = str(df.at[idx, "content_original"]) if df.at[idx, "content_original"] else ""
             text_norm = normalize_text(text)
             hate_cand, matched_str, match_cnt, hate_types_str = detect_hate_terms(
-                text_norm, day_single, multi_terms, term_to_type
+                text_norm, base_single, multi_terms, term_to_type
             )
             directed, _ = detect_target(text, text_norm)
             is_cand = (match_cnt >= MIN_MATCHES) and (directed == 1)
@@ -239,10 +240,44 @@ def recalculate_all(
             new_is_cand[idx] = is_cand
             new_reason[idx] = hate_types_str
 
-        if d_i % 50 == 0 or d_i == total_days:
-            print(f"  Días procesados: {d_i}/{total_days}  ({day})   ", end="\r")
+            if total and ((idx + 1) % 5000 == 0 or (idx + 1) == total):
+                print(f"  Mensajes procesados: {idx + 1}/{total}   ", end="\r")
+        print()
+    else:
+        df["_day"] = df["created_at"].apply(_day_key)
+        day_groups: Dict[str, List[int]] = defaultdict(list)
+        for idx in range(len(df)):
+            day_groups[df.at[idx, "_day"]].append(idx)
 
-    print()
+        total_days = len(day_groups)
+        for d_i, (day, indices) in enumerate(sorted(day_groups.items()), 1):
+            texts = [
+                str(df.at[i, "content_original"]) if df.at[i, "content_original"] else ""
+                for i in indices
+            ]
+            day_single = prune_terms_by_corpus_frequency(
+                texts, base_single, DF_MAX_RATIO, DF_MIN_COUNT
+            )
+
+            for idx in indices:
+                text = str(df.at[idx, "content_original"]) if df.at[idx, "content_original"] else ""
+                text_norm = normalize_text(text)
+                hate_cand, matched_str, match_cnt, hate_types_str = detect_hate_terms(
+                    text_norm, day_single, multi_terms, term_to_type
+                )
+                directed, _ = detect_target(text, text_norm)
+                is_cand = (match_cnt >= MIN_MATCHES) and (directed == 1)
+
+                new_matched[idx] = matched_str
+                new_count[idx] = match_cnt
+                new_has_hate[idx] = bool(hate_cand)
+                new_is_cand[idx] = is_cand
+                new_reason[idx] = hate_types_str
+
+            if d_i % 50 == 0 or d_i == total_days:
+                print(f"  Días procesados: {d_i}/{total_days}  ({day})   ", end="\r")
+        print()
+        df = df.drop(columns=["_day"])
 
     df["new_matched_terms"] = new_matched
     df["new_match_count"] = new_count
@@ -250,7 +285,6 @@ def recalculate_all(
     df["new_is_candidate"] = new_is_cand
     df["new_candidate_reason"] = new_reason
     df["new_strong_phrase"] = False
-    df = df.drop(columns=["_day"])
     return df
 
 
@@ -263,7 +297,7 @@ def _count_losing_candidates_with_llm(conn, uuids: List[str]) -> int:
         return 0
     cur = conn.cursor()
     cur.execute(
-        "SELECT COUNT(*) FROM processed.etiquetas_llm "
+        "SELECT COUNT(DISTINCT message_uuid) FROM processed.etiquetas_llm "
         "WHERE message_uuid::text = ANY(%s)",
         (uuids,),
     )
@@ -296,7 +330,13 @@ def _split_terms(terms_str: Optional[str]) -> List[str]:
     return [t.strip() for t in str(terms_str).replace("|", ";").split(";") if t.strip()]
 
 
-def generate_report(df: pd.DataFrame, conn, cutoff: date) -> str:
+def generate_report(
+    df: pd.DataFrame,
+    conn,
+    cutoff: date,
+    skip_pruning: bool,
+    stopwords_file: Optional[Path],
+) -> str:
     total = len(df)
 
     # Mensajes que dejan de ser candidatos (old True → new False)
@@ -339,9 +379,17 @@ def generate_report(df: pd.DataFrame, conn, cutoff: date) -> str:
         for t in _split_terms(row.get("new_matched_terms")):
             counter_after[t] += 1
 
+    sw_display = str(stopwords_file) if stopwords_file else "(ninguno)"
     lines = [
         "# Recálculo histórico de términos y candidatos — YouTube",
-        f"\nFecha de corte: **{cutoff}** · Mensajes procesados: **{total:,}**\n",
+        f"\nFecha de corte: **{cutoff}** · Mensajes procesados: **{total:,}**",
+        "",
+        "## Configuración usada\n",
+        f"- Poda per-day: **{'no' if skip_pruning else 'sí'}**"
+        + ("" if skip_pruning else f" (df_max_ratio={DF_MAX_RATIO}, df_min_count={DF_MIN_COUNT})"),
+        f"- Archivo de stopwords: `{sw_display}`",
+        f"- Fecha de corte: `{cutoff}`",
+        "",
         "## Resumen por mes\n",
         "| Mes | Total | Candidatos antes | Candidatos después | Con término antes | Con término después |",
         "|-----|-------|-----------------|-------------------|-------------------|---------------------|",
@@ -391,10 +439,22 @@ def validate_fidelity(
     term_to_type: Dict[str, str],
 ) -> bool:
     """
-    Recalcula VALIDATION_SAMPLE mensajes post-corte y compara con la BD.
-    Criterio: ≥98% en is_candidate y ≥95% en matched_terms.
+    Recalcula VALIDATION_SAMPLE mensajes post-corte **sin poda** y compara con
+    la BD. La validación corre siempre sin poda — la poda en producción se
+    calcula sobre la ventana de 30 días del orquestador y no es reproducible
+    muestreando desde la base.
+
+    Criterios:
+      - Cobertura de términos: en ≥98 % de los mensajes, cada término guardado
+        en la BD aparece entre los recalculados (DB ⊆ recalc).
+      - Candidatos (recall): is_candidate recalculado es True en ≥98 % de los
+        mensajes que en la BD son True.
+
+    Informa además los términos recalculados que no estaban en la BD (los que
+    eliminaba la poda) con los 20 más frecuentes, como insumo para la revisión
+    de stopwords.
     """
-    print(f"\n--- Validación de fidelidad (muestra={VALIDATION_SAMPLE}) ---")
+    print(f"\n--- Validación de fidelidad (muestra={VALIDATION_SAMPLE}, sin poda) ---")
     cur = conn.cursor()
     cur.execute(
         """
@@ -419,44 +479,63 @@ def validate_fidelity(
     df_val = pd.DataFrame(rows, columns=[
         "message_uuid", "content_original", "created_at", "is_candidate", "matched_terms"
     ])
-    df_val = recalculate_all(df_val, base_single, multi_terms, term_to_type)
+    df_val = recalculate_all(
+        df_val, base_single, multi_terms, term_to_type, skip_pruning=True
+    )
 
     n = len(df_val)
+
+    # --- Cobertura de términos: DB ⊆ recalc (por mensaje) ---
+    extra_counter: Counter = Counter()
+    n_covered = 0
+    for _, row in df_val.iterrows():
+        db_t = set(_split_terms(row.get("matched_terms")))
+        re_t = set(_split_terms(row.get("new_matched_terms")))
+        if db_t.issubset(re_t):
+            n_covered += 1
+        for t in (re_t - db_t):
+            extra_counter[t] += 1
+    coverage = n_covered / n
+
+    # --- Candidatos: recall sobre DB True ---
     db_cand = df_val["is_candidate"].fillna(False).astype(bool)
     re_cand = df_val["new_is_candidate"].astype(bool)
-    cand_match = int((db_cand == re_cand).sum())
-    cand_ratio = cand_match / n
+    n_db_true = int(db_cand.sum())
+    n_still_true = int((db_cand & re_cand).sum())
+    cand_recall = (n_still_true / n_db_true) if n_db_true else 1.0
 
-    db_terms = df_val["matched_terms"].fillna("")
-    re_terms = df_val["new_matched_terms"].fillna("")
-    terms_match = int((db_terms == re_terms).sum())
-    terms_ratio = terms_match / n
+    print(f"  Cobertura de términos (DB ⊆ recalc): {n_covered}/{n} = {coverage:.1%}")
+    print(
+        "  Candidatos (recall BD True → recalc True): "
+        f"{n_still_true}/{n_db_true} = {cand_recall:.1%}"
+    )
 
-    print(f"  is_candidate coincide:  {cand_match}/{n} = {cand_ratio:.1%}")
-    print(f"  matched_terms coincide: {terms_match}/{n} = {terms_ratio:.1%}")
+    if extra_counter:
+        print("\n  Top 20 términos añadidos por el recálculo (candidatos a stopword):")
+        for term, cnt in extra_counter.most_common(20):
+            print(f"    {cnt:>5}×  {term}")
 
-    if cand_ratio < VALIDATION_MIN_CAND_MATCH:
-        print(f"\nFALLO: coincidencia is_candidate {cand_ratio:.1%} < {VALIDATION_MIN_CAND_MATCH:.0%}")
-        diffs = df_val[db_cand != re_cand]
-        n_true_false = int(((diffs["is_candidate"] == True) & (diffs["new_is_candidate"] == False)).sum())  # noqa
-        n_false_true = int(((diffs["is_candidate"] == False) & (diffs["new_is_candidate"] == True)).sum())  # noqa
-        print(f"  BD True  → recalc False: {n_true_false}")
-        print(f"  BD False → recalc True:  {n_false_true}")
-        return False
+    ok = True
+    if coverage < VALIDATION_MIN_TERMS_COVERAGE:
+        print(
+            f"\nFALLO: cobertura de términos {coverage:.1%} < "
+            f"{VALIDATION_MIN_TERMS_COVERAGE:.0%}"
+        )
+        ok = False
+    if cand_recall < VALIDATION_MIN_CAND_RECALL:
+        print(
+            f"\nFALLO: recall de candidatos {cand_recall:.1%} < "
+            f"{VALIDATION_MIN_CAND_RECALL:.0%}"
+        )
+        ok = False
 
-    if terms_ratio < VALIDATION_MIN_TERMS_MATCH:
-        print(f"\nFALLO: coincidencia matched_terms {terms_ratio:.1%} < {VALIDATION_MIN_TERMS_MATCH:.0%}")
-        diffs = df_val[db_terms != re_terms].head(50)
-        diff_counter: Counter = Counter()
-        for _, row in diffs.iterrows():
-            diff_counter[(row["matched_terms"] or "", row["new_matched_terms"])] += 1
-        print("  Top diferencias (BD → recalc):")
-        for (db_t, re_t), cnt in diff_counter.most_common(10):
-            print(f"    '{db_t}' → '{re_t}'  ({cnt}×)")
-        return False
-
-    print(f"  OK — criterios cumplidos (≥{VALIDATION_MIN_CAND_MATCH:.0%} / ≥{VALIDATION_MIN_TERMS_MATCH:.0%})")
-    return True
+    if ok:
+        print(
+            f"  OK — criterios cumplidos "
+            f"(cobertura ≥{VALIDATION_MIN_TERMS_COVERAGE:.0%}, "
+            f"recall ≥{VALIDATION_MIN_CAND_RECALL:.0%})"
+        )
+    return ok
 
 
 # ---------------------------------------------------------------------------
@@ -533,9 +612,26 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         "--validar",
         action="store_true",
         help=(
-            "Validar fidelidad en 2.000 mensajes post-corte antes de continuar. "
-            "Criterio: ≥98%% is_candidate, ≥95%% matched_terms."
+            "Validar fidelidad en 2.000 mensajes post-corte (sin poda) antes "
+            "de continuar. Criterios: cobertura de términos ≥98%% y recall "
+            "de candidatos ≥98%%."
         ),
+    )
+    p.add_argument(
+        "--skip-pruning",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Saltar la poda per-day de términos (default: True, sin poda). "
+            "Usar --no-skip-pruning solo para análisis, no para el recálculo "
+            "definitivo."
+        ),
+    )
+    p.add_argument(
+        "--stopwords-file",
+        type=Path,
+        default=DEFAULT_STOPWORDS_FILE,
+        help=f"Archivo de stopwords (default: {DEFAULT_STOPWORDS_FILE})",
     )
     return p.parse_args(argv)
 
@@ -543,9 +639,13 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
 def main(argv: Optional[List[str]] = None) -> int:
     args = parse_args(argv)
     mode = "APPLY" if args.apply else "DRY-RUN"
-    print(f"\n=== recalcular_terminos_youtube.py — modo {mode} ===\n")
+    print(f"\n=== recalcular_terminos_youtube.py — modo {mode} ===")
+    print(
+        f"  skip_pruning={args.skip_pruning}  "
+        f"stopwords_file={args.stopwords_file}\n"
+    )
 
-    base_single, multi_terms, term_to_type = load_vocabulary()
+    base_single, multi_terms, term_to_type = load_vocabulary(args.stopwords_file)
 
     with get_conn() as conn:
         cutoff = get_cutoff_date(conn, args.cutoff)
@@ -565,8 +665,14 @@ def main(argv: Optional[List[str]] = None) -> int:
             print("No hay mensajes a recalcular. Fin.")
             return 0
 
-        print("Recalculando por día...")
-        df = recalculate_all(df, base_single, multi_terms, term_to_type)
+        print(
+            "Recalculando "
+            + ("sin poda..." if args.skip_pruning else "con poda per-day...")
+        )
+        df = recalculate_all(
+            df, base_single, multi_terms, term_to_type,
+            skip_pruning=args.skip_pruning,
+        )
 
         out_cols = [
             "message_uuid", "created_at",
@@ -580,7 +686,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"\nCSV de cambios guardado: {OUT_CSV}")
 
         print("Generando resumen markdown...")
-        report = generate_report(df, conn, cutoff)
+        report = generate_report(
+            df, conn, cutoff,
+            skip_pruning=args.skip_pruning,
+            stopwords_file=args.stopwords_file,
+        )
         OUT_MD.write_text(report, encoding="utf-8")
         print(f"Resumen guardado: {OUT_MD}")
 
