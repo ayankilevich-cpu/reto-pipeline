@@ -24,7 +24,7 @@ import sys
 import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple, Union
 
 import pandas as pd
 
@@ -70,7 +70,9 @@ GROUP_TERMS: Set[str] = {
     "judio", "judios",
     "latino", "latinos",
     "lesbiana", "lesbianas", "lesbiano", "lesbianos",
+    "magrebi", "magrebies",
     "maricon", "maricones",
+    "marroqui", "marroquies",
     "mena", "menas",
     "monguer",
     "moro", "moros",
@@ -155,16 +157,29 @@ def _is_informative(t: str) -> bool:
 # Vocabulary loading
 # ---------------------------------------------------------------------------
 
-def load_stopwords(path: Optional[Path]) -> Set[str]:
-    """Return built-in stopwords plus any extras from a TXT file (one per line, # = comment)."""
+def load_stopwords(
+    path: Union[Path, Sequence[Path], None],
+) -> Set[str]:
+    """Return built-in stopwords plus extras from one or more TXT files.
+
+    Accepts a single Path, a list/sequence of Paths, or None.  All files are
+    merged; missing paths are silently skipped.  Backward-compatible: callers
+    that pass a single Path continue to work unchanged.
+    """
     stops: Set[str] = set(BUILTIN_ES_STOPWORDS)
-    if path is None or not path.exists():
+    if path is None:
         return stops
-    with open(path, encoding="utf-8", errors="ignore") as f:
-        for line in f:
-            line = strip_accents(line.strip().lower())
-            if line and not line.startswith("#"):
-                stops.add(line)
+    paths: List[Path] = (
+        [Path(path)] if isinstance(path, (str, Path)) else [Path(p) for p in path]
+    )
+    for p in paths:
+        if not p.exists():
+            continue
+        with open(p, encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                line = strip_accents(line.strip().lower())
+                if line and not line.startswith("#"):
+                    stops.add(line)
     return stops
 
 

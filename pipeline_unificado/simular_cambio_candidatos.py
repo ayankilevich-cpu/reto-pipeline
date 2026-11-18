@@ -42,6 +42,7 @@ from pipeline_unificado.filter_and_anonymize_unified import (  # noqa: E402
     load_stopwords,
     load_terms,
     normalize_text,
+    prune_terms_by_corpus_frequency,
     strip_accents,
 )
 from pipeline_unificado.prefilter_scorer import MLScorer  # noqa: E402
@@ -60,8 +61,11 @@ MODEL_PATH: Path = _REPO_ROOT / "Etiquetado_Modelos" / "model.joblib"
 
 MIN_MATCHES: int = 1
 SCORE_HIGH_THRESHOLD: float = 0.55  # umbral de prioridad alta en X
+DF_MAX_RATIO: float = 0.03
+DF_MIN_COUNT: int = 3
 
 OUT_MD: Path = _REPO_ROOT / "simulacion_candidatos.md"
+OUT_T24: Path = _REPO_ROOT / "simulacion_t24.csv"
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +174,136 @@ def score_x_messages(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# Poda per-day (configuración actual / "antes")
+# ---------------------------------------------------------------------------
+
+def recalculate_with_pruning_per_day(
+    df: pd.DataFrame,
+    base_single: Set[str],
+    multi_terms: List[str],
+    term_to_type: Dict[str, str],
+) -> pd.DataFrame:
+    """Recalcula is_candidate CON poda per-day — replica la config actual."""
+    from collections import defaultdict
+
+    df = df.copy().reset_index(drop=True)
+    new_matched: List[str] = [""] * len(df)
+    new_cand: List[bool] = [False] * len(df)
+
+    day_groups: Dict[str, List[int]] = defaultdict(list)
+    for idx in range(len(df)):
+        day_key = str(df.at[idx, "created_at"])[:10]
+        day_groups[day_key].append(idx)
+
+    for indices in day_groups.values():
+        texts = [
+            str(df.at[i, "content_original"]) if df.at[i, "content_original"] else ""
+            for i in indices
+        ]
+        day_single = prune_terms_by_corpus_frequency(
+            texts, base_single, DF_MAX_RATIO, DF_MIN_COUNT
+        )
+        for idx in indices:
+            text = str(df.at[idx, "content_original"]) if df.at[idx, "content_original"] else ""
+            text_norm = normalize_text(text)
+            _, matched_str, match_cnt, _ = detect_hate_terms(
+                text_norm, day_single, multi_terms, term_to_type
+            )
+            directed, _ = detect_target(text, text_norm)
+            new_matched[idx] = matched_str
+            new_cand[idx] = (match_cnt >= MIN_MATCHES) and (directed == 1)
+
+    df["new_matched_terms"] = new_matched
+    df["new_is_candidate"] = new_cand
+    return df
+
+
+# ---------------------------------------------------------------------------
+# muestra_t24 — fetch y simulación
+# ---------------------------------------------------------------------------
+
+def fetch_t24_x_messages(conn) -> pd.DataFrame:
+    """Carga los mensajes de muestra_t24 bloque='A', platform='x', con contenido."""
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT t.message_uuid::text,
+               m.content_original,
+               m.created_at::text
+        FROM processed.muestra_t24 t
+        JOIN processed.mensajes m ON m.message_uuid = t.message_uuid
+        WHERE t.bloque = 'A'
+          AND t.platform = 'x'
+          AND m.content_original IS NOT NULL
+        ORDER BY m.created_at
+        """
+    )
+    rows = cur.fetchall()
+    cur.close()
+    return pd.DataFrame(rows, columns=["message_uuid", "content_original", "created_at"])
+
+
+def simulate_muestra_t24(
+    conn,
+    base_single: Set[str],
+    base_multi: List[str],
+    base_t2t: Dict[str, str],
+    new_single: Set[str],
+    new_multi: List[str],
+    new_t2t: Dict[str, str],
+) -> pd.DataFrame:
+    """
+    Para cada mensaje de muestra_t24 bloque='A'/x calcula:
+      - antes: con poda per-day sobre el lote de su día (config actual).
+      - despues: sin poda, con stopwords revisadas (nueva config).
+      - score: MLScorer opera sobre content_original, independiente de los
+               términos; score_antes == score_despues por construcción.
+    """
+    print("\n[muestra_t24] Cargando mensajes bloque=A, platform=x...")
+    df = fetch_t24_x_messages(conn)
+    print(f"  {len(df):,} mensajes")
+    if df.empty:
+        print("  Sin mensajes. Saltando simulación t24.")
+        return df
+
+    print("  Recalculando config ANTES (con poda per-day)...")
+    df_antes = recalculate_with_pruning_per_day(df, base_single, base_multi, base_t2t)
+
+    print("  Recalculando config DESPUÉS (sin poda + stopwords revisadas)...")
+    df_despues = recalculate_without_pruning(df, new_single, new_multi, new_t2t)
+
+    print("  Puntuando con MLScorer (score independiente de config)...")
+    df_scored = score_x_messages(df.copy())
+
+    score_col = df_scored["prefilter_score"].fillna(0.0).astype(float)
+
+    out = pd.DataFrame({
+        "message_uuid":  df["message_uuid"],
+        "cand_antes":    df_antes["new_is_candidate"].astype(bool),
+        "cand_despues":  df_despues["new_is_candidate"].astype(bool),
+        "score_antes":   score_col,
+        "score_despues": score_col,  # misma puntuación: MLScorer no depende de términos
+        "matched_antes": df_antes["new_matched_terms"],
+        "matched_despues": df_despues["new_matched_terms"],
+    })
+
+    OUT_T24.write_text(out.to_csv(index=False), encoding="utf-8")
+    print(f"  CSV guardado: {OUT_T24}")
+
+    # Resumen
+    n = len(out)
+    n_cand_a = int(out["cand_antes"].sum())
+    n_cand_d = int(out["cand_despues"].sum())
+    n_new = int((~out["cand_antes"] & out["cand_despues"]).sum())
+    n_lost = int((out["cand_antes"] & ~out["cand_despues"]).sum())
+    print(
+        f"  Candidatos: antes={n_cand_a}, después={n_cand_d}  "
+        f"(nuevos={n_new}, pierden={n_lost}) / {n} mensajes"
+    )
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Report
 # ---------------------------------------------------------------------------
 
@@ -211,6 +345,8 @@ def report_x(df: pd.DataFrame) -> List[str]:
 
     lines: List[str] = [
         "## X (Twitter)\n",
+        "> **Candidatos antes** = valor almacenado en la BD (`is_candidate`), "
+        "no recalculado. **Candidatos después** = recalculado sin poda con stopwords revisadas.\n",
         f"- Mensajes analizados: **{total:,}**",
         f"- Candidatos antes: **{old_cand_n:,}**  ·  después: **{new_cand_n:,}**  "
         f"(Δ = {new_cand_n - old_cand_n:+,})",
@@ -248,6 +384,8 @@ def report_youtube(df: pd.DataFrame) -> List[str]:
 
     return [
         "\n## YouTube\n",
+        "> **Candidatos antes** = valor almacenado en la BD (`is_candidate`), "
+        "no recalculado. **Candidatos después** = recalculado sin poda con stopwords revisadas.\n",
         f"- Mensajes analizados: **{total:,}**",
         f"- Candidatos antes: **{int(old_cand.sum()):,}**  ·  "
         f"después: **{int(new_cand.sum()):,}**  "
@@ -276,6 +414,15 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         "--extra-stopwords", default=None, metavar="FILE",
         help="TXT adicional con stopwords revisadas (se suma a Medios/stopwords_extras.txt)",
     )
+    p.add_argument(
+        "--muestra-t24",
+        action="store_true",
+        help=(
+            "Simular sobre muestra_t24 bloque=A/x. Para cada mensaje recalcula "
+            "is_candidate y score con la config actual (con poda per-day) y la "
+            "nueva (--skip-pruning + extra-stopwords). Exporta simulacion_t24.csv."
+        ),
+    )
     return p.parse_args(argv)
 
 
@@ -284,7 +431,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     extra_sw = Path(args.extra_stopwords).resolve() if args.extra_stopwords else None
 
     print(f"\n=== simular_cambio_candidatos.py — modo DRY-RUN (solo lectura) ===")
-    single_terms, multi_terms, term_to_type, _ = load_vocab_with_extras(extra_sw)
+
+    # Nueva config (sin poda + stopwords revisadas)
+    new_single, new_multi, new_t2t, _ = load_vocab_with_extras(extra_sw)
 
     md_parts: List[str] = [
         "# Simulación: sin poda + stopwords revisadas + GROUP_TERMS ampliado",
@@ -293,7 +442,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         f"Fecha informe: {datetime.now(timezone.utc).isoformat(timespec='seconds')}",
         f"\nConfiguración simulada: `--skip-pruning` activo + "
         f"GROUP_TERMS actualizado (ver filter_and_anonymize_unified.py) + "
-        f"stopwords extra: `{extra_sw.name if extra_sw else '(ninguna)'}`\n",
+        f"stopwords extra: `{extra_sw.name if extra_sw else '(ninguna)'}`",
+        "\n> **Candidatos antes** = valor almacenado en la BD (`is_candidate`); "
+        "no recalculado con poda. Ver sección `muestra_t24` para la comparación "
+        "entre configuración actual (con poda per-day) y nueva.\n",
     ]
 
     with get_conn() as conn:
@@ -302,7 +454,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             df_x = fetch_recent_messages(conn, "x", args.days)
             print(f"  X: {len(df_x):,} mensajes")
             if not df_x.empty:
-                df_x = recalculate_without_pruning(df_x, single_terms, multi_terms, term_to_type)
+                df_x = recalculate_without_pruning(df_x, new_single, new_multi, new_t2t)
                 print("  Puntuando con MLScorer...")
                 df_x = score_x_messages(df_x)
                 md_parts += report_x(df_x)
@@ -312,8 +464,35 @@ def main(argv: Optional[List[str]] = None) -> int:
             df_yt = fetch_recent_messages(conn, "youtube", args.days)
             print(f"  YouTube: {len(df_yt):,} mensajes")
             if not df_yt.empty:
-                df_yt = recalculate_without_pruning(df_yt, single_terms, multi_terms, term_to_type)
+                df_yt = recalculate_without_pruning(df_yt, new_single, new_multi, new_t2t)
                 md_parts += report_youtube(df_yt)
+
+        if args.muestra_t24:
+            # Config base (con poda): sin extra stopwords
+            print("\nCargando vocabulario base (sin stopwords extra) para config 'antes'...")
+            base_single, base_multi, base_t2t, _ = load_vocab_with_extras(None)
+            df_t24 = simulate_muestra_t24(
+                conn,
+                base_single, base_multi, base_t2t,
+                new_single, new_multi, new_t2t,
+            )
+            if not df_t24.empty:
+                n = len(df_t24)
+                n_ca = int(df_t24["cand_antes"].sum())
+                n_cd = int(df_t24["cand_despues"].sum())
+                n_new = int((~df_t24["cand_antes"] & df_t24["cand_despues"]).sum())
+                n_lost = int((df_t24["cand_antes"] & ~df_t24["cand_despues"]).sum())
+                md_parts += [
+                    "\n## muestra_t24 — bloque A / X\n",
+                    "> **Antes** = recalculado con poda per-day (config actual). "
+                    "**Después** = sin poda + stopwords revisadas. "
+                    f"Score idéntico en ambas columnas: MLScorer opera solo sobre el texto.\n",
+                    f"- Mensajes analizados: **{n:,}**",
+                    f"- Candidatos antes (con poda): **{n_ca:,}**  ·  "
+                    f"después (sin poda): **{n_cd:,}**  (Δ = {n_cd - n_ca:+,})",
+                    f"- Nuevos candidatos: **{n_new:,}**  ·  Pierden candidatura: **{n_lost:,}**",
+                    f"- CSV exportado: `{OUT_T24.name}`",
+                ]
 
     OUT_MD.write_text("\n".join(md_parts) + "\n", encoding="utf-8")
     print(f"\nInforme guardado: {OUT_MD}")

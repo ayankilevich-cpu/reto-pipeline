@@ -132,7 +132,9 @@ jobs:
             --out-dir outputs/pipeline_unificado/x \
             --terms-files Medios/hate_general_terms.csv Medios/hate_terms_clean.csv \
             --vectorizer Etiquetado_Modelos/vectorizer.joblib \
-            --model-path Etiquetado_Modelos/model.joblib
+            --model-path Etiquetado_Modelos/model.joblib \
+            --skip-pruning \
+            --stopwords-file Medios/stopwords_extras.txt pipeline_unificado/stopwords_diccionario.txt
         continue-on-error: true
 
       - name: "[5/6] Pipeline unificado YouTube"
@@ -142,7 +144,9 @@ jobs:
             --platform youtube \
             --input-file Medios/youtube_hatemedia_comments_30d.csv \
             --out-dir outputs/pipeline_unificado/youtube \
-            --terms-files Medios/hate_general_terms.csv Medios/hate_terms_clean.csv
+            --terms-files Medios/hate_general_terms.csv Medios/hate_terms_clean.csv \
+            --skip-pruning \
+            --stopwords-file Medios/stopwords_extras.txt pipeline_unificado/stopwords_diccionario.txt
         continue-on-error: true
 
       # ── Carga única a BD (lee outputs del orquestador) ───────────────────────

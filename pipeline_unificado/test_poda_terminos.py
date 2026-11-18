@@ -171,3 +171,46 @@ def test_stopwords_file_terms_are_excluded():
         _, matched, cnt, _ = detect_hate_terms(text_norm, single_terms, [], {})
         assert cnt == 0
         assert matched == ""
+
+
+# ---------------------------------------------------------------------------
+# Test 5: load_stopwords combina dos archivos; palabras de ambos se excluyen
+# ---------------------------------------------------------------------------
+
+def test_load_stopwords_multiple_files():
+    """
+    Cuando se pasan dos archivos a load_stopwords(), las stopwords de ambos se
+    combinan. load_terms() excluye cualquier término presente en la unión.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+
+        sw1 = tmp_path / "sw1.txt"
+        sw1.write_text("basura\ncorrupto\n", encoding="utf-8")
+
+        sw2 = tmp_path / "sw2.txt"
+        sw2.write_text("# comentario\ntraidor\nprogre\n", encoding="utf-8")
+
+        terms_file = tmp_path / "terms.csv"
+        terms_file.write_text(
+            "term\nbasura\ncorrupto\ntraidor\nprogre\nodio\n", encoding="utf-8"
+        )
+
+        # --- Pasando lista de dos Paths ---
+        sw_combined = load_stopwords([sw1, sw2])
+        assert "basura" in sw_combined
+        assert "corrupto" in sw_combined
+        assert "traidor" in sw_combined
+        assert "progre" in sw_combined
+
+        single_terms, _, _ = load_terms([terms_file], stopwords=sw_combined)
+        assert "basura" not in single_terms
+        assert "corrupto" not in single_terms
+        assert "traidor" not in single_terms
+        assert "progre" not in single_terms
+        assert "odio" in single_terms, "'odio' no está en ningún sw y debe detectarse"
+
+        # --- Pasando un único Path sigue funcionando (backward compat) ---
+        sw_single = load_stopwords(sw1)
+        assert "basura" in sw_single
+        assert "traidor" not in sw_single  # solo estaba en sw2

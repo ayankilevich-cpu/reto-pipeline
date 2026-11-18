@@ -1,0 +1,48 @@
+# Stopwords del diccionario de términos de odio — revisión del pipeline unificado
+#
+# Palabras que se excluyen del diccionario de HATE_TERMS (single_terms) aunque
+# aparezcan en los CSV de términos. load_stopwords() las suma a las built-in y
+# load_terms() las filtra por el bloque `_is_informative + sw`.
+#
+# Importante: estas palabras SÍ pueden seguir siendo destinatarios (GROUP_TERMS)
+# si corresponde. Lo que se desactiva es que generen match como término de odio
+# por sí solas.
+#
+# Formato: una palabra por línea, en minúsculas y sin tildes. '#' = comentario.
+#
+# ---------------------------------------------------------------------------
+# 2026-11-17 — Revisión tras diagnostico_poda.py (Paso 1.2).
+# Motivo: gentilicios y topónimos que no son insultos por sí solos y que al
+# estar en el diccionario inflan is_candidate en cualquier mensaje neutro que
+# los mencione. Los equivalentes como destinatario se mantienen en GROUP_TERMS.
+espanoles
+marruecos
+marroquies
+
+# ---------------------------------------------------------------------------
+# 2026-11-18 — Revisión de revision_terminos_podados_decidido.csv (decision=excluir).
+# Se suman 16 términos únicos (los tres ya presentes se mantienen). Agrupados
+# por motivo para que quede trazable qué justificó cada exclusión.
+
+# Etiquetas políticas (quedan como destinatario en GROUP_TERMS)
+comunista
+comunistas
+progre
+progres
+rojo
+rojos
+
+# Crítica política genérica, no insulto identitario
+corrupto
+corruptos
+mafia
+traidor
+traidores
+
+# Palabras genéricas (las expresiones xenófobas e insultos compuestos se
+# detectan por multi-word: «vete a tu país», «hijo(s) de puta», «qué asco»)
+asco
+hijo
+hijos
+peor
+vete
