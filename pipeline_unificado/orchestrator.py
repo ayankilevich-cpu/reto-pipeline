@@ -131,7 +131,7 @@ def _load_terms_for_pipeline(
     texts: "pd.Series",
     skip_pruning: bool,
     logger: logging.Logger,
-    stopwords_file: Optional[Path] = None,
+    stopwords_file=None,  # Path | List[Path] | None
 ) -> Tuple[Set[str], List[str], Dict[str, str]]:
     """Carga términos desde los CSVs y aplica corpus pruning opcional."""
     existing = [p for p in terms_paths if p.exists()]
@@ -145,7 +145,12 @@ def _load_terms_for_pipeline(
         )
 
     stopwords = load_stopwords(stopwords_file)
-    logger.info(f"  Stopwords cargadas: {len(stopwords)} (incluye {stopwords_file})")
+    sw_display = (
+        ", ".join(str(p) for p in stopwords_file)
+        if isinstance(stopwords_file, list)
+        else str(stopwords_file)
+    )
+    logger.info(f"  Stopwords cargadas: {len(stopwords)} (archivos: {sw_display})")
     single_terms, multi_terms, term_to_type = load_terms(existing, stopwords=stopwords)
     logger.info(
         f"  Términos cargados: {len(single_terms)} single-word, "
@@ -161,6 +166,8 @@ def _load_terms_for_pipeline(
         logger.info(
             f"  Corpus pruning: {n_before} → {len(single_terms)} single-word terms"
         )
+    else:
+        logger.info("  Corpus pruning: skipped")
 
     return single_terms, multi_terms, term_to_type
 
@@ -182,8 +189,12 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p.add_argument("--terms-files", nargs="+",
                    default=[str(p) for p in DEFAULT_TERMS_FILES],
                    help="Archivos CSV/TXT de términos de odio")
-    p.add_argument("--stopwords-file", default=str(DEFAULT_STOPWORDS_FILE),
-                   help="TXT de stopwords adicionales (default: Medios/stopwords_extras.txt)")
+    p.add_argument("--stopwords-file", nargs="+",
+                   default=[str(DEFAULT_STOPWORDS_FILE)],
+                   help=(
+                       "Uno o más TXT de stopwords adicionales. "
+                       "Se combinan todos. (default: Medios/stopwords_extras.txt)"
+                   ))
     p.add_argument("--salt",        default=None,
                    help="Salt SHA-256 para anonimización (o env var RETO_SALT)")
     p.add_argument("--min-matches", type=int, default=1,
@@ -268,10 +279,11 @@ def main(argv: Optional[List[str]] = None) -> None:
 
         # ── PASO 2: FILTER & ANONYMIZE ─────────────────────────
         terms_paths = [Path(f) for f in args.terms_files]
+        sw_paths = [Path(f) for f in args.stopwords_file] if args.stopwords_file else None
         single_terms, multi_terms, term_to_type = _load_terms_for_pipeline(
             terms_paths, df_canonical["content_original"],
             skip_pruning=args.skip_pruning, logger=logger,
-            stopwords_file=Path(args.stopwords_file) if args.stopwords_file else None,
+            stopwords_file=sw_paths,
         )
         df_full_anon, df_candidates = _run_step(
             "filter_and_anonymize",
