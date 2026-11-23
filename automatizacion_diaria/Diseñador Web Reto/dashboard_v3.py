@@ -4011,7 +4011,7 @@ def _filter_ranking_explore_detail_df(detail_df: pd.DataFrame) -> pd.DataFrame:
 
 def _render_explorar_medio():
     """Pestaña exploratoria: seleccionar un medio y plataforma para ver sus métricas."""
-    st.markdown("Seleccioná un medio y una plataforma para ver sus métricas de odio.")
+    st.markdown("Selecciona un medio y una plataforma para ver sus métricas de odio.")
 
     valid_names, handle_to_name = _load_valid_media_map()
 
@@ -12608,7 +12608,7 @@ En **Hugging Face Docker** configurá los secrets como variables de entorno:
                 st.markdown(
                     """
 **[Admin]** El usuario de BD configurado no tiene permisos de lectura sobre el esquema requerido.
-Revisá los GRANTs en Neon para el usuario de visualización.
+Revisa los GRANTs en Neon para el usuario de visualización.
 Script de referencia: `automatizacion_diaria/migrations/grant_analista_01_viewer.sql`
                     """
                 )
