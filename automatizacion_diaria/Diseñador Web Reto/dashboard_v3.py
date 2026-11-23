@@ -483,12 +483,13 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
 .reto-day-num.today{font-weight:700;color:#1F4E79;}
 .reto-day-mes{font-size:.6875rem;line-height:1;color:#8592A3;min-height:.6875rem;}
 @media (max-width:768px){
-  .reto-day-num{font-size:.7rem;}
-  .reto-day-mes{font-size:.625rem;}
+  .reto-day-strip{gap:2px;}
+  .reto-day{height:18px;}
 }
 @media (max-width:480px){
-  .reto-day-num{font-size:.65rem;}
-  .reto-day-mes{font-size:.6rem;}
+  .reto-day-strip{gap:1px;}
+  .reto-day{height:16px;}
+  .reto-day-num{margin-top:2px;}
 }
 @media (max-width:640px){
   .reto-day-col.lbl-skip .reto-day-num,
