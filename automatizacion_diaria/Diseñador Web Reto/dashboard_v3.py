@@ -1657,9 +1657,8 @@ def render_section_exports(
                 use_container_width=True,
             )
         else:
-            st.info(
-                "La exportación a PDF no está disponible en este momento. "
-                "Puedes descargar los datos en CSV más abajo."
+            st.caption(
+                "La exportación a PDF no está disponible en este momento."
             )
 
         if pdf_errors:
