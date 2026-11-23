@@ -479,9 +479,17 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
 .reto-day-strip{display:flex;gap:4px;margin:0 0 .5rem;}
 .reto-day-col{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;}
 .reto-day{width:100%;height:20px;border-radius:5px;}
-.reto-day-num{font-size:.68rem;line-height:1.1;color:#4A5568;margin-top:3px;font-variant-numeric:tabular-nums;}
+.reto-day-num{font-size:.75rem;line-height:1.1;color:#4A5568;margin-top:3px;font-variant-numeric:tabular-nums;}
 .reto-day-num.today{font-weight:700;color:#1F4E79;}
-.reto-day-mes{font-size:.6rem;line-height:1;color:#8592A3;min-height:.6rem;}
+.reto-day-mes{font-size:.6875rem;line-height:1;color:#8592A3;min-height:.6875rem;}
+@media (max-width:768px){
+  .reto-day-num{font-size:.7rem;}
+  .reto-day-mes{font-size:.625rem;}
+}
+@media (max-width:480px){
+  .reto-day-num{font-size:.65rem;}
+  .reto-day-mes{font-size:.6rem;}
+}
 @media (max-width:640px){
   .reto-day-col.lbl-skip .reto-day-num,
   .reto-day-col.lbl-skip .reto-day-mes{visibility:hidden;}
