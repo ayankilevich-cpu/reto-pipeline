@@ -1834,7 +1834,7 @@ def _render_login():
 
         if submitted:
             if not username or not password:
-                st.error("Completá usuario y contraseña.")
+                st.error("Completa usuario y contraseña.")
                 return
 
             user_data = users.get(username)
@@ -2783,7 +2783,7 @@ def _render_muestra_ultima_corrida_llm_section(*, key_suffix: str = "") -> None:
     if fecha_muestra is None:
         st.warning(
             "**Sin muestra:** no hay filas en `processed.etiquetas_llm` en la base a la que "
-            "conecta esta app (revisá secrets / misma BD que el pipeline)."
+            "conecta esta app (revisa secrets / misma BD que el pipeline)."
         )
     elif df_muestra.empty:
         st.warning(
@@ -4721,7 +4721,7 @@ def render_analisis_contextual():
         st.caption(
             f"Texto generado por el pipeline semanal y guardado en la base de datos "
             f"(última actualización: **{analisis_s}**). "
-            "Si regeneraste el análisis y no ves cambios, usá **Recargar resumen**."
+            "Si regeneraste el análisis y no ves cambios, usa **Recargar resumen**."
         )
         rc1, _ = st.columns([1, 4])
         with rc1:
@@ -4760,7 +4760,7 @@ def render_analisis_contextual():
         if not _is_viewer():
             st.caption(
                 "Este bloque resume la **semana** elegida. Para ver **texto de mensajes** "
-                "anonimizados clasificados por el LLM (muestra aleatoria), usá el menú lateral "
+                "anonimizados clasificados por el LLM (muestra aleatoria), usa el menú lateral "
                 "**Categorías de odio (LLM)**."
             )
 
@@ -5329,7 +5329,7 @@ def render_semaforo():
 
     if "youtube" in plataformas:
         st.caption(
-            "En YouTube esta alerta todavía es una versión preliminar — tomá sus "
+            "En YouTube esta alerta todavía es una versión preliminar — toma sus "
             "resultados con más cautela que los de X."
         )
 
@@ -5391,7 +5391,7 @@ def _require_role(*allowed_roles: str, section: str = "esta sección") -> bool:
     Devuelve True si el acceso está permitido, False si no."""
     role = st.session_state.get("user_role")
     if role not in allowed_roles:
-        st.error(f"No tenés permisos para acceder a {section}.")
+        st.error(f"No tienes permisos para acceder a {section}.")
         st.info("Si creés que es un error, iniciá sesión con las credenciales correctas.")
         st.stop()
         return False
@@ -9684,17 +9684,17 @@ def _render_anotacion_youtube(annotator: str):
 
     if odio_choice is None:
         st.caption(
-            "Elegí **Odio**, **No Odio** o **Dudoso**; la pantalla se actualiza al cambiar la opción, "
+            "Elige **Odio**, **No Odio** o **Dudoso**; la pantalla se actualiza al cambiar la opción, "
             "pero **nada se guarda en la base** hasta que pulses **Guardar y siguiente** (o **Saltar**)."
         )
     elif odio_choice in ("No Odio", "Dudoso"):
         st.info(
             "**No se guarda automáticamente** al marcar No odio o Dudoso: solo se desbloquea la vista. "
-            "Para registrar la clasificación y ver el **siguiente mensaje**, pulsá **Guardar y siguiente** abajo."
+            "Para registrar la clasificación y ver el **siguiente mensaje**, pulsa **Guardar y siguiente** abajo."
         )
     else:
         st.caption(
-            "Completá los pasos 2 a 4 si corresponde y pulsá **Guardar y siguiente** para guardar."
+            "Completa los pasos 2 a 4 si corresponde y pulsa **Guardar y siguiente** para guardar."
         )
 
     with st.form(key=fk, clear_on_submit=False):
@@ -9728,7 +9728,7 @@ def _render_anotacion_youtube(annotator: str):
 
             st.markdown(
                 '<div class="ann-step-header"><span class="ann-step-num">3</span> Intensidad</div>'
-                '<div class="ann-step-desc">Elegí un nivel tocando una de las tres opciones.</div>',
+                '<div class="ann-step-desc">Elige un nivel tocando una de las tres opciones.</div>',
                 unsafe_allow_html=True,
             )
             with _ann_styled_box(key=f"intchips_{fk}", css=_ANN_INTENSITY_CHIPS_CSS):
@@ -9931,12 +9931,12 @@ def _render_validacion_art510(annotator: str):
 
     if validacion is None:
         st.caption(
-            "Elegí **Confirmar**, **Rechazar** o **Corregir**; **nada se guarda** hasta pulsar "
+            "Elige **Confirmar**, **Rechazar** o **Corregir**; **nada se guarda** hasta pulsar "
             "**Guardar y siguiente** (o **Saltar**)."
         )
     else:
         st.caption(
-            "La opción del radio **no guarda sola**: usá **Guardar y siguiente** abajo para registrar y pasar al siguiente."
+            "La opción del radio **no guarda sola**: usa **Guardar y siguiente** abajo para registrar y pasar al siguiente."
         )
 
     with st.form(key=fk, clear_on_submit=False):
@@ -10323,7 +10323,7 @@ def _save_vllm_yt_validation(
     if odio_flag is True and not (categoria_odio or "").strip():
         st.error(
             "Registro anómalo: odio_flag=true sin categoría. "
-            "Marcá de nuevo como Odio y elegí categoría, o revisá en BD."
+            "Marca de nuevo como Odio y elige categoría, o revisa en BD."
         )
         return False
 
@@ -10912,16 +10912,16 @@ def _render_validacion_llm_youtube(annotator: str):
 
     if odio_choice is None:
         st.caption(
-            "La predicción del LLM viene precargada; podés cambiarla. "
+            "La predicción del LLM viene precargada; puedes cambiarla. "
             "**Nada se guarda** hasta pulsar **Guardar y siguiente** (o **Saltar**)."
         )
     elif odio_choice in ("No Odio", "Dudoso"):
         st.info(
             "**No se guarda automáticamente** al cambiar a No odio o Dudoso. "
-            "Pulsá **Guardar y siguiente** abajo para registrar y pasar al siguiente mensaje."
+            "Pulsa **Guardar y siguiente** abajo para registrar y pasar al siguiente mensaje."
         )
     else:
-        st.caption("Ajustá los pasos 2 a 4 si hace falta y pulsá **Guardar y siguiente**.")
+        st.caption("Ajusta los pasos 2 a 4 si hace falta y pulsa **Guardar y siguiente**.")
 
     with st.form(key=fk, clear_on_submit=False):
         if only_odio:
@@ -10954,7 +10954,7 @@ def _render_validacion_llm_youtube(annotator: str):
 
             st.markdown(
                 '<div class="ann-step-header"><span class="ann-step-num">3</span> Intensidad</div>'
-                '<div class="ann-step-desc">Elegí un nivel tocando una de las tres opciones.</div>',
+                '<div class="ann-step-desc">Elige un nivel tocando una de las tres opciones.</div>',
                 unsafe_allow_html=True,
             )
             with _ann_styled_box(key=f"intchips_{fk}", css=_ANN_INTENSITY_CHIPS_CSS):
@@ -11225,16 +11225,16 @@ def _render_validacion_llm_x(annotator: str):
 
     if odio_choice is None:
         st.caption(
-            "La predicción del LLM viene precargada; podés cambiarla. "
+            "La predicción del LLM viene precargada; puedes cambiarla. "
             "**Nada se guarda** hasta pulsar **Guardar y siguiente** (o **Saltar**)."
         )
     elif odio_choice in ("No Odio", "Dudoso"):
         st.info(
             "**No se guarda automáticamente** al cambiar a No odio o Dudoso. "
-            "Pulsá **Guardar y siguiente** abajo para registrar y pasar al siguiente mensaje."
+            "Pulsa **Guardar y siguiente** abajo para registrar y pasar al siguiente mensaje."
         )
     else:
-        st.caption("Ajustá los pasos 2 a 4 si hace falta y pulsá **Guardar y siguiente**.")
+        st.caption("Ajusta los pasos 2 a 4 si hace falta y pulsa **Guardar y siguiente**.")
 
     with st.form(key=fk, clear_on_submit=False):
         if only_odio:
@@ -11267,7 +11267,7 @@ def _render_validacion_llm_x(annotator: str):
 
             st.markdown(
                 '<div class="ann-step-header"><span class="ann-step-num">3</span> Intensidad</div>'
-                '<div class="ann-step-desc">Elegí un nivel tocando una de las tres opciones.</div>',
+                '<div class="ann-step-desc">Elige un nivel tocando una de las tres opciones.</div>',
                 unsafe_allow_html=True,
             )
             with _ann_styled_box(key=f"intchips_{fk}", css=_ANN_INTENSITY_CHIPS_CSS):
@@ -11399,7 +11399,7 @@ def render_anotacion():
             value=st.session_state.get("annotator_id", session_user),
             placeholder="Ej: CIEDES, Anotador1...",
             key="ann_id_input",
-            help="Admin: podés cambiar el ID para anotar en nombre de otro anotador.",
+            help="Admin: puedes cambiar el ID para anotar en nombre de otro anotador.",
         )
         if annotator:
             st.session_state["annotator_id"] = annotator.strip()
@@ -12641,7 +12641,7 @@ def main():
     else:
         st.error(
             f"Sección no reconocida: {section!r}. "
-            "Recargá la página o informá al administrador."
+            "Recarga la página o informa al administrador."
         )
 
     if section_changed:
