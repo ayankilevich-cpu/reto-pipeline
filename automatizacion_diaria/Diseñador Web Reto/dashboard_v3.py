@@ -479,9 +479,18 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
 .reto-day-strip{display:flex;gap:4px;margin:0 0 .5rem;}
 .reto-day-col{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;}
 .reto-day{width:100%;height:20px;border-radius:5px;}
-.reto-day-num{font-size:.68rem;line-height:1.1;color:#4A5568;margin-top:3px;font-variant-numeric:tabular-nums;}
+.reto-day-num{font-size:.75rem;line-height:1.1;color:#4A5568;margin-top:3px;font-variant-numeric:tabular-nums;}
 .reto-day-num.today{font-weight:700;color:#1F4E79;}
-.reto-day-mes{font-size:.6rem;line-height:1;color:#8592A3;min-height:.6rem;}
+.reto-day-mes{font-size:.6875rem;line-height:1;color:#8592A3;min-height:.6875rem;}
+@media (max-width:768px){
+  .reto-day-strip{gap:2px;}
+  .reto-day{height:18px;}
+}
+@media (max-width:480px){
+  .reto-day-strip{gap:1px;}
+  .reto-day{height:16px;}
+  .reto-day-num{margin-top:2px;}
+}
 @media (max-width:640px){
   .reto-day-col.lbl-skip .reto-day-num,
   .reto-day-col.lbl-skip .reto-day-mes{visibility:hidden;}
@@ -1319,6 +1328,16 @@ def _apply_reto_chart_style(fig):
     return fig
 
 
+def _fmt_int(n) -> str:
+    """Formatea un entero con separador de miles español (punto). None/NaN → '—'."""
+    if n is None or (isinstance(n, float) and pd.isna(n)):
+        return "—"
+    try:
+        return f"{int(n):,}".replace(",", ".")
+    except (ValueError, TypeError):
+        return str(n)
+
+
 def _apply_horizontal_bar_labels(fig):
     """Etiquetas fuera de barras cortas en gráficos horizontales."""
     _apply_reto_chart_style(fig)
@@ -1372,7 +1391,7 @@ def _fig_intensidad_apilada(df: pd.DataFrame) -> go.Figure:
     )
     fig.update_layout(
         height=420,
-        bargap=0.3,
+        bargap=0.38,
         margin=dict(l=10, r=10, t=90, b=10),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
@@ -1642,9 +1661,8 @@ def render_section_exports(
                 use_container_width=True,
             )
         else:
-            st.info(
-                "La exportación a PDF no está disponible en este momento. "
-                "Puedes descargar los datos en CSV más abajo."
+            st.caption(
+                "La exportación a PDF no está disponible en este momento."
             )
 
         if pdf_errors:
@@ -1834,7 +1852,7 @@ def _render_login():
 
         if submitted:
             if not username or not password:
-                st.error("Completá usuario y contraseña.")
+                st.error("Completa usuario y contraseña.")
                 return
 
             user_data = users.get(username)
@@ -2783,7 +2801,7 @@ def _render_muestra_ultima_corrida_llm_section(*, key_suffix: str = "") -> None:
     if fecha_muestra is None:
         st.warning(
             "**Sin muestra:** no hay filas en `processed.etiquetas_llm` en la base a la que "
-            "conecta esta app (revisá secrets / misma BD que el pipeline)."
+            "conecta esta app (revisa secrets / misma BD que el pipeline)."
         )
     elif df_muestra.empty:
         st.warning(
@@ -3348,8 +3366,8 @@ def _render_gold_dataset_card() -> None:
     )
 
     c1, c2, c3 = st.columns(3)
-    c1.metric("Total mensajes gold", f"{g['total_gold']:,}")
-    c2.metric("Etiquetados con LLM", f"{g['total_llm']:,}")
+    c1.metric("Total mensajes gold", _fmt_int(g['total_gold']))
+    c2.metric("Etiquetados con LLM", _fmt_int(g['total_llm']))
     c3.metric("Última validación", fecha_str)
 
     st.markdown("**Calidad del etiquetado LLM** *(sobre los 733 mensajes llm_validated)*")
@@ -3364,8 +3382,8 @@ def _render_gold_dataset_card() -> None:
     c7.metric("Corrección intensidad",fmt_pct(g["pct_corrigio_intensidad"]))
 
     st.caption(
-        f"Correcciones calculadas sobre {g['total_llm']:,} mensajes llm_validated · "
-        f"Corrección de intensidad sobre {g['total_con_intensidad']:,} con intensidad registrada"
+        f"Correcciones calculadas sobre {_fmt_int(g['total_llm'])} mensajes llm_validated · "
+        f"Corrección de intensidad sobre {_fmt_int(g['total_con_intensidad'])} con intensidad registrada"
     )
 
 
@@ -3441,21 +3459,21 @@ def render_panel_general():
     label_llm = "Etiquetados por IA" if not _access_raw else "Etiquetados por LLM"
 
     _render_pg_kpi_grid([
-        (label_raw, f"{mensajes_totales:,}", ""),
-        ("Candidatos a odio", f"{candidatos_odio:,}", ""),
-        (label_llm, f"{etiquetados_llm:,}", ""),
-        ("Mensajes validados", f"{mensajes_validados:,}", f"{mensajes_odio:,} odio"),
-        ("Medios monitorizados", f"{medios_monitorizados:,}", ""),
+        (label_raw, _fmt_int(mensajes_totales), ""),
+        ("Candidatos a odio", _fmt_int(candidatos_odio), ""),
+        (label_llm, _fmt_int(etiquetados_llm), ""),
+        ("Mensajes validados", _fmt_int(mensajes_validados), f"{_fmt_int(mensajes_odio)} odio"),
+        ("Medios monitorizados", _fmt_int(medios_monitorizados), ""),
     ])
     st.markdown(
         '<div class="pg-kpi-section-label">Actividad reciente</div>',
         unsafe_allow_html=True,
     )
     _render_pg_kpi_grid([
-        ("Nuevos X hoy", f"{nuevos_x_hoy:,}", ""),
-        ("Nuevos YouTube hoy", f"{nuevos_yt_hoy:,}", ""),
-        ("Nuevos X ayer", f"{nuevos_x_ayer:,}", ""),
-        ("Nuevos YouTube ayer", f"{nuevos_yt_ayer:,}", ""),
+        ("Nuevos X hoy", _fmt_int(nuevos_x_hoy), ""),
+        ("Nuevos YouTube hoy", _fmt_int(nuevos_yt_hoy), ""),
+        ("Nuevos X ayer", _fmt_int(nuevos_x_ayer), ""),
+        ("Nuevos YouTube ayer", _fmt_int(nuevos_yt_ayer), ""),
     ], secondary=True)
 
     st.markdown("---")
@@ -3477,9 +3495,9 @@ def render_panel_general():
         n_llm = (df_comb["fuente"] == "LLM").sum()
         if st.session_state.get("user_role", "admin") == "admin":
             st.caption(
-                f"Visualizaciones basadas en **{total_msgs:,}** mensajes clasificados: "
-                f"**{n_gold:,}** validados por humanos (Gold) · "
-                f"**{n_llm:,}** etiquetados por LLM"
+                f"Visualizaciones basadas en **{_fmt_int(total_msgs)}** mensajes clasificados: "
+                f"**{_fmt_int(n_gold)}** validados por humanos (Gold) · "
+                f"**{_fmt_int(n_llm)}** etiquetados por LLM"
             )
 
         # 1. Torta: Odio vs No Odio vs Dudoso (paleta semántica unificada)
@@ -3771,11 +3789,11 @@ def render_categorias():
 <div class="metric-grid">
   <div class="metric-card">
     <div class="label">Total mensajes procesados</div>
-    <div class="value">{total_mensajes_procesados:,}</div>
+    <div class="value">{_fmt_int(total_mensajes_procesados)}</div>
   </div>
   <div class="metric-card">
     <div class="label">Agregados en última actualización</div>
-    <div class="value">{agregados_ultima_actualizacion:,}</div>
+    <div class="value">{_fmt_int(agregados_ultima_actualizacion)}</div>
   </div>
   <div class="metric-card">
     <div class="label">Última actualización</div>
@@ -3783,19 +3801,19 @@ def render_categorias():
   </div>
   <div class="metric-card">
     <div class="label">X — Total</div>
-    <div class="value">{x_total:,}</div>
+    <div class="value">{_fmt_int(x_total)}</div>
   </div>
   <div class="metric-card">
     <div class="label">X — Últimos agregados</div>
-    <div class="value">{x_ultimos:,}</div>
+    <div class="value">{_fmt_int(x_ultimos)}</div>
   </div>
   <div class="metric-card">
     <div class="label">YouTube — Total</div>
-    <div class="value">{yt_total:,}</div>
+    <div class="value">{_fmt_int(yt_total)}</div>
   </div>
   <div class="metric-card">
     <div class="label">YouTube — Últimos agregados</div>
-    <div class="value">{yt_ultimos:,}</div>
+    <div class="value">{_fmt_int(yt_ultimos)}</div>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -3997,7 +4015,7 @@ def _filter_ranking_explore_detail_df(detail_df: pd.DataFrame) -> pd.DataFrame:
 
 def _render_explorar_medio():
     """Pestaña exploratoria: seleccionar un medio y plataforma para ver sus métricas."""
-    st.markdown("Seleccioná un medio y una plataforma para ver sus métricas de odio.")
+    st.markdown("Selecciona un medio y una plataforma para ver sus métricas de odio.")
 
     valid_names, handle_to_name = _load_valid_media_map()
 
@@ -4069,8 +4087,8 @@ def _render_explorar_medio():
         st.markdown("---")
         # Reutiliza las tarjetas KPI institucionales del Panel general.
         _render_pg_kpi_grid([
-            ("Total mensajes", f"{total:,}", ""),
-            ("Mensajes con odio", f"{odio:,}", ""),
+            ("Total mensajes", _fmt_int(total), ""),
+            ("Mensajes con odio", _fmt_int(odio), ""),
             ("% Odio", f"{pct}%", ""),
         ])
 
@@ -4134,8 +4152,8 @@ def _render_explorar_medio():
 
     # Mismo componente y mismo formato para la selección de un medio concreto.
     _render_pg_kpi_grid([
-        ("Total mensajes", f"{total:,}", ""),
-        ("Mensajes con odio", f"{odio:,}", ""),
+        ("Total mensajes", _fmt_int(total), ""),
+        ("Mensajes con odio", _fmt_int(odio), ""),
         ("% Odio", f"{pct}%", ""),
     ])
 
@@ -4686,7 +4704,7 @@ def render_analisis_contextual():
         label = (
             f"{row['semana_inicio'].strftime('%d/%m/%Y')} — "
             f"{row['semana_fin'].strftime('%d/%m/%Y')}"
-            f" | {int(row['total_mensajes']):,} msgs"
+            f" | {_fmt_int(row['total_mensajes'])} msgs"
             f" | {row['pct_odio']}% odio{spike_mark}"
         )
         week_options.append((label, row["semana_inicio"]))
@@ -4702,8 +4720,8 @@ def render_analisis_contextual():
 
     # --- KPIs ---
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Total mensajes", f"{int(row['total_mensajes']):,}")
-    k2.metric("Mensajes de odio", f"{int(row['total_odio']):,}")
+    k1.metric("Total mensajes", _fmt_int(row['total_mensajes']))
+    k2.metric("Mensajes de odio", _fmt_int(row['total_odio']))
     k3.metric("% Odio", f"{row['pct_odio']}%")
     alerta_label = "Sí ⚠️" if bool(row.get("es_spike")) else "No"
     k4.metric("Alerta", alerta_label)
@@ -4721,7 +4739,7 @@ def render_analisis_contextual():
         st.caption(
             f"Texto generado por el pipeline semanal y guardado en la base de datos "
             f"(última actualización: **{analisis_s}**). "
-            "Si regeneraste el análisis y no ves cambios, usá **Recargar resumen**."
+            "Si regeneraste el análisis y no ves cambios, usa **Recargar resumen**."
         )
         rc1, _ = st.columns([1, 4])
         with rc1:
@@ -4760,7 +4778,7 @@ def render_analisis_contextual():
         if not _is_viewer():
             st.caption(
                 "Este bloque resume la **semana** elegida. Para ver **texto de mensajes** "
-                "anonimizados clasificados por el LLM (muestra aleatoria), usá el menú lateral "
+                "anonimizados clasificados por el LLM (muestra aleatoria), usa el menú lateral "
                 "**Categorías de odio (LLM)**."
             )
 
@@ -5329,7 +5347,7 @@ def render_semaforo():
 
     if "youtube" in plataformas:
         st.caption(
-            "En YouTube esta alerta todavía es una versión preliminar — tomá sus "
+            "En YouTube esta alerta todavía es una versión preliminar — toma sus "
             "resultados con más cautela que los de X."
         )
 
@@ -5391,7 +5409,7 @@ def _require_role(*allowed_roles: str, section: str = "esta sección") -> bool:
     Devuelve True si el acceso está permitido, False si no."""
     role = st.session_state.get("user_role")
     if role not in allowed_roles:
-        st.error(f"No tenés permisos para acceder a {section}.")
+        st.error(f"No tienes permisos para acceder a {section}.")
         st.info("Si creés que es un error, iniciá sesión con las credenciales correctas.")
         st.stop()
         return False
@@ -5447,8 +5465,8 @@ def render_comparativa():
     pct_acuerdo = coinciden / total * 100 if total > 0 else 0
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Mensajes comparados", f"{total:,}")
-    col2.metric("Coincidencias", f"{coinciden:,}")
+    col1.metric("Mensajes comparados", _fmt_int(total))
+    col2.metric("Coincidencias", _fmt_int(coinciden))
     col3.metric("% Acuerdo", f"{pct_acuerdo:.1f}%")
 
     st.markdown("---")
@@ -5476,12 +5494,12 @@ def render_comparativa():
 
     st.markdown("### Discrepancias")
     col1, col2 = st.columns(2)
-    col1.metric("Baseline ODIO → LLM NO", f"{base_odio_llm_no:,}", help="Posibles falsos positivos del baseline")
-    col2.metric("Baseline NO → LLM ODIO", f"{base_no_llm_odio:,}", help="Posibles falsos negativos del baseline")
+    col1.metric("Baseline ODIO → LLM NO", _fmt_int(base_odio_llm_no), help="Posibles falsos positivos del baseline")
+    col2.metric("Baseline NO → LLM ODIO", _fmt_int(base_no_llm_odio), help="Posibles falsos negativos del baseline")
 
     dudosos = len(df[df["llm_pred"] == -1])
     if dudosos > 0:
-        st.info(f"**{dudosos:,}** mensajes clasificados como DUDOSO por el LLM (excluidos de la comparativa).")
+        st.info(f"**{_fmt_int(dudosos)}** mensajes clasificados como DUDOSO por el LLM (excluidos de la comparativa).")
 
     # Desglose por categoría LLM
     if not df_clean.empty and "llm_categoria" in df_clean.columns:
@@ -5579,7 +5597,7 @@ def _render_calidad_llm_cobertura(cobertura_df: pd.DataFrame, platform_key: Opti
         pct = validados / etiquetados * 100 if etiquetados else 0
         label = PLATFORM_DISPLAY.get(plat, plat)
         st.caption(
-            f"**Cobertura {label}:** {validados:,} de {etiquetados:,} etiquetados LLM validados "
+            f"**Cobertura {label}:** {_fmt_int(validados)} de {_fmt_int(etiquetados)} etiquetados LLM validados "
             f"— {pct:.0f} %"
         )
 
@@ -5674,9 +5692,9 @@ def render_calidad_llm():
         m_yt = _calidad_llm_odio_metrics(df_yt)
 
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Validaciones (total)", f"{m_total['total']:,}")
-        c2.metric("Validaciones X", f"{m_x['total']:,}")
-        c3.metric("Validaciones YouTube", f"{m_yt['total']:,}")
+        c1.metric("Validaciones (total)", _fmt_int(m_total['total']))
+        c2.metric("Validaciones X", _fmt_int(m_x['total']))
+        c3.metric("Validaciones YouTube", _fmt_int(m_yt['total']))
         c4.metric("Accuracy total (odio sí/no)", f"{m_total['accuracy']:.1f}%")
 
         c5, c6, c7, c8 = st.columns(4)
@@ -5684,20 +5702,20 @@ def render_calidad_llm():
         c6.metric("Accuracy YouTube (odio sí/no)", f"{m_yt['accuracy']:.1f}%")
         c7.metric(
             "Coincide LLM (total)",
-            f"{m_total['coincide_llm']:,}" if m_total["coincide_llm"] is not None else "N/A",
+            _fmt_int(m_total['coincide_llm']) if m_total["coincide_llm"] is not None else "N/A",
         )
         c8.metric(
             "Coincide LLM YouTube",
-            f"{m_yt['coincide_llm']:,}" if m_yt["coincide_llm"] is not None else "N/A",
+            _fmt_int(m_yt['coincide_llm']) if m_yt["coincide_llm"] is not None else "N/A",
         )
     else:
         metrics = _calidad_llm_odio_metrics(df)
         col1, col2, col3 = st.columns(3)
-        col1.metric("Validaciones", f"{metrics['total']:,}")
+        col1.metric("Validaciones", _fmt_int(metrics['total']))
         col2.metric("Accuracy (odio sí/no)", f"{metrics['accuracy']:.1f}%")
         col3.metric(
             "Coincide con LLM",
-            f"{metrics['coincide_llm']:,}" if metrics["coincide_llm"] is not None else "N/A",
+            _fmt_int(metrics['coincide_llm']) if metrics["coincide_llm"] is not None else "N/A",
         )
 
     st.markdown("### Coincidencia por categoría")
@@ -5844,8 +5862,8 @@ def render_terminos():
         return
     if filtro_neutros and n_tokens_antes:
         st.caption(
-            f"Términos distintos: {len(counter):,} tras filtro ({n_tokens_antes:,} antes; "
-            f"{len(exclude):,} lemas en lista oficial)."
+            f"Términos distintos: {_fmt_int(len(counter))} tras filtro ({_fmt_int(n_tokens_antes)} antes; "
+            f"{_fmt_int(len(exclude))} lemas en lista oficial)."
         )
 
     _nc = len(counter)
@@ -6035,21 +6053,21 @@ def render_dataset_validado_guest() -> None:
 <div class="guest-metric-grid">
   <div class="guest-metric-card">
     <div class="label">Mensajes validados manualmente</div>
-    <div class="value">{total:,}</div>
+    <div class="value">{_fmt_int(total)}</div>
   </div>
   <div class="guest-metric-card">
     <div class="label">Mensajes clasificados como odio</div>
-    <div class="value">{n_odio:,}</div>
+    <div class="value">{_fmt_int(n_odio)}</div>
     <div class="sub">{_pct(n_odio)} del total</div>
   </div>
   <div class="guest-metric-card">
     <div class="label">Mensajes no odio</div>
-    <div class="value">{n_no_odio:,}</div>
+    <div class="value">{_fmt_int(n_no_odio)}</div>
     <div class="sub">{_pct(n_no_odio)} del total</div>
   </div>
   <div class="guest-metric-card">
     <div class="label">Mensajes dudosos</div>
-    <div class="value">{n_dudoso:,}</div>
+    <div class="value">{_fmt_int(n_dudoso)}</div>
     <div class="sub">{_pct(n_dudoso)} del total</div>
   </div>
   <div class="guest-metric-card">
@@ -6268,8 +6286,8 @@ def render_gold_dataset():
 
     total_samples = len(df)
     plat_counts = df["platform_label"].value_counts().to_dict()
-    plat_summary = ", ".join(f"{v:,} {k}" for k, v in plat_counts.items())
-    st.caption(f"{total_samples:,} mensajes validados manualmente por anotadores humanos ({plat_summary})")
+    plat_summary = ", ".join(f"{_fmt_int(v)} {k}" for k, v in plat_counts.items())
+    st.caption(f"{_fmt_int(total_samples)} mensajes validados manualmente por anotadores humanos ({plat_summary})")
 
     # ── Filtros ──
     st.markdown("### Filtros")
@@ -6330,7 +6348,7 @@ def render_gold_dataset():
     pct_corr_odio = pd.to_numeric(df_f["corrigio_odio"], errors="coerce").mean() * 100
     pct_corr_cat = pd.to_numeric(df_f["corrigio_categoria"], errors="coerce").mean() * 100
 
-    odio_display = f"{n_odio:,} ({n_odio/total*100:.0f}%)" if total else "0"
+    odio_display = f"{_fmt_int(n_odio)} ({n_odio/total*100:.0f}%)" if total else "0"
     st.markdown(f"""
 <style>
 .metric-grid {{
@@ -6374,7 +6392,7 @@ def render_gold_dataset():
 <div class="metric-grid">
   <div class="metric-card">
     <div class="label">Total muestras</div>
-    <div class="value">{total:,}</div>
+    <div class="value">{_fmt_int(total)}</div>
   </div>
   <div class="metric-card">
     <div class="label">Odio</div>
@@ -7449,10 +7467,10 @@ def _render_art510_preview(sel_platforms, sel_sources):
     n_int3 = pd.to_numeric(df["intensidad"], errors="coerce").eq(3).sum()
 
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Total candidatos", f"{total:,}")
-    k2.metric("Por LLM", f"{n_llm:,}")
-    k3.metric("Por humanos", f"{n_human:,}")
-    k4.metric("Intensidad 3 (hostil)", f"{n_int3:,}")
+    k1.metric("Total candidatos", _fmt_int(total))
+    k2.metric("Por LLM", _fmt_int(n_llm))
+    k3.metric("Por humanos", _fmt_int(n_human))
+    k4.metric("Intensidad 3 (hostil)", _fmt_int(n_int3))
 
     # ── Gráficos ──
     st.markdown("---")
@@ -7580,7 +7598,7 @@ def _render_art510_preview(sel_platforms, sel_sources):
     total_already = len(already_done)
 
     if total_already > 0:
-        st.caption(f"Ya evaluados previamente: {total_already:,} (en caché)")
+        st.caption(f"Ya evaluados previamente: {_fmt_int(total_already)} (en caché)")
 
     if total_pending == 0 and total_already > 0:
         st.success("Todos los candidatos ya fueron evaluados. Recarga la página para ver los resultados.")
@@ -7593,7 +7611,7 @@ def _render_art510_preview(sel_platforms, sel_sources):
         st.warning("No hay candidatos para evaluar.")
         return
 
-    st.markdown(f"**{total_pending:,}** mensajes pendientes de evaluación jurídica.")
+    st.markdown(f"**{_fmt_int(total_pending)}** mensajes pendientes de evaluación jurídica.")
 
     api_key = _get_openai_api_key()
 
@@ -7706,12 +7724,12 @@ def _render_art510_preview(sel_platforms, sel_sources):
                     if db_count > 0:
                         total_in_db = db_count
                         status.success(
-                            f"Guardados en PostgreSQL: {len(results):,}/{len(batch_to_process)} "
-                            f"(total en BD: {total_in_db:,}) | Pot. delitos: {n_delitos}"
+                            f"Guardados en PostgreSQL: {_fmt_int(len(results))}/{len(batch_to_process)} "
+                            f"(total en BD: {_fmt_int(total_in_db)}) | Pot. delitos: {n_delitos}"
                         )
                     else:
                         status.warning(
-                            f"Procesados {len(results):,}/{len(batch_to_process)} — "
+                            f"Procesados {_fmt_int(len(results))}/{len(batch_to_process)} — "
                             f"error al guardar lote en BD"
                         )
                     unsaved_buffer = []
@@ -7724,8 +7742,8 @@ def _render_art510_preview(sel_platforms, sel_sources):
                     total_in_db = db_count
             if results:
                 st.warning(
-                    f"Se guardaron {len(results):,} evaluaciones antes del error. "
-                    f"Total en BD: {total_in_db:,}"
+                    f"Se guardaron {_fmt_int(len(results))} evaluaciones antes del error. "
+                    f"Total en BD: {_fmt_int(total_in_db)}"
                 )
                 st.cache_data.clear()
             return
@@ -7737,9 +7755,9 @@ def _render_art510_preview(sel_platforms, sel_sources):
 
         progress.progress(1.0, text="Evaluación completada")
         st.success(
-            f"Evaluación completada: {len(results):,} mensajes procesados, "
-            f"{n_delitos:,} potenciales delitos detectados. "
-            f"**Total acumulado en BD: {total_in_db:,}**"
+            f"Evaluación completada: {_fmt_int(len(results))} mensajes procesados, "
+            f"{_fmt_int(n_delitos)} potenciales delitos detectados. "
+            f"**Total acumulado en BD: {_fmt_int(total_in_db)}**"
         )
         st.cache_data.clear()
         st.balloons()
@@ -8063,11 +8081,11 @@ def _render_art510_full(summary, sel_platforms, sel_sources, solo_delitos):
 <div class="metric-grid">
   <div class="metric-card">
     <div class="label">Total evaluados</div>
-    <div class="value">{total_evaluados_db:,}</div>
+    <div class="value">{_fmt_int(total_evaluados_db)}</div>
   </div>
   <div class="metric-card">
     <div class="label">Pot. delitos</div>
-    <div class="value">{total_delitos_db:,}</div>
+    <div class="value">{_fmt_int(total_delitos_db)}</div>
   </div>
   <div class="metric-card">
     <div class="label">% Delitos</div>
@@ -8075,22 +8093,22 @@ def _render_art510_full(summary, sel_platforms, sel_sources, solo_delitos):
   </div>
   <div class="metric-card">
     <div class="label">Art. 510.1a</div>
-    <div class="value">{n_1a:,}</div>
+    <div class="value">{_fmt_int(n_1a)}</div>
   </div>
   <div class="metric-card">
     <div class="label">Art. 510.1b</div>
-    <div class="value">{n_1b:,}</div>
+    <div class="value">{_fmt_int(n_1b)}</div>
   </div>
   <div class="metric-card">
     <div class="label">Art. 510.1c</div>
-    <div class="value">{n_1c:,}</div>
+    <div class="value">{_fmt_int(n_1c)}</div>
   </div>
 </div>
 """, unsafe_allow_html=True)
 
     if solo_delitos and len(df) < total_evaluados_db:
         st.caption(
-            f"Mostrando {len(df):,} mensajes (filtro activo: solo potenciales delitos). "
+            f"Mostrando {_fmt_int(len(df))} mensajes (filtro activo: solo potenciales delitos). "
             f"Desmarca el filtro para ver todos."
         )
 
@@ -8254,7 +8272,7 @@ def _render_art510_full(summary, sel_platforms, sel_sources, solo_delitos):
 
     if new_pending:
         st.markdown("---")
-        with st.expander(f"Evaluar {len(new_pending):,} nuevos mensajes pendientes"):
+        with st.expander(f"Evaluar {_fmt_int(len(new_pending))} nuevos mensajes pendientes"):
             api_key = _get_openai_api_key()
 
             if not api_key:
@@ -8329,8 +8347,8 @@ def _render_art510_full(summary, sel_platforms, sel_sources, solo_delitos):
                             if db_count > 0:
                                 total_in_db = db_count
                                 status_full.success(
-                                    f"Guardados en PostgreSQL: {len(results):,}/{len(batch)} "
-                                    f"(total en BD: {total_in_db:,}) | Pot. delitos: {n_delitos}"
+                                    f"Guardados en PostgreSQL: {_fmt_int(len(results))}/{len(batch)} "
+                                    f"(total en BD: {_fmt_int(total_in_db)}) | Pot. delitos: {n_delitos}"
                                 )
                             unsaved_buf = []
                 except Exception as e:
@@ -8341,8 +8359,8 @@ def _render_art510_full(summary, sel_platforms, sel_sources, solo_delitos):
                             total_in_db = db_count
                     if results:
                         st.warning(
-                            f"Guardados {len(results):,} antes del error. "
-                            f"Total en BD: {total_in_db:,}"
+                            f"Guardados {_fmt_int(len(results))} antes del error. "
+                            f"Total en BD: {_fmt_int(total_in_db)}"
                         )
                         st.cache_data.clear()
                     return
@@ -8354,8 +8372,8 @@ def _render_art510_full(summary, sel_platforms, sel_sources, solo_delitos):
 
                 progress.progress(1.0, text="Completado")
                 st.success(
-                    f"{len(results):,} evaluados, {n_delitos:,} potenciales delitos. "
-                    f"**Total acumulado en BD: {total_in_db:,}**"
+                    f"{_fmt_int(len(results))} evaluados, {_fmt_int(n_delitos)} potenciales delitos. "
+                    f"**Total acumulado en BD: {_fmt_int(total_in_db)}**"
                 )
                 st.cache_data.clear()
 
@@ -8710,7 +8728,7 @@ def render_delitos():
 <div class="metric-grid">
   <div class="metric-card">
     <div class="label">Total delitos ({kpi_year})</div>
-    <div class="value">{total_kpi:,}</div>
+    <div class="value">{_fmt_int(total_kpi)}</div>
   </div>
   <div class="metric-card">
     <div class="label">Var. vs {kpi_prev}</div>
@@ -9586,11 +9604,11 @@ def _render_anotacion_youtube(annotator: str):
     _kpi_period = st.session_state.get("supervision_period", "day")
     kpis = _load_annotation_kpis(annotator, _kpi_period)
     k1, k2, k3, k4, k5 = st.columns(5)
-    k1.metric("Total relevantes (YT)", f"{kpis['total_relevantes']:,}")
-    k2.metric("Anotados", f"{kpis['total_anotados']:,}")
-    k3.metric("Pendientes", f"{kpis['pendientes']:,}")
-    k4.metric("Anotados en el periodo", f"{kpis['anotados_periodo']:,}")
-    k5.metric(f"Por {annotator}", f"{kpis['por_anotador']:,}")
+    k1.metric("Total relevantes (YT)", _fmt_int(kpis['total_relevantes']))
+    k2.metric("Anotados", _fmt_int(kpis['total_anotados']))
+    k3.metric("Pendientes", _fmt_int(kpis['pendientes']))
+    k4.metric("Anotados en el periodo", _fmt_int(kpis['anotados_periodo']))
+    k5.metric(f"Por {annotator}", _fmt_int(kpis['por_anotador']))
     st.progress(kpis["pct_avance"] / 100, text=f"Avance: {kpis['pct_avance']:.1f}%")
 
     st.divider()
@@ -9684,17 +9702,17 @@ def _render_anotacion_youtube(annotator: str):
 
     if odio_choice is None:
         st.caption(
-            "Elegí **Odio**, **No Odio** o **Dudoso**; la pantalla se actualiza al cambiar la opción, "
+            "Elige **Odio**, **No Odio** o **Dudoso**; la pantalla se actualiza al cambiar la opción, "
             "pero **nada se guarda en la base** hasta que pulses **Guardar y siguiente** (o **Saltar**)."
         )
     elif odio_choice in ("No Odio", "Dudoso"):
         st.info(
             "**No se guarda automáticamente** al marcar No odio o Dudoso: solo se desbloquea la vista. "
-            "Para registrar la clasificación y ver el **siguiente mensaje**, pulsá **Guardar y siguiente** abajo."
+            "Para registrar la clasificación y ver el **siguiente mensaje**, pulsa **Guardar y siguiente** abajo."
         )
     else:
         st.caption(
-            "Completá los pasos 2 a 4 si corresponde y pulsá **Guardar y siguiente** para guardar."
+            "Completa los pasos 2 a 4 si corresponde y pulsa **Guardar y siguiente** para guardar."
         )
 
     with st.form(key=fk, clear_on_submit=False):
@@ -9728,7 +9746,7 @@ def _render_anotacion_youtube(annotator: str):
 
             st.markdown(
                 '<div class="ann-step-header"><span class="ann-step-num">3</span> Intensidad</div>'
-                '<div class="ann-step-desc">Elegí un nivel tocando una de las tres opciones.</div>',
+                '<div class="ann-step-desc">Elige un nivel tocando una de las tres opciones.</div>',
                 unsafe_allow_html=True,
             )
             with _ann_styled_box(key=f"intchips_{fk}", css=_ANN_INTENSITY_CHIPS_CSS):
@@ -9828,10 +9846,10 @@ def _render_validacion_art510(annotator: str):
     _kpi_period = st.session_state.get("supervision_period", "day")
     kpis = _load_v510_kpis(annotator, _kpi_period)
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Pendientes Art. 510", f"{kpis['pendientes']:,}")
-    k2.metric("Total validados", f"{kpis['total_validados']:,}")
-    k3.metric("Validados en el periodo", f"{kpis['validados_periodo']:,}")
-    k4.metric(f"Por {annotator}", f"{kpis['por_anotador']:,}")
+    k1.metric("Pendientes Art. 510", _fmt_int(kpis['pendientes']))
+    k2.metric("Total validados", _fmt_int(kpis['total_validados']))
+    k3.metric("Validados en el periodo", _fmt_int(kpis['validados_periodo']))
+    k4.metric(f"Por {annotator}", _fmt_int(kpis['por_anotador']))
 
     st.divider()
 
@@ -9853,7 +9871,7 @@ def _render_validacion_art510(annotator: str):
             df_preview = load_art510_candidates()
             if not df_preview.empty:
                 st.caption(
-                    f"Hay **{len(df_preview):,}** mensajes candidatos a evaluar "
+                    f"Hay **{_fmt_int(len(df_preview))}** mensajes candidatos a evaluar "
                     f"(visibles en la sección *Análisis Art. 510*)."
                 )
         else:
@@ -9931,12 +9949,12 @@ def _render_validacion_art510(annotator: str):
 
     if validacion is None:
         st.caption(
-            "Elegí **Confirmar**, **Rechazar** o **Corregir**; **nada se guarda** hasta pulsar "
+            "Elige **Confirmar**, **Rechazar** o **Corregir**; **nada se guarda** hasta pulsar "
             "**Guardar y siguiente** (o **Saltar**)."
         )
     else:
         st.caption(
-            "La opción del radio **no guarda sola**: usá **Guardar y siguiente** abajo para registrar y pasar al siguiente."
+            "La opción del radio **no guarda sola**: usa **Guardar y siguiente** abajo para registrar y pasar al siguiente."
         )
 
     with st.form(key=fk, clear_on_submit=False):
@@ -10323,7 +10341,7 @@ def _save_vllm_yt_validation(
     if odio_flag is True and not (categoria_odio or "").strip():
         st.error(
             "Registro anómalo: odio_flag=true sin categoría. "
-            "Marcá de nuevo como Odio y elegí categoría, o revisá en BD."
+            "Marca de nuevo como Odio y elige categoría, o revisa en BD."
         )
         return False
 
@@ -10476,11 +10494,11 @@ def _render_vllm_label_error_analysis(
     # ── KPIs ──
     st.markdown("#### Resumen de concordancia")
     m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("Validaciones", f"{total:,}")
+    m1.metric("Validaciones", _fmt_int(total))
     m2.metric("Concordancia total", f"{accuracy:.1f}%")
-    m3.metric("Corrigió clasificación", f"{corrigio_clasif:,} ({pct_corr_clasif:.0f}%)")
-    m4.metric("Corrigió categoría", f"{corrigio_cat:,}" if not df_ambos_odio.empty else "—")
-    m5.metric("Corrigió intensidad", f"{corrigio_int:,}" if not df_ambos_odio.empty else "—")
+    m3.metric("Corrigió clasificación", f"{_fmt_int(corrigio_clasif)} ({pct_corr_clasif:.0f}%)")
+    m4.metric("Corrigió categoría", _fmt_int(corrigio_cat) if not df_ambos_odio.empty else "—")
+    m5.metric("Corrigió intensidad", _fmt_int(corrigio_int) if not df_ambos_odio.empty else "—")
 
     # ── Matriz de confusión: clasificación ──
     st.markdown("---")
@@ -10788,12 +10806,12 @@ def _render_validacion_llm_youtube(annotator: str):
     _kpi_period = st.session_state.get("supervision_period", "day")
     kpis = _load_vllm_yt_kpis(annotator, clasif_filter, _kpi_period)
     k1, k2, k3, k4, k5 = st.columns(5)
-    k1.metric("Etiquetados LLM (YT)", f"{kpis['total_etiquetados_llm']:,}")
-    k2.metric("Validados", f"{kpis['total_validados']:,}")
+    k1.metric("Etiquetados LLM (YT)", _fmt_int(kpis['total_etiquetados_llm']))
+    k2.metric("Validados", _fmt_int(kpis['total_validados']))
     k3.metric("Pendientes" + (f" ({clasif_sel})" if clasif_filter else ""),
-              f"{kpis['pendientes']:,}")
-    k4.metric("Validados en el periodo", f"{kpis['validados_periodo']:,}")
-    k5.metric(f"Por {annotator}", f"{kpis['por_anotador']:,}")
+              _fmt_int(kpis['pendientes']))
+    k4.metric("Validados en el periodo", _fmt_int(kpis['validados_periodo']))
+    k5.metric(f"Por {annotator}", _fmt_int(kpis['por_anotador']))
     st.progress(kpis["pct_avance"] / 100, text=f"Avance validación: {kpis['pct_avance']:.1f}%")
 
     # --- Panel de análisis de errores ---
@@ -10912,16 +10930,16 @@ def _render_validacion_llm_youtube(annotator: str):
 
     if odio_choice is None:
         st.caption(
-            "La predicción del LLM viene precargada; podés cambiarla. "
+            "La predicción del LLM viene precargada; puedes cambiarla. "
             "**Nada se guarda** hasta pulsar **Guardar y siguiente** (o **Saltar**)."
         )
     elif odio_choice in ("No Odio", "Dudoso"):
         st.info(
             "**No se guarda automáticamente** al cambiar a No odio o Dudoso. "
-            "Pulsá **Guardar y siguiente** abajo para registrar y pasar al siguiente mensaje."
+            "Pulsa **Guardar y siguiente** abajo para registrar y pasar al siguiente mensaje."
         )
     else:
-        st.caption("Ajustá los pasos 2 a 4 si hace falta y pulsá **Guardar y siguiente**.")
+        st.caption("Ajusta los pasos 2 a 4 si hace falta y pulsa **Guardar y siguiente**.")
 
     with st.form(key=fk, clear_on_submit=False):
         if only_odio:
@@ -10954,7 +10972,7 @@ def _render_validacion_llm_youtube(annotator: str):
 
             st.markdown(
                 '<div class="ann-step-header"><span class="ann-step-num">3</span> Intensidad</div>'
-                '<div class="ann-step-desc">Elegí un nivel tocando una de las tres opciones.</div>',
+                '<div class="ann-step-desc">Elige un nivel tocando una de las tres opciones.</div>',
                 unsafe_allow_html=True,
             )
             with _ann_styled_box(key=f"intchips_{fk}", css=_ANN_INTENSITY_CHIPS_CSS):
@@ -11117,11 +11135,11 @@ def _render_validacion_llm_x(annotator: str):
         _kpi_period,
     )
     k1, k2, k3, k4, k5 = st.columns(5)
-    k1.metric("Etiquetados LLM (X)", f"{kpis['total_etiquetados_llm']:,}")
-    k2.metric("Validados", f"{kpis['total_validados']:,}")
-    k3.metric("Pendientes" + filter_suffix, f"{kpis['pendientes']:,}")
-    k4.metric("Validados en el periodo", f"{kpis['validados_periodo']:,}")
-    k5.metric(f"Por {annotator}", f"{kpis['por_anotador']:,}")
+    k1.metric("Etiquetados LLM (X)", _fmt_int(kpis['total_etiquetados_llm']))
+    k2.metric("Validados", _fmt_int(kpis['total_validados']))
+    k3.metric("Pendientes" + filter_suffix, _fmt_int(kpis['pendientes']))
+    k4.metric("Validados en el periodo", _fmt_int(kpis['validados_periodo']))
+    k5.metric(f"Por {annotator}", _fmt_int(kpis['por_anotador']))
     st.progress(kpis["pct_avance"] / 100, text=f"Avance validación: {kpis['pct_avance']:.1f}%")
 
     with st.expander("📊 Análisis de concordancia LLM vs Humano (X / Twitter)", expanded=False):
@@ -11225,16 +11243,16 @@ def _render_validacion_llm_x(annotator: str):
 
     if odio_choice is None:
         st.caption(
-            "La predicción del LLM viene precargada; podés cambiarla. "
+            "La predicción del LLM viene precargada; puedes cambiarla. "
             "**Nada se guarda** hasta pulsar **Guardar y siguiente** (o **Saltar**)."
         )
     elif odio_choice in ("No Odio", "Dudoso"):
         st.info(
             "**No se guarda automáticamente** al cambiar a No odio o Dudoso. "
-            "Pulsá **Guardar y siguiente** abajo para registrar y pasar al siguiente mensaje."
+            "Pulsa **Guardar y siguiente** abajo para registrar y pasar al siguiente mensaje."
         )
     else:
-        st.caption("Ajustá los pasos 2 a 4 si hace falta y pulsá **Guardar y siguiente**.")
+        st.caption("Ajusta los pasos 2 a 4 si hace falta y pulsa **Guardar y siguiente**.")
 
     with st.form(key=fk, clear_on_submit=False):
         if only_odio:
@@ -11267,7 +11285,7 @@ def _render_validacion_llm_x(annotator: str):
 
             st.markdown(
                 '<div class="ann-step-header"><span class="ann-step-num">3</span> Intensidad</div>'
-                '<div class="ann-step-desc">Elegí un nivel tocando una de las tres opciones.</div>',
+                '<div class="ann-step-desc">Elige un nivel tocando una de las tres opciones.</div>',
                 unsafe_allow_html=True,
             )
             with _ann_styled_box(key=f"intchips_{fk}", css=_ANN_INTENSITY_CHIPS_CSS):
@@ -11344,10 +11362,10 @@ def _render_supervision_panel(period: str) -> None:
     by_annotator = data.get("by_annotator", pd.DataFrame())
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("YT Odio", f"{summary.get('YT Odio', 0):,}")
-    c2.metric("Art. 510", f"{summary.get('Art.510', 0):,}")
-    c3.metric("LLM YouTube", f"{summary.get('LLM YT', 0):,}")
-    c4.metric("LLM X", f"{summary.get('LLM X', 0):,}")
+    c1.metric("YT Odio", _fmt_int(summary.get('YT Odio', 0)))
+    c2.metric("Art. 510", _fmt_int(summary.get('Art.510', 0)))
+    c3.metric("LLM YouTube", _fmt_int(summary.get('LLM YT', 0)))
+    c4.metric("LLM X", _fmt_int(summary.get('LLM X', 0)))
 
     st.markdown("**Detalle por anotador**")
     if by_annotator is not None and not by_annotator.empty:
@@ -11399,7 +11417,7 @@ def render_anotacion():
             value=st.session_state.get("annotator_id", session_user),
             placeholder="Ej: CIEDES, Anotador1...",
             key="ann_id_input",
-            help="Admin: podés cambiar el ID para anotar en nombre de otro anotador.",
+            help="Admin: puedes cambiar el ID para anotar en nombre de otro anotador.",
         )
         if annotator:
             st.session_state["annotator_id"] = annotator.strip()
@@ -12124,8 +12142,8 @@ def render_buscador_terminos() -> None:
         k1, k2, k3, k4, k5 = st.columns(5)
     else:
         k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Menciones encontradas", f"{total:,}")
-    k2.metric("Medios distintos", f"{medios_distintos:,}")
+    k1.metric("Menciones encontradas", _fmt_int(total))
+    k2.metric("Medios distintos", _fmt_int(medios_distintos))
     k3.metric(_ui_label("% clasificado por LLM"), f"{pct_clasif:.1f}%")
     periodo_txt = (
         f"{fmin.strftime('%d/%m/%y')} → {fmax.strftime('%d/%m/%y')}"
@@ -12594,7 +12612,7 @@ En **Hugging Face Docker** configurá los secrets como variables de entorno:
                 st.markdown(
                     """
 **[Admin]** El usuario de BD configurado no tiene permisos de lectura sobre el esquema requerido.
-Revisá los GRANTs en Neon para el usuario de visualización.
+Revisa los GRANTs en Neon para el usuario de visualización.
 Script de referencia: `automatizacion_diaria/migrations/grant_analista_01_viewer.sql`
                     """
                 )
@@ -12641,7 +12659,7 @@ def main():
     else:
         st.error(
             f"Sección no reconocida: {section!r}. "
-            "Recargá la página o informá al administrador."
+            "Recarga la página o informa al administrador."
         )
 
     if section_changed:
