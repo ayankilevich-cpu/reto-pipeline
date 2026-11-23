@@ -1387,7 +1387,7 @@ def _fig_intensidad_apilada(df: pd.DataFrame) -> go.Figure:
     )
     fig.update_layout(
         height=420,
-        bargap=0.3,
+        bargap=0.38,
         margin=dict(l=10, r=10, t=90, b=10),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
