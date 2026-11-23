@@ -1332,7 +1332,10 @@ def _fmt_int(n) -> str:
     """Formatea un entero con separador de miles español (punto). None/NaN → '—'."""
     if n is None or (isinstance(n, float) and pd.isna(n)):
         return "—"
-    return f"{int(n):,}".replace(",", ".")
+    try:
+        return f"{int(n):,}".replace(",", ".")
+    except (ValueError, TypeError):
+        return str(n)
 
 
 def _apply_horizontal_bar_labels(fig):
