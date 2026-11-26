@@ -65,12 +65,14 @@ def _require_role(*allowed_roles: str, section: str = "esta sección") -> bool:
 def _render_section_header(title: str, subtitle_html: str = "") -> None:
     """Cabecera de sección unificada (barra lateral, tipografía global). `subtitle_html` es HTML fijo en código."""
     sub = (
-        f'<div class="subtitle">{subtitle_html}</div>'
+        f'<p style="margin:6px 0 0;font-size:16px;color:#5B6675;line-height:1.45">{subtitle_html}</p>'
         if (subtitle_html and subtitle_html.strip())
         else ""
     )
     st.markdown(
-        f'<div class="reto-section-header"><h1>{html.escape(title)}</h1>{sub}</div>',
+        f'<div class="reto-page-header" style="margin:4px 0 18px">'
+        f'<h1 style="font-size:32px;line-height:1.1;margin:0;padding:0;letter-spacing:-0.02em;color:#14202E">'
+        f'{html.escape(title)}</h1>{sub}</div>',
         unsafe_allow_html=True,
     )
 

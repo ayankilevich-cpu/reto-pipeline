@@ -1,6 +1,7 @@
 """Sección «Panel general» del dashboard (KPIs + estado del pipeline)."""
 from __future__ import annotations
 
+import html
 import sys
 from pathlib import Path
 from typing import Optional, Tuple
@@ -20,7 +21,6 @@ from components.constants import (
     platform_label,
 )
 from components.ui import (
-    _render_pg_kpi_grid,
     _render_section_header,
     _role_can_access_raw,
     _ui_label,
@@ -28,7 +28,8 @@ from components.ui import (
 from components.exports import render_section_exports
 from components.aviso_criterio import render_aviso_cambio_criterio
 from components.chart_style import (
-    NAVY, NEUTRAL, encabezado_grafico, fmt_int, fmt_pct, nota_fuente, tarjeta,
+    NAVY, NEUTRAL, encabezado_grafico, fmt_int, fmt_pct, kpi_tarjetas, linea_actividad,
+    nota_fuente, tarjeta,
 )
 from components.db_helpers import load_filter_options, _pooled_conn
 
@@ -248,6 +249,50 @@ def load_embudo(
     return df
 
 
+_RR_CSS = (
+    "<style>"
+    ".rr-flow{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));margin:18px 0 6px}"
+    ".rr-step{position:relative;padding:14px 16px 14px 18px;border-left:3px solid #8AA4BF}"
+    ".rr-step+.rr-step{margin-left:26px}"
+    ".rr-step+.rr-step::before{content:'';position:absolute;left:-29px;top:30px;width:20px;height:2px;background:#C3CFDC}"
+    ".rr-step+.rr-step::after{content:'';position:absolute;left:-14px;top:26px;border:5px solid transparent;border-left:7px solid #C3CFDC}"
+    ".rr-l{font-size:13px;color:#5B6675;min-height:2.6em;line-height:1.3}"
+    ".rr-v{font-size:28px;font-weight:700;letter-spacing:-.02em;margin-top:4px;white-space:nowrap;color:#14202E;font-variant-numeric:tabular-nums}"
+    ".rr-p{font-size:14px;color:#5B6675}"
+    ".rr-hate{border-left-color:#A32D2D;background:#FDF5F4;border-radius:0 10px 10px 0}"
+    ".rr-hate .rr-v{color:#A32D2D}"
+    ".rr-val{border-left-color:#1F4E79}.rr-val .rr-v{color:#1F4E79}"
+    ".rr-split{display:flex;height:6px;border-radius:3px;overflow:hidden;margin:8px 0 6px;background:#F09595}"
+    ".rr-split b{background:#A32D2D;display:block}"
+    ".rr-splitl{font-size:12px;color:#6B4A4A;line-height:1.45}"
+    "@media(max-width:1100px){.rr-flow{grid-template-columns:minmax(0,1fr)}"
+    ".rr-step+.rr-step{margin-left:0;margin-top:10px}"
+    ".rr-step+.rr-step::before,.rr-step+.rr-step::after{display:none}}"
+    "</style>"
+)
+
+
+def _recorrido_html(pasos, base: int, conf: int, ia: int) -> str:
+    """Genera el recorrido HTML en una sola línea para que Streamlit lo interprete como HTML."""
+    partes = []
+    for lab, val, cls in pasos:
+        extra = ""
+        if cls == "hate":
+            w = (conf / val * 100) if val else 0
+            extra = (
+                f"<div class='rr-split'><b style='width:{w:.1f}%'></b></div>"
+                f"<div class='rr-splitl'>{fmt_int(conf)} confirmados<br>"
+                f"{fmt_int(ia)} según IA, sin validar</div>"
+            )
+        partes.append(
+            f"<div class='rr-step{(' rr-' + cls) if cls else ''}'>"
+            f"<div class='rr-l'>{html.escape(lab)}</div>"
+            f"<div class='rr-v'>{fmt_int(val)}</div>"
+            f"<div class='rr-p'>{fmt_pct(val / base * 100)}</div>{extra}</div>"
+        )
+    return _RR_CSS + "<div class='rr-flow'>" + "".join(partes) + "</div>"
+
+
 def _render_embudo(df_emb: pd.DataFrame):
     cols = ["procesados", "candidatos", "clasificados", "odio_confirmado", "odio_ia",
             "validados", "ia_odio_revisados", "ia_odio_confirmados"]
@@ -299,21 +344,37 @@ def _render_embudo(df_emb: pd.DataFrame):
     encabezado_grafico(
         f"El odio identificado supone el {fmt_pct(odio_total / base * 100)} "
         "de los mensajes procesados",
-        "Porcentajes sobre el total de mensajes procesados.",
+        "Recorrido de los mensajes por cada etapa del sistema. Porcentajes sobre el total procesado.",
     )
-    st.plotly_chart(fig, use_container_width=True, theme=None)
+    st.markdown(
+        _recorrido_html(
+            [
+                ("Mensajes procesados", t["procesados"], ""),
+                ("Candidatos (filtro de términos)", t["candidatos"], ""),
+                ("Clasificados (IA + revisión humana)", t["clasificados"], ""),
+                ("Odio identificado", odio_total, "hate"),
+                ("Validados por revisión humana", t["validados"], "val"),
+            ],
+            base, t["odio_confirmado"], t["odio_ia"],
+        ),
+        unsafe_allow_html=True,
+    )
 
     nota = (
         "La IA se aplica a una selección priorizada de candidatos: las cifras de odio son un "
-        "mínimo identificado, no una estimación de la proporción de odio en el total de conversaciones."
+        "mínimo identificado, no una estimación del odio en el total de conversaciones."
     )
     if t["ia_odio_revisados"] >= _MIN_MUESTRA_PRECISION:
         prec = t["ia_odio_confirmados"] / t["ia_odio_revisados"] * 100
         nota += (
-            f" En la muestra revisada por personas ({_fmt_int(t['ia_odio_revisados'])} mensajes), "
-            f"el {prec:.0f}% de lo marcado como odio por la IA fue confirmado."
+            f" En la muestra revisada por personas ({fmt_int(t['ia_odio_revisados'])} mensajes), "
+            f"el {prec:.0f} % de lo marcado como odio por la IA fue confirmado."
         )
-    st.caption(nota)
+    st.markdown(
+        "<p style='font-size:13.5px;color:#5B6675;max-width:78ch;margin:12px 0 4px;"
+        f"border-top:1px solid #EEF1F5;padding-top:12px'>{html.escape(nota)}</p>",
+        unsafe_allow_html=True,
+    )
     return fig
 
 
@@ -329,47 +390,51 @@ def _render_odio_por_plataforma(df_emb: pd.DataFrame):
     dfp["pct_conf"] = dfp["odio_confirmado"] / dfp["procesados"] * 100
     dfp["pct_ia"] = dfp["odio_ia"] / dfp["procesados"] * 100
     dfp["pct_total"] = dfp["pct_conf"] + dfp["pct_ia"]
-    dfp = dfp.sort_values("pct_total")  # ascendente → la mayor queda arriba
+    dfp = dfp.sort_values("pct_total", ascending=True)
 
     fig = go.Figure()
-    fig.add_trace(go.Bar(
-        y=dfp["plataforma"], x=dfp["pct_conf"], orientation="h",
-        name="Confirmado por revisión humana",
-        marker_color=_COLOR_ODIO_CONF,
-        customdata=dfp[["odio_confirmado", "procesados"]].values,
-        hovertemplate="%{y}: %{x:.1f}% (%{customdata[0]:,} de %{customdata[1]:,})<extra>Confirmado</extra>",
-    ))
-    fig.add_trace(go.Bar(
-        y=dfp["plataforma"], x=dfp["pct_ia"], orientation="h",
-        name="Según IA, sin validar",
-        marker_color=_COLOR_ODIO_IA,
-        customdata=dfp[["odio_ia", "procesados"]].values,
-        hovertemplate="%{y}: %{x:.1f}% (%{customdata[0]:,} de %{customdata[1]:,})<extra>Solo IA</extra>",
-    ))
+    for col_pct, col_n, nombre, color in (
+        ("pct_conf", "odio_confirmado", "Confirmado", _COLOR_ODIO_CONF),
+        ("pct_ia", "odio_ia", "Según IA", _COLOR_ODIO_IA),
+    ):
+        fig.add_trace(go.Bar(
+            orientation="h", y=dfp["plataforma"], x=dfp[col_pct], name=nombre,
+            marker_color=color,
+            customdata=[[fmt_pct(p), fmt_int(a), fmt_int(b)]
+                        for p, a, b in zip(dfp[col_pct], dfp[col_n], dfp["procesados"])],
+            hovertemplate=(f"<b>%{{y}}</b><br>{nombre}: %{{customdata[0]}}<br>"
+                           "%{customdata[1]} de %{customdata[2]} mensajes<extra></extra>"),
+        ))
     for _, r in dfp.iterrows():
         fig.add_annotation(
-            y=r["plataforma"], x=r["pct_total"], xanchor="left", xshift=6, showarrow=False,
-            text=f"<b>{fmt_pct(r['pct_total'])}</b>",
-            font=dict(size=12, color="#1A202C"),
+            x=r["pct_total"], y=r["plataforma"], xanchor="left", xshift=10, showarrow=False,
+            text=f"<b>{fmt_pct(r['pct_total'])}</b>", font=dict(size=16, color="#14202E"),
         )
+    fig.update_layout(
+        barmode="stack", height=60 * len(dfp) + 50, bargap=0.5, showlegend=False,
+        margin=dict(l=8, r=80, t=6, b=6),
+        xaxis=dict(visible=False, range=[0, float(dfp["pct_total"].max()) * 1.15], fixedrange=True),
+        yaxis=dict(showgrid=False, fixedrange=True, ticksuffix="   ",
+                   tickfont=dict(size=15, color="#14202E")),
+    )
     _top = dfp.iloc[-1]
     if len(dfp) > 1:
         _tit = (f"{_top['plataforma']} registra la mayor proporción de odio identificado "
                 f"({fmt_pct(_top['pct_total'])})")
     else:
         _tit = f"Odio identificado en {_top['plataforma']}: {fmt_pct(_top['pct_total'])}"
-    encabezado_grafico(
-        _tit,
-        "% sobre los mensajes procesados de cada plataforma.",
-    )
-    fig.update_layout(
-        barmode="stack", height=max(200, len(dfp) * 60 + 60),
-        showlegend=False,
-        margin=dict(l=10, r=80, t=8, b=8),
-    )
-    fig.update_xaxes(ticksuffix="%", range=[0, float(dfp["pct_total"].max()) * 1.3])
-    fig.update_yaxes(automargin=True)
+    encabezado_grafico(_tit, "% de odio identificado sobre los mensajes procesados de cada plataforma.")
     st.plotly_chart(fig, use_container_width=True, theme=None)
+    st.markdown(
+        "<div style='display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:#5B6675;margin:6px 0 4px'>"
+        f"<span><span style='display:inline-block;width:11px;height:11px;border-radius:3px;"
+        f"background:{_COLOR_ODIO_CONF};margin-right:6px;vertical-align:-1px'></span>"
+        "Confirmado por revisión humana</span>"
+        f"<span><span style='display:inline-block;width:11px;height:11px;border-radius:3px;"
+        f"background:{_COLOR_ODIO_IA};margin-right:6px;vertical-align:-1px'></span>"
+        "Según IA, sin validar</span></div>",
+        unsafe_allow_html=True,
+    )
     return fig
 
 
@@ -876,8 +941,7 @@ def _render_gold_dataset_card() -> None:
 def render_panel_general():
     _render_section_header(
         "Panel general",
-        "Indicadores clave del proyecto ReTo · visión consolidada de volumen, "
-        "clasificaciones y validación humana.",
+        "Indicadores clave del proyecto ReTo: volumen analizado, clasificación y validación humana.",
     )
     render_aviso_cambio_criterio()
 
@@ -918,25 +982,20 @@ def render_panel_general():
     label_raw = "Mensajes totales (raw)" if _access_raw else "Mensajes procesados"
     label_llm = "Etiquetados por IA" if not _access_raw else "Etiquetados por LLM"
 
-    _render_pg_kpi_grid([
+    kpi_tarjetas([
         (label_raw, fmt_int(mensajes_totales), ""),
         ("Candidatos a odio", fmt_int(candidatos_odio), ""),
         (label_llm, fmt_int(etiquetados_llm), ""),
-        ("Mensajes validados", fmt_int(mensajes_validados), f"{fmt_int(mensajes_odio)} odio"),
+        ("Mensajes validados", fmt_int(mensajes_validados),
+         f"{fmt_int(mensajes_odio)} confirmados como odio"),
         ("Medios monitorizados", fmt_int(medios_monitorizados), ""),
     ])
-    st.markdown(
-        '<div class="pg-kpi-section-label">Actividad reciente</div>',
-        unsafe_allow_html=True,
-    )
-    _render_pg_kpi_grid([
-        ("Nuevos X hoy", fmt_int(nuevos_x_hoy), ""),
-        ("Nuevos YouTube hoy", fmt_int(nuevos_yt_hoy), ""),
-        ("Nuevos X ayer", fmt_int(nuevos_x_ayer), ""),
-        ("Nuevos YouTube ayer", fmt_int(nuevos_yt_ayer), ""),
-    ], secondary=True)
-
-    st.markdown("---")
+    _act = (f"Ayer se incorporaron {fmt_int(nuevos_x_ayer)} mensajes de X y "
+            f"{fmt_int(nuevos_yt_ayer)} de YouTube.")
+    if (nuevos_x_hoy or 0) + (nuevos_yt_hoy or 0) > 0:
+        _act += (f" Hoy, por ahora, {fmt_int(nuevos_x_hoy)} de X y "
+                 f"{fmt_int(nuevos_yt_hoy)} de YouTube.")
+    linea_actividad(_act + " Datos actualizados cada día.")
 
     _plat_t = tuple(sel_platforms) if sel_platforms else None
     _med_t = tuple(sel_medios) if sel_medios else None
@@ -992,11 +1051,11 @@ def render_panel_general():
                     .reindex(["1", "2", "3"], fill_value=0)
                     .rename_axis("Intensidad").reset_index(name="Cantidad")
                 )
-                int_data["Porcentaje"] = int_data["Cantidad"] / int_data["Cantidad"].sum() * 100
+                _n_tot = int(int_data["Cantidad"].sum())
+                int_data["Porcentaje"] = int_data["Cantidad"] / (_n_tot or 1) * 100
                 _INT_LABEL = {"1": "Baja (1)", "2": "Media (2)", "3": "Alta (3)"}
                 _INT_COLOR = {"1": "#F4C7C3", "2": "#E0726A", "3": "#A32D2D"}
                 _pct_alta = float(int_data.loc[int_data["Intensidad"] == "3", "Porcentaje"].sum())
-                _n_tot = int(int_data["Cantidad"].sum())
                 _media_int = (
                     sum(int(k) * int(c) for k, c in zip(int_data["Intensidad"], int_data["Cantidad"])) / _n_tot
                     if _n_tot else 0.0
@@ -1005,44 +1064,42 @@ def render_panel_general():
                 fig_int = go.Figure()
                 for _, r in int_data.iterrows():
                     k = r["Intensidad"]
-                    _lab = _INT_LABEL[k]
-                    pct = float(r["Porcentaje"])
                     fig_int.add_trace(go.Bar(
-                        orientation="h", y=[""], x=[pct], name=_lab,
+                        orientation="h", y=[""], x=[r["Porcentaje"]], name=_INT_LABEL[k],
                         marker_color=_INT_COLOR[k],
-                        text=[f"{pct:.0f} %".replace(".", ",") if pct >= 12 else ""],
-                        textposition="inside", insidetextanchor="middle",
-                        textfont=dict(size=12, color="#1A202C" if k == "1" else "#FFFFFF"),
-                        customdata=[[fmt_int(r["Cantidad"]), fmt_pct(pct)]],
-                        hovertemplate=(f"Nivel {_lab.lower()}: %{{customdata[1]}}"
+                        customdata=[[fmt_int(r["Cantidad"]), fmt_pct(r["Porcentaje"])]],
+                        hovertemplate=(f"Nivel {_INT_LABEL[k].lower()}: %{{customdata[1]}}"
                                        "<br>%{customdata[0]} mensajes<extra></extra>"),
                     ))
                 fig_int.update_layout(
-                    barmode="stack", height=84, showlegend=False,
+                    barmode="stack", height=60, showlegend=False,
                     margin=dict(l=0, r=0, t=4, b=4),
                     xaxis=dict(visible=False, range=[0, 100], fixedrange=True),
                     yaxis=dict(visible=False, fixedrange=True),
                 )
-                _items = "".join(
-                    f"<div style='display:flex;align-items:center;gap:8px'>"
-                    f"<span style='width:12px;height:12px;border-radius:3px;background:{_INT_COLOR[k]};"
-                    f"display:inline-block'></span>"
-                    f"<span style='font-size:14px;color:#1A202C'>{_INT_LABEL[k]} "
-                    f"<b>{fmt_pct(p)}</b></span>"
-                    f"<span style='font-size:12px;color:#7A8699'>{fmt_int(c)} mensajes</span></div>"
+                _filas = "".join(
+                    "<div style='display:grid;grid-template-columns:18px 96px 72px 1fr;"
+                    "align-items:center;font-size:14.5px;color:#14202E'>"
+                    f"<span style='width:11px;height:11px;border-radius:3px;background:{_INT_COLOR[k]};"
+                    "display:inline-block'></span>"
+                    f"<span>{_INT_LABEL[k]}</span>"
+                    f"<span style='font-weight:700;text-align:right;padding-right:16px'>{fmt_pct(p)}</span>"
+                    f"<span style='font-size:13px;color:#7A8699'>{fmt_int(c)} mensajes</span></div>"
                     for k, p, c in zip(int_data["Intensidad"], int_data["Porcentaje"], int_data["Cantidad"])
                 )
+                _media_txt = f"{_media_int:.2f}".replace(".", ",")
                 with tarjeta():
                     encabezado_grafico(
                         f"El {fmt_pct(_pct_alta)} del odio identificado es de intensidad alta",
-                        f"Entre los {fmt_int(n_odio)} mensajes clasificados como odio. "
-                        f"Intensidad promedio: {f'{_media_int:.2f}'.replace('.', ',')} "
-                        "en una escala de 1 (baja) a 3 (alta).",
+                        f"Entre los {fmt_int(n_odio)} mensajes clasificados como odio.",
                     )
                     st.plotly_chart(fig_int, use_container_width=True, theme=None)
                     st.markdown(
-                        "<div style='display:flex;flex-direction:column;gap:10px;margin:4px 0 8px'>"
-                        f"{_items}</div>",
+                        "<div style='display:grid;gap:10px;margin:6px 0 0'>" + _filas + "</div>"
+                        "<div style='display:flex;align-items:baseline;gap:8px;margin:16px 0 6px;"
+                        "padding-top:14px;border-top:1px solid #EEF1F5;font-size:14px;color:#5B6675'>"
+                        f"<strong style='font-size:22px;color:#14202E'>{_media_txt}</strong>"
+                        "<span>intensidad promedio en una escala de 1 (baja) a 3 (alta)</span></div>",
                         unsafe_allow_html=True,
                     )
             else:
