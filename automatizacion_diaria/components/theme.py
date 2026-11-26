@@ -838,34 +838,35 @@ def _register_plotly_theme() -> None:
     if pio is None:
         return
     template = go.layout.Template()
+    _INK, _MUTED = "#1A202C", "#5B6675"
+    _axis = dict(
+        gridcolor="#EEF1F5", showline=False, zeroline=False, ticks="",
+        tickfont=dict(size=12, color=_MUTED),
+        title=dict(font=dict(size=12, color=_MUTED)),
+    )
     template.layout = go.Layout(
-        font=dict(family=_PLOTLY_FONT_FAMILY, size=12, color="#1A202C"),
+        font=dict(family=_PLOTLY_FONT_FAMILY, size=12, color=_INK),
+        separators=",.",
         title=dict(
-            font=dict(size=15, color="#1A202C", family="Inter, -apple-system, sans-serif"),
+            font=dict(size=16, color="#14202E", family=_PLOTLY_FONT_FAMILY, weight=600),
             x=0.0, xanchor="left", pad=dict(t=4, b=8),
+            subtitle=dict(font=dict(size=13, color=_MUTED, family=_PLOTLY_FONT_FAMILY)),
         ),
         paper_bgcolor="#FFFFFF",
         plot_bgcolor="#FFFFFF",
         colorway=list(CAT_COLOR_MAP.values()),
-        xaxis=dict(
-            gridcolor="#EDF2F7", linecolor="#CBD5E0", zerolinecolor="#E2E8F0",
-            tickcolor="#A0AEC0", tickfont=dict(size=12, color="#4A5568"),
-        ),
-        yaxis=dict(
-            gridcolor="#EDF2F7", linecolor="#CBD5E0", zerolinecolor="#E2E8F0",
-            tickcolor="#A0AEC0", tickfont=dict(size=12, color="#4A5568"),
-        ),
+        xaxis=_axis,
+        yaxis=_axis,
         legend=dict(
-            font=dict(size=12, color="#4A5568", family="Inter, -apple-system, sans-serif"),
-            bgcolor="rgba(255,255,255,0)",
-            bordercolor="rgba(0,0,0,0)",
+            font=dict(size=12, color="#4A5568", family=_PLOTLY_FONT_FAMILY),
+            bgcolor="rgba(255,255,255,0)", bordercolor="rgba(0,0,0,0)",
         ),
         margin=dict(l=40, r=24, t=56, b=44),
         bargap=0.38,
         bargroupgap=0.1,
         hoverlabel=dict(
-            bgcolor="#1F4E79", bordercolor="#1F4E79",
-            font=dict(color="#FFFFFF", family=_PLOTLY_FONT_FAMILY, size=12),
+            bgcolor="#FFFFFF", bordercolor="#D5DBE3", align="left",
+            font=dict(color=_INK, family=_PLOTLY_FONT_FAMILY, size=13),
         ),
     )
     pio.templates["reto"] = template
