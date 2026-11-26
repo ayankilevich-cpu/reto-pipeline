@@ -25,7 +25,7 @@ from components.exports import render_section_exports
 from components.aviso_criterio import render_aviso_cambio_criterio
 
 
-@st.cache_data(ttl=3600, show_spinner="Cargando datos…")
+@st.cache_data(ttl=86400, show_spinner="Cargando datos…", max_entries=64)
 def _load_ranking_medios_raw(min_msgs: int = 100, fecha_desde: Optional[str] = None, fecha_hasta: Optional[str] = None) -> pd.DataFrame:
     conds = ["pm.source_media IS NOT NULL AND pm.source_media != ''",
              "pm.source_media NOT IN %s"]
@@ -70,7 +70,7 @@ def _load_ranking_medios_raw(min_msgs: int = 100, fecha_desde: Optional[str] = N
     return df
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400, max_entries=64)
 def load_ranking_medios(
     platforms: Optional[Tuple] = None,
     fecha_desde: Optional[str] = None,

@@ -42,7 +42,7 @@ except ImportError:  # pragma: no cover
 # ============================================================
 # ANÁLISIS CONTEXTUAL SEMANAL
 # ============================================================
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400, max_entries=64)
 def load_analisis_semanal() -> pd.DataFrame:
     with _pooled_conn() as conn:
         df = pd.read_sql("""

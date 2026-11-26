@@ -39,7 +39,7 @@ except ImportError:
             break
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=86400, max_entries=64)
 def load_terminos(
     platforms: Optional[Tuple] = None,
     medios: Optional[Tuple] = None,
@@ -170,7 +170,7 @@ def _filter_counter_terminos_neutros(counter: Counter, exclude: frozenset) -> Co
     return out
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=86400, max_entries=64)
 def compute_terminos_counter(
     platforms: Optional[Tuple] = None,
     medios: Optional[Tuple] = None,
@@ -213,7 +213,7 @@ def compute_terminos_counter(
     return counter, n_tokens_antes, len(exclude)
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=86400, max_entries=64)
 def generate_wordcloud_array(freqs: Tuple[Tuple[str, int], ...], max_words: int):
     """
     Genera la imagen de la wordcloud como array de numpy (picklable, apto

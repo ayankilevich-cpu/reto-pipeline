@@ -126,7 +126,7 @@ def _fmt_var(cur, prev) -> str | None:
 
 
 # ── Carga de datos ───────────────────────────────────────────────────────
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=86400, max_entries=64)
 def load_crime_totals() -> pd.DataFrame:
     with _pooled_conn() as conn:
         df = pd.read_sql("""
@@ -138,7 +138,7 @@ def load_crime_totals() -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=86400, max_entries=64)
 def load_crime_solved() -> pd.DataFrame:
     with _pooled_conn() as conn:
         df = pd.read_sql("""
@@ -150,7 +150,7 @@ def load_crime_solved() -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=86400, max_entries=64)
 def load_authors_age() -> pd.DataFrame:
     with _pooled_conn() as conn:
         df = pd.read_sql("""
@@ -162,7 +162,7 @@ def load_authors_age() -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=86400, max_entries=64)
 def load_investigations_sex() -> pd.DataFrame:
     with _pooled_conn() as conn:
         df = pd.read_sql("""
@@ -174,7 +174,7 @@ def load_investigations_sex() -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=86400, max_entries=64)
 def load_fiscalia_motives() -> pd.DataFrame:
     """Motivos + fila TOTAL oficial por año y tipo (solo filas con dato publicado)."""
     with _pooled_conn() as conn:
@@ -188,7 +188,7 @@ def load_fiscalia_motives() -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=86400, max_entries=64)
 def load_fiscalia_articles() -> pd.DataFrame:
     """Diligencias / escritos de acusación / sentencias por artículo del Código Penal."""
     with _pooled_conn() as conn:
