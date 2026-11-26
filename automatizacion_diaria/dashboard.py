@@ -110,6 +110,17 @@ def _firma_ultima_corrida() -> Optional[str]:
         return None
 
 
+def _warm_wordcloud(compute_fn, wc_fn) -> None:
+    """Nube por defecto: mismos argumentos y top_n que render_terminos sin tocar widgets."""
+    counter, _, _ = compute_fn(
+        platforms=None, medios=None, categorias=None,
+        solo_candidatos=True, ultimas_horas=None, filtro_neutros=True,
+    )
+    if counter:
+        _max_n = min(50, max(1, len(counter)))
+        wc_fn(tuple(counter.most_common()), min(25, _max_n))
+
+
 def _precalentar_cache() -> None:
     """Ejecuta load_* de secciones públicas para llenar @st.cache_data.
 
@@ -129,7 +140,7 @@ def _precalentar_cache() -> None:
     from secciones.ranking_medios import load_ranking_medios, _load_ranking_medios_raw
     from secciones.analisis_contextual import load_analisis_semanal
     from secciones.semaforo_diario import load_semaforo_diario
-    from secciones.terminos_frecuentes import load_terminos, compute_terminos_counter
+    from secciones.terminos_frecuentes import load_terminos, compute_terminos_counter, generate_wordcloud_array
     from secciones.delitos_odio import (
         load_crime_totals, load_crime_solved, load_authors_age,
         load_investigations_sex, load_fiscalia_motives, load_fiscalia_articles,
@@ -146,13 +157,14 @@ def _precalentar_cache() -> None:
         ("load_categorias",               lambda: load_categorias(None, None, None)),
         ("load_intensidad_por_categoria", lambda: load_intensidad_por_categoria(None, None, None)),
         ("load_resultado_clasificacion",  lambda: load_resultado_clasificacion(None, None)),
-        ("load_ranking_medios",           lambda: load_ranking_medios(None, None, None)),
+        ("load_ranking_medios",           lambda: load_ranking_medios(fecha_desde=None, fecha_hasta=None)),
         ("_load_valid_media_map",         lambda: _load_valid_media_map()),
         ("_load_ranking_medios_raw",      lambda: _load_ranking_medios_raw(min_msgs=1)),
         ("load_analisis_semanal",         lambda: load_analisis_semanal()),
         ("load_semaforo_diario",          lambda: load_semaforo_diario()),
         ("load_terminos",                 lambda: load_terminos(platforms=None, medios=None, categorias=None, solo_candidatos=True, ultimas_horas=None)),
         ("compute_terminos_counter",      lambda: compute_terminos_counter(platforms=None, medios=None, categorias=None, solo_candidatos=True, ultimas_horas=None, filtro_neutros=True)),
+        ("generate_wordcloud_array",      lambda: _warm_wordcloud(compute_terminos_counter, generate_wordcloud_array)),
         ("load_gold_full",                lambda: load_gold_full()),
         ("load_crime_totals",             lambda: load_crime_totals()),
         ("load_crime_solved",             lambda: load_crime_solved()),
@@ -173,7 +185,7 @@ def _precalentar_cache() -> None:
         except Exception as exc:
             _log.warning("[WARMUP] %s: %s", nombre, exc)
     _tlog("warmup.TOTAL (desde inicio proceso)", _T_PROCESS_START)
-    _logging.getLogger("reto.warmup").info("[WARMUP] %d/%d loaders completados", ok, len(llamadas))
+    _logging.getLogger("reto.warmup").warning("[WARMUP] %d/%d loaders completados", ok, len(llamadas))
 
 
 def _warmer_loop() -> None:
@@ -192,6 +204,7 @@ def _warmer_loop() -> None:
         _precalentar_cache()
     except Exception as exc:
         _log.warning("[WARMUP] warmup inicial fallido: %s", exc)
+    _firma_cache = _firma_ultima_corrida()
 
     while True:
         _time.sleep(3600)
@@ -201,7 +214,7 @@ def _warmer_loop() -> None:
 
             firma = _firma_ultima_corrida()
             if firma is not None and firma != _firma_cache:
-                _log.info("[WARMUP] nueva corrida detectada (%s), limpiando caché…", firma)
+                _log.warning("[WARMUP] nueva corrida detectada (%s), limpiando caché…", firma)
                 st.cache_data.clear()
                 _firma_cache = firma
 
