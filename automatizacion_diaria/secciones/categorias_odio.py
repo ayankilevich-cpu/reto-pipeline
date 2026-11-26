@@ -31,7 +31,7 @@ from components.exports import render_section_exports
 from components.db_helpers import _public_medio_label, load_filter_options, _pooled_conn
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=86400, max_entries=64)
 def load_llm_stats() -> dict:
     """Total de mensajes procesados por LLM, desglosado por plataforma."""
     with _pooled_conn() as conn:
@@ -73,7 +73,7 @@ def load_llm_stats() -> dict:
     }
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=86400, max_entries=64)
 def load_categorias(
     platforms: Optional[Tuple] = None,
     medios: Optional[Tuple] = None,
@@ -110,7 +110,7 @@ def load_categorias(
     return df
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=86400, max_entries=64)
 def load_intensidad_por_categoria(
     platforms: Optional[Tuple] = None,
     medios: Optional[Tuple] = None,
@@ -162,7 +162,7 @@ def _fmt_int_es(n) -> str:
     return f"{int(n):,}".replace(",", ".")
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=86400, max_entries=64)
 def load_resultado_clasificacion(
     platforms: Optional[Tuple] = None,
     medios: Optional[Tuple] = None,

@@ -35,7 +35,7 @@ from components.aviso_criterio import render_aviso_cambio_criterio
 from components.db_helpers import load_filter_options, _pooled_conn
 
 
-@st.cache_data(ttl=300, show_spinner="Cargando datos…")
+@st.cache_data(ttl=86400, show_spinner="Cargando datos…", max_entries=64)
 def load_kpis(
     access_raw: bool,
     platforms: Optional[Tuple] = None,
@@ -206,7 +206,7 @@ def _fmt_pct_es(v: float) -> str:
     return f"{v:.1f}%".replace(".", ",")
 
 
-@st.cache_data(ttl=300, show_spinner="Cargando datos…")
+@st.cache_data(ttl=86400, show_spinner="Cargando datos…", max_entries=64)
 def load_embudo(
     platforms: Optional[Tuple] = None,
     medios: Optional[Tuple] = None,
@@ -720,7 +720,7 @@ def render_pipeline_status_banner(
 # ============================================================
 # SECTIONS
 # ============================================================
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400, max_entries=64)
 def load_gold_stats() -> dict:
     with _pooled_conn() as conn:
         row = pd.read_sql(f"""
@@ -767,7 +767,7 @@ def load_gold_stats() -> dict:
     }
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400, max_entries=64)
 def load_matriz_confusion() -> pd.DataFrame:
     with _pooled_conn() as conn:
         return pd.read_sql(f"""
@@ -1101,7 +1101,7 @@ def render_panel_general():
         _render_gold_dataset_card()
 
 
-@st.cache_data(ttl=300, show_spinner="Cargando datos…")
+@st.cache_data(ttl=86400, show_spinner="Cargando datos…", max_entries=64)
 def _load_panel_combined(
     platforms: Optional[Tuple] = None,
     medios: Optional[Tuple] = None,

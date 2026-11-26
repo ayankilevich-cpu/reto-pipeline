@@ -226,8 +226,9 @@ def _render_db_retry_notice() -> None:
         st.rerun()
 
 
+@st.cache_data(ttl=600, show_spinner=False)
 def _probe_db_connection(probe_table: str):
-    """Ejecuta SELECT 1 + COUNT para verificar conexión y permisos.
+    """Ejecuta SELECT 1 + tabla probe para verificar conexión y permisos.
 
     Devuelve (schema_ok, perm_denied). Lanza excepción si hay error de red/timeout.
     """
@@ -237,7 +238,7 @@ def _probe_db_connection(probe_table: str):
         with conn.cursor() as cur:
             cur.execute("SELECT 1")
             try:
-                cur.execute(f"SELECT COUNT(*) FROM {probe_table}")
+                cur.execute(f"SELECT 1 FROM {probe_table} LIMIT 1")
                 cur.fetchone()
                 schema_ok = True
             except Exception as probe_exc:

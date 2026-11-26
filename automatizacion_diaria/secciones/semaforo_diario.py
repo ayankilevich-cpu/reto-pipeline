@@ -35,7 +35,7 @@ _MESES_CORTOS = ("ene", "feb", "mar", "abr", "may", "jun",
                  "jul", "ago", "sep", "oct", "nov", "dic")
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=86400, max_entries=64)
 def load_semaforo_diario(dias: int = VENTANA_DIAS_DASHBOARD) -> pd.DataFrame:
     """Últimos `dias` de processed.semaforo_diario, ambas plataformas."""
     query = """
@@ -221,7 +221,7 @@ def _rangos_alerta(fecha_alerta: date) -> tuple[date, date, date, date]:
     return ini_v, fin_v, ini_r, fin_r
 
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=86400, max_entries=64)
 def load_desglose_alerta_x(fecha_alerta: date) -> pd.DataFrame:
     """Mensajes de X con priority='alta' en ventana de alerta + referencia.
     El texto se usa solo para contar temas en memoria; nunca se muestra."""

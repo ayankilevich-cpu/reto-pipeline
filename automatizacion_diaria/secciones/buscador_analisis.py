@@ -48,7 +48,7 @@ _MEDIOS_AUDITADOS = {
 }
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600, max_entries=50)
 def _load_buscador_resultados(termino: str) -> Tuple[pd.DataFrame, bool]:
     """
     Busca mensajes cuyo content_original contenga el término (ILIKE).

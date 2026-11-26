@@ -96,7 +96,7 @@ def _pooled_conn():
         pool.putconn(conn, close=broken)
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400, max_entries=64)
 def _load_valid_media_map() -> Tuple[Set[str], Dict[str, str]]:
     """Carga el JSON con los medios válidos y el mapeo handle → nombre.
     El JSON se genera a partir del Excel maestro y se despliega junto a la app.
@@ -137,7 +137,7 @@ def _public_medio_label(source_media: Any) -> Optional[str]:
 # ============================================================
 # DATA LOADING — filter-aware
 # ============================================================
-@st.cache_data(ttl=3600, show_spinner="Cargando opciones de filtro…")
+@st.cache_data(ttl=86400, show_spinner="Cargando opciones de filtro…", max_entries=64)
 def load_filter_options(access_raw: bool) -> dict:
     """Load distinct values for all filter dropdowns."""
     platform_sql = (
@@ -400,7 +400,7 @@ def load_art510_candidates(
     return df
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=86400, max_entries=64)
 def load_gold_full() -> pd.DataFrame:
     """Carga el gold dataset unido con validaciones manuales y etiquetas LLM."""
     with _pooled_conn() as conn:
