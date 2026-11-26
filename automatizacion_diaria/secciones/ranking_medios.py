@@ -11,6 +11,7 @@ if str(_HERE) not in sys.path:
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 from components.constants import COLORS, EXCLUDED_SOURCE_MEDIA, PLATFORM_DISPLAY
@@ -23,6 +24,10 @@ from components.ui import (
 )
 from components.exports import render_section_exports
 from components.aviso_criterio import render_aviso_cambio_criterio
+from components.chart_style import (
+    ACCENT, MUTED, NAVY, colores_destacados, encabezado_grafico,
+    etiqueta_doble, fmt_int, fmt_pct, nota_fuente,
+)
 
 
 @st.cache_data(ttl=86400, show_spinner="Cargando datos…", max_entries=64)
@@ -106,41 +111,67 @@ def _render_ranking_simple(df: pd.DataFrame, top_n: int, key_suffix: str):
         st.info("No hay datos de medios para esta vista.")
         return
 
-    df_vol = df.sort_values("total_mensajes", ascending=False).head(top_n)
-    df_pct = df.sort_values("pct_odio_any", ascending=False).head(top_n)
-    chart_h = max(350, top_n * 30)
+    df_vol = df.sort_values("total_mensajes", ascending=False).head(top_n).copy()
+    _, _h2n = _load_valid_media_map()
+    df_vol["medio"] = df_vol["source_media"].map(lambda sm: _h2n.get(sm, sm))
 
-    col1, col2 = st.columns(2)
+    _tot = df_vol["total_mensajes"].sum()
+    _media = (df_vol["odio_cualquiera"].sum() / _tot * 100) if _tot else 0.0
 
-    with col1:
-        fig1 = px.bar(
-            df_vol, x="total_mensajes", y="source_media", orientation="h",
-            labels={"total_mensajes": "Total mensajes", "source_media": ""},
-            title=f"Top {top_n} medios — Volumen de mensajes",
-            text_auto=",.0f",
-        )
-        fig1.update_traces(marker_color="#1F4E79", marker_line_color="#1A3C5C", marker_line_width=0.5)
-        fig1.update_layout(
-            height=chart_h, yaxis=dict(autorange="reversed"),
-            showlegend=False, coloraxis_showscale=False,
-        )
-        _apply_horizontal_bar_labels(fig1)
-        st.plotly_chart(fig1, use_container_width=True, theme=None, key=f"rm_vol_{key_suffix}")
+    df_plot = df_vol.sort_values("pct_odio_any", ascending=False).reset_index(drop=True)
+    _ids = df_plot["source_media"].astype(str).tolist()
+    _top3 = set(_ids[:3])
+    _lider = df_plot.iloc[0]
+    _xmax = max(float(df_plot["pct_odio_any"].max()), _media) * 1.25 or 1
 
-    with col2:
-        fig2 = px.bar(
-            df_pct, x="pct_odio_any", y="source_media", orientation="h",
-            labels={"pct_odio_any": "% Odio", "source_media": ""},
-            title=f"Top {top_n} medios — % Odio",
-            text_auto=".1f",
-        )
-        fig2.update_traces(marker_color="#C0392B", marker_line_color="#8C2A20", marker_line_width=0.5)
-        fig2.update_layout(
-            height=chart_h, yaxis=dict(autorange="reversed"),
-            showlegend=False, coloraxis_showscale=False,
-        )
-        _apply_horizontal_bar_labels(fig2)
-        st.plotly_chart(fig2, use_container_width=True, theme=None, key=f"rm_pct_{key_suffix}")
+    fig = go.Figure(go.Bar(
+        orientation="h",
+        y=_ids,
+        x=df_plot["pct_odio_any"],
+        marker_color=colores_destacados(_ids, _top3),
+        text=[fmt_pct(v) for v in df_plot["pct_odio_any"]],
+        textposition="outside",
+        cliponaxis=False,
+        textfont=dict(size=13, color=[ACCENT if i in _top3 else MUTED for i in _ids]),
+        customdata=[[m, fmt_int(t), fmt_int(o), fmt_pct(p)] for m, t, o, p in zip(
+            df_plot["medio"], df_plot["total_mensajes"],
+            df_plot["odio_cualquiera"], df_plot["pct_odio_any"])],
+        hovertemplate=(
+            "<b>%{customdata[0]}</b><br>%{customdata[1]} mensajes analizados<br>"
+            "%{customdata[2]} clasificados como odio<br><b>%{customdata[3]} de odio</b>"
+            "<extra></extra>"
+        ),
+    ))
+    fig.add_vline(
+        x=_media, line=dict(color=NAVY, width=1.5, dash="dot"),
+        annotation_text=f"Media del grupo: {fmt_pct(_media)}",
+        annotation_position="top right",
+        annotation_font=dict(size=12, color=NAVY),
+    )
+    fig.update_layout(
+        height=max(380, len(_ids) * 46),
+        showlegend=False,
+        bargap=0.42,
+        margin=dict(l=8, r=64, t=28, b=8),
+        xaxis=dict(visible=False, range=[0, _xmax], fixedrange=True),
+        yaxis=dict(
+            autorange="reversed", showgrid=False, fixedrange=True, automargin=True,
+            tickvals=_ids,
+            ticktext=[etiqueta_doble(m, f"{fmt_int(t)} mensajes")
+                      for m, t in zip(df_plot["medio"], df_plot["total_mensajes"])],
+            ticksuffix="   ",
+            tickfont=dict(size=13, color="#1A202C"),
+        ),
+    )
+
+    encabezado_grafico(
+        f"{_lider['medio']} registra el mayor porcentaje de odio entre los "
+        f"{len(_ids)} medios con más mensajes ({fmt_pct(_lider['pct_odio_any'])})",
+        "Porcentaje de mensajes clasificados como odio sobre el total de cada medio. "
+        "Debajo de cada nombre, mensajes analizados. Línea punteada: media del grupo.",
+    )
+    st.plotly_chart(fig, use_container_width=True, theme=None, key=f"rm_pct_{key_suffix}")
+    nota_fuente()
 
     detail_cols = {
         "source_media": "Medio",
@@ -162,7 +193,7 @@ def _render_ranking_simple(df: pd.DataFrame, top_n: int, key_suffix: str):
     except Exception:
         _column_config = {}
     # Tabla del ranking: df_display es la copia mostrada (no el df cargado desde BD).
-    df_display = df_vol[available].rename(columns=detail_cols)
+    df_display = df_vol.assign(source_media=df_vol["medio"])[available].rename(columns=detail_cols)
     if st.session_state.get("user_role") == "viewer":
         df_display = df_display.drop(columns=["odio_gold"], errors="ignore")
     st.dataframe(
