@@ -993,9 +993,14 @@ def render_panel_general():
                     .rename_axis("Intensidad").reset_index(name="Cantidad")
                 )
                 int_data["Porcentaje"] = int_data["Cantidad"] / int_data["Cantidad"].sum() * 100
-                _INT_LABEL = {"1": "Baja", "2": "Media", "3": "Alta"}
+                _INT_LABEL = {"1": "Baja (1)", "2": "Media (2)", "3": "Alta (3)"}
                 _INT_COLOR = {"1": "#F4C7C3", "2": "#E0726A", "3": "#A32D2D"}
                 _pct_alta = float(int_data.loc[int_data["Intensidad"] == "3", "Porcentaje"].sum())
+                _n_tot = int(int_data["Cantidad"].sum())
+                _media_int = (
+                    sum(int(k) * int(c) for k, c in zip(int_data["Intensidad"], int_data["Cantidad"])) / _n_tot
+                    if _n_tot else 0.0
+                )
 
                 fig_int = go.Figure()
                 for _, r in int_data.iterrows():
@@ -1009,7 +1014,7 @@ def render_panel_general():
                         textposition="inside", insidetextanchor="middle",
                         textfont=dict(size=12, color="#1A202C" if k == "1" else "#FFFFFF"),
                         customdata=[[fmt_int(r["Cantidad"]), fmt_pct(pct)]],
-                        hovertemplate=(f"Intensidad {_lab.lower()}: %{{customdata[1]}}"
+                        hovertemplate=(f"Nivel {_lab.lower()}: %{{customdata[1]}}"
                                        "<br>%{customdata[0]} mensajes<extra></extra>"),
                     ))
                 fig_int.update_layout(
@@ -1030,7 +1035,9 @@ def render_panel_general():
                 with tarjeta():
                     encabezado_grafico(
                         f"El {fmt_pct(_pct_alta)} del odio identificado es de intensidad alta",
-                        f"Entre los {fmt_int(n_odio)} mensajes clasificados como odio.",
+                        f"Entre los {fmt_int(n_odio)} mensajes clasificados como odio. "
+                        f"Intensidad promedio: {f'{_media_int:.2f}'.replace('.', ',')} "
+                        "en una escala de 1 (baja) a 3 (alta).",
                     )
                     st.plotly_chart(fig_int, use_container_width=True, theme=None)
                     st.markdown(
