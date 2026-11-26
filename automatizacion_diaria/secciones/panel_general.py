@@ -1018,27 +1018,26 @@ def render_panel_general():
                     xaxis=dict(visible=False, range=[0, 100], fixedrange=True),
                     yaxis=dict(visible=False, fixedrange=True),
                 )
-                encabezado_grafico(
-                    f"El {fmt_pct(_pct_alta)} del odio identificado es de intensidad alta",
-                    f"n = {fmt_int(n_odio)} mensajes clasificados como odio.",
+                _items = "".join(
+                    f"<div style='display:flex;align-items:center;gap:8px'>"
+                    f"<span style='width:12px;height:12px;border-radius:3px;background:{_INT_COLOR[k]};"
+                    f"display:inline-block'></span>"
+                    f"<span style='font-size:14px;color:#1A202C'>{_INT_LABEL[k]} "
+                    f"<b>{fmt_pct(p)}</b></span>"
+                    f"<span style='font-size:12px;color:#7A8699'>{fmt_int(c)} mensajes</span></div>"
+                    for k, p, c in zip(int_data["Intensidad"], int_data["Porcentaje"], int_data["Cantidad"])
                 )
-                st.plotly_chart(fig_int, use_container_width=True, theme=None)
-                _sq = lambda c: (
-                    "<span style='display:inline-block;width:10px;height:10px;"
-                    f"background:{c};border-radius:2px;margin-right:4px'></span>"
-                )
-                _legend_parts = [
-                    f"{_sq(_INT_COLOR[k])}<b>{_INT_LABEL[k]}</b> "
-                    + fmt_pct(float(
-                        int_data.loc[int_data["Intensidad"] == k, "Porcentaje"].iloc[0]
-                    ))
-                    for k in ["1", "2", "3"]
-                ]
-                st.markdown(
-                    "<div style='margin-top:2px;font-size:13px;color:#4A5568'>"
-                    + " &nbsp;·&nbsp; ".join(_legend_parts) + "</div>",
-                    unsafe_allow_html=True,
-                )
+                with tarjeta():
+                    encabezado_grafico(
+                        f"El {fmt_pct(_pct_alta)} del odio identificado es de intensidad alta",
+                        f"Entre los {fmt_int(n_odio)} mensajes clasificados como odio.",
+                    )
+                    st.plotly_chart(fig_int, use_container_width=True, theme=None)
+                    st.markdown(
+                        "<div style='display:flex;flex-direction:column;gap:10px;margin:4px 0 8px'>"
+                        f"{_items}</div>",
+                        unsafe_allow_html=True,
+                    )
             else:
                 st.info("Sin datos de intensidad.")
 

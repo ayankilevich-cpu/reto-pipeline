@@ -823,7 +823,7 @@ footer, [data-testid="stFooter"] {
 }
 
 /* Plotly: fondo blanco aunque Streamlit sobreescriba secondaryBackgroundColor */
-t .plotly .bg { fill: #FFFFFF !important; }
+.js-plotly-plot .plotly .bg { fill: #FFFFFF !important; }
 </style>
 """
 
