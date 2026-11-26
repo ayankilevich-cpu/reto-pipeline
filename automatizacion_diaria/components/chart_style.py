@@ -47,12 +47,12 @@ def colores_destacados(claves: Iterable, destacar: Iterable,
 def encabezado_grafico(titulo: str, subtitulo: Optional[str] = None) -> None:
     """Título-conclusión + subtítulo encima del gráfico (HTML: hace salto de línea solo)."""
     sub = (
-        f"<p style='margin:2px 0 6px;font-size:14px;color:{MUTED};max-width:75ch'>"
+        f"<p style='margin:2px 0 4px;font-size:13px;color:{MUTED}'>"
         f"{html.escape(subtitulo)}</p>" if subtitulo else ""
     )
     st.markdown(
         f"<div style='margin-top:6px'>"
-        f"<p style='margin:0;font-size:19px;font-weight:600;line-height:1.3;color:{INK}'>"
+        f"<p style='margin:0;font-size:18px;font-weight:600;line-height:1.3;color:{INK}'>"
         f"{html.escape(titulo)}</p>{sub}</div>",
         unsafe_allow_html=True,
     )
@@ -60,7 +60,12 @@ def encabezado_grafico(titulo: str, subtitulo: Optional[str] = None) -> None:
 
 def nota_fuente(texto: str = FUENTE_RETO) -> None:
     st.markdown(
-        f"<p style='margin:-4px 0 12px;font-size:12px;color:{SUBTLE};"
-        f"border-top:1px solid #EEF1F5;padding-top:6px'>{html.escape(texto)}</p>",
+        f"<p style='margin:-4px 0 12px;font-size:12px;color:{SUBTLE}'>"
+        f"{html.escape(texto)}</p>",
         unsafe_allow_html=True,
     )
+
+
+def tarjeta():
+    """Contenedor con borde institucional (card)."""
+    return st.container(border=True)
