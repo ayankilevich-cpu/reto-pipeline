@@ -463,7 +463,11 @@ def render_ranking_medios():
         "odio_llm", "odio_gold", "odio_cualquiera",
     ]
     agg_dict = {c: "sum" for c in sum_cols}
-    df_consol = df_all.groupby("source_media", as_index=False).agg(agg_dict)
+    _, _h2n_c = _load_valid_media_map()
+    df_consol = (
+        df_all.assign(source_media=df_all["source_media"].map(lambda sm: _h2n_c.get(sm, sm)))
+        .groupby("source_media", as_index=False).agg(agg_dict)
+    )
     df_consol["platform"] = "consolidado"
     df_consol = _prepare_ranking_df(df_consol)
 
