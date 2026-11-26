@@ -959,33 +959,39 @@ def render_footer():
     )
 
 
-def _scroll_main_to_top() -> None:
-    """Scroll al inicio del área principal al cambiar de sección (Streamlit suele conservar scroll)."""
+def _scroll_main_to_top(nonce: int) -> None:
+    """Scroll al inicio del área principal al cambiar de sección.
+
+    El nonce fuerza un HTML distinto cada vez, evitando que Streamlit
+    reutilice el iframe y omita la ejecución del script.
+    Cancel-on-scroll: si el usuario hace scroll manual, se cancela.
+    """
     components.html(
-        """
+        f"""
         <script>
-        (function () {
-            function goTop() {
-                const doc = window.parent.document;
-                const tryScroll = (el) => {
-                    if (!el) return;
-                    el.scrollTop = 0;
-                    if (typeof el.scrollTo === "function") {
-                        el.scrollTo({ top: 0, left: 0, behavior: "auto" });
-                    }
-                };
+        /* reto-nav-{nonce} */
+        (function () {{
+            const doc = window.parent.document;
+            let cancelado = false;
+            const cancelar = () => {{ cancelado = true; }};
+            ["wheel", "touchmove"].forEach((ev) =>
+                doc.addEventListener(ev, cancelar, {{ once: true, passive: true }})
+            );
+            function goTop() {{
+                if (cancelado) return;
                 doc.querySelectorAll(
-                    '[data-testid="stAppViewContainer"], '
-                    + 'section[data-testid="stMain"], section.main'
-                ).forEach(tryScroll);
-                tryScroll(doc.documentElement);
-                tryScroll(doc.body);
+                    '[data-testid="stAppViewContainer"], [data-testid="stMain"], '
+                    + '.stMain, section.main, [data-testid="stMainBlockContainer"]'
+                ).forEach((el) => {{
+                    el.style.overflowAnchor = "none";
+                    el.scrollTop = 0;
+                }});
+                doc.documentElement.scrollTop = 0;
+                doc.body.scrollTop = 0;
                 window.parent.scrollTo(0, 0);
-            }
-            goTop();
-            setTimeout(goTop, 50);
-            setTimeout(goTop, 150);
-        })();
+            }}
+            [0, 50, 150, 300, 600, 1000, 1500, 2500].forEach((ms) => setTimeout(goTop, ms));
+        }})();
         </script>
         """,
         height=0,
