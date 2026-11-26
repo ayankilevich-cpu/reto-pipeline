@@ -821,6 +821,9 @@ footer, [data-testid="stFooter"] {
         padding: 6px 10px !important;
     }
 }
+
+/* Plotly: fondo blanco aunque Streamlit sobreescriba secondaryBackgroundColor */
+.js-plotly-plot .plotly .bg { fill: #FFFFFF !important; }
 </style>
 """
 

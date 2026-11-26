@@ -1,11 +1,11 @@
 """Sección «Panel general» del dashboard (KPIs + estado del pipeline)."""
 from __future__ import annotations
 
+import html
 import sys
 from pathlib import Path
 from typing import Optional, Tuple
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
@@ -14,24 +14,23 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
 from components.constants import (
-    CATEGORIAS_LABELS,
-    CAT_COLOR_MAP,
     EXCLUDED_SOURCE_MEDIA,
-    INTENSITY_COLORS,
     PLATFORM_DISPLAY,
     SEMANTIC_COLORS,
     _expand_platforms,
     platform_label,
 )
 from components.ui import (
-    _apply_horizontal_bar_labels,
-    _render_pg_kpi_grid,
     _render_section_header,
     _role_can_access_raw,
     _ui_label,
 )
 from components.exports import render_section_exports
 from components.aviso_criterio import render_aviso_cambio_criterio
+from components.chart_style import (
+    NAVY, NEUTRAL, encabezado_grafico, fmt_int, fmt_pct, kpi_tarjetas, linea_actividad,
+    nota_fuente, tarjeta,
+)
 from components.db_helpers import load_filter_options, _pooled_conn
 
 
@@ -183,10 +182,10 @@ def load_kpis(
 # ============================================================
 # EMBUDO DE DETECCIÓN
 # ============================================================
-_COLOR_ETAPA = "#1B3A6B"
+_COLOR_ETAPA = "#8AA4BF"     # etapas de contexto en azul acero
 _COLOR_ODIO_CONF = "#A32D2D"
 _COLOR_ODIO_IA = "#F09595"
-_COLOR_VALIDADOS = "#2F855A"
+_COLOR_VALIDADOS = NAVY      # validación humana en azul ReTo
 _MIN_MUESTRA_PRECISION = 100
 
 # Etiqueta LLM más reciente por mensaje (blindaje ante múltiples llm_version)
@@ -250,6 +249,50 @@ def load_embudo(
     return df
 
 
+_RR_CSS = (
+    "<style>"
+    ".rr-flow{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));margin:18px 0 6px}"
+    ".rr-step{position:relative;padding:14px 16px 14px 18px;border-left:3px solid #8AA4BF}"
+    ".rr-step+.rr-step{margin-left:26px}"
+    ".rr-step+.rr-step::before{content:'';position:absolute;left:-29px;top:30px;width:20px;height:2px;background:#C3CFDC}"
+    ".rr-step+.rr-step::after{content:'';position:absolute;left:-14px;top:26px;border:5px solid transparent;border-left:7px solid #C3CFDC}"
+    ".rr-l{font-size:13px;color:#5B6675;min-height:2.6em;line-height:1.3}"
+    ".rr-v{font-size:28px;font-weight:700;letter-spacing:-.02em;margin-top:4px;white-space:nowrap;color:#14202E;font-variant-numeric:tabular-nums}"
+    ".rr-p{font-size:14px;color:#5B6675}"
+    ".rr-hate{border-left-color:#A32D2D;background:#FDF5F4;border-radius:0 10px 10px 0}"
+    ".rr-hate .rr-v{color:#A32D2D}"
+    ".rr-val{border-left-color:#1F4E79}.rr-val .rr-v{color:#1F4E79}"
+    ".rr-split{display:flex;height:6px;border-radius:3px;overflow:hidden;margin:8px 0 6px;background:#F09595}"
+    ".rr-split b{background:#A32D2D;display:block}"
+    ".rr-splitl{font-size:12px;color:#6B4A4A;line-height:1.45}"
+    "@media(max-width:1100px){.rr-flow{grid-template-columns:minmax(0,1fr)}"
+    ".rr-step+.rr-step{margin-left:0;margin-top:10px}"
+    ".rr-step+.rr-step::before,.rr-step+.rr-step::after{display:none}}"
+    "</style>"
+)
+
+
+def _recorrido_html(pasos, base: int, conf: int, ia: int) -> str:
+    """Genera el recorrido HTML en una sola línea para que Streamlit lo interprete como HTML."""
+    partes = []
+    for lab, val, cls in pasos:
+        extra = ""
+        if cls == "hate":
+            w = (conf / val * 100) if val else 0
+            extra = (
+                f"<div class='rr-split'><b style='width:{w:.1f}%'></b></div>"
+                f"<div class='rr-splitl'>{fmt_int(conf)} confirmados<br>"
+                f"{fmt_int(ia)} según IA, sin validar</div>"
+            )
+        partes.append(
+            f"<div class='rr-step{(' rr-' + cls) if cls else ''}'>"
+            f"<div class='rr-l'>{html.escape(lab)}</div>"
+            f"<div class='rr-v'>{fmt_int(val)}</div>"
+            f"<div class='rr-p'>{fmt_pct(val / base * 100)}</div>{extra}</div>"
+        )
+    return _RR_CSS + "<div class='rr-flow'>" + "".join(partes) + "</div>"
+
+
 def _render_embudo(df_emb: pd.DataFrame):
     cols = ["procesados", "candidatos", "clasificados", "odio_confirmado", "odio_ia",
             "validados", "ia_odio_revisados", "ia_odio_confirmados"]
@@ -288,31 +331,50 @@ def _render_embudo(df_emb: pd.DataFrame):
     for etapa, v in zip(etapas, valores):
         fig.add_annotation(
             x=v, y=etapa, xanchor="left", xshift=6, showarrow=False,
-            text=f"<b>{_fmt_int(v)}</b>  ·  {_fmt_pct_es(v / base * 100)}",
-            font=dict(size=13),
+            text=f"<b>{fmt_int(v)}</b>  ·  {fmt_pct(v / base * 100)}",
+            font=dict(size=13, color="#1A202C"),
         )
     fig.update_layout(
-        barmode="stack", height=360, bargap=0.35,
-        title="Del total procesado al odio identificado"
-              "<br><sup>% sobre los mensajes procesados</sup>",
+        barmode="stack", height=330, bargap=0.35,
         legend=dict(orientation="h", yanchor="top", y=-0.05, x=0, xanchor="left"),
-        margin=dict(l=10, r=20, t=60, b=40),
+        margin=dict(l=10, r=20, t=10, b=40),
     )
     fig.update_xaxes(range=[0, base * 1.25], showticklabels=False, showgrid=False, zeroline=False)
-    fig.update_yaxes(autorange="reversed", automargin=True, tickfont=dict(size=12))
-    st.plotly_chart(fig, use_container_width=True, theme=None)
+    fig.update_yaxes(autorange="reversed", automargin=True, tickfont=dict(size=12), ticksuffix="  ")
+    encabezado_grafico(
+        f"El odio identificado supone el {fmt_pct(odio_total / base * 100)} "
+        "de los mensajes procesados",
+        "Recorrido de los mensajes por cada etapa del sistema. Porcentajes sobre el total procesado.",
+    )
+    st.markdown(
+        _recorrido_html(
+            [
+                ("Mensajes procesados", t["procesados"], ""),
+                ("Candidatos (filtro de términos)", t["candidatos"], ""),
+                ("Clasificados (IA + revisión humana)", t["clasificados"], ""),
+                ("Odio identificado", odio_total, "hate"),
+                ("Validados por revisión humana", t["validados"], "val"),
+            ],
+            base, t["odio_confirmado"], t["odio_ia"],
+        ),
+        unsafe_allow_html=True,
+    )
 
     nota = (
         "La IA se aplica a una selección priorizada de candidatos: las cifras de odio son un "
-        "mínimo identificado, no una estimación de la proporción de odio en el total de conversaciones."
+        "mínimo identificado, no una estimación del odio en el total de conversaciones."
     )
     if t["ia_odio_revisados"] >= _MIN_MUESTRA_PRECISION:
         prec = t["ia_odio_confirmados"] / t["ia_odio_revisados"] * 100
         nota += (
-            f" En la muestra revisada por personas ({_fmt_int(t['ia_odio_revisados'])} mensajes), "
-            f"el {prec:.0f}% de lo marcado como odio por la IA fue confirmado."
+            f" En la muestra revisada por personas ({fmt_int(t['ia_odio_revisados'])} mensajes), "
+            f"el {prec:.0f} % de lo marcado como odio por la IA fue confirmado."
         )
-    st.caption(nota)
+    st.markdown(
+        "<p style='font-size:13.5px;color:#5B6675;max-width:78ch;margin:12px 0 4px;"
+        f"border-top:1px solid #EEF1F5;padding-top:12px'>{html.escape(nota)}</p>",
+        unsafe_allow_html=True,
+    )
     return fig
 
 
@@ -328,35 +390,51 @@ def _render_odio_por_plataforma(df_emb: pd.DataFrame):
     dfp["pct_conf"] = dfp["odio_confirmado"] / dfp["procesados"] * 100
     dfp["pct_ia"] = dfp["odio_ia"] / dfp["procesados"] * 100
     dfp["pct_total"] = dfp["pct_conf"] + dfp["pct_ia"]
+    dfp = dfp.sort_values("pct_total", ascending=True)
 
     fig = go.Figure()
-    fig.add_trace(go.Bar(
-        x=dfp["plataforma"], y=dfp["pct_conf"], name="Confirmado por revisión humana",
-        marker_color=_COLOR_ODIO_CONF,
-        customdata=dfp[["odio_confirmado", "procesados"]].values,
-        hovertemplate="%{x}: %{y:.1f}% (%{customdata[0]:,} de %{customdata[1]:,})<extra>Confirmado</extra>",
-    ))
-    fig.add_trace(go.Bar(
-        x=dfp["plataforma"], y=dfp["pct_ia"], name="Según IA, sin validar",
-        marker_color=_COLOR_ODIO_IA,
-        customdata=dfp[["odio_ia", "procesados"]].values,
-        hovertemplate="%{x}: %{y:.1f}% (%{customdata[0]:,} de %{customdata[1]:,})<extra>Solo IA</extra>",
-    ))
+    for col_pct, col_n, nombre, color in (
+        ("pct_conf", "odio_confirmado", "Confirmado", _COLOR_ODIO_CONF),
+        ("pct_ia", "odio_ia", "Según IA", _COLOR_ODIO_IA),
+    ):
+        fig.add_trace(go.Bar(
+            orientation="h", y=dfp["plataforma"], x=dfp[col_pct], name=nombre,
+            marker_color=color,
+            customdata=[[fmt_pct(p), fmt_int(a), fmt_int(b)]
+                        for p, a, b in zip(dfp[col_pct], dfp[col_n], dfp["procesados"])],
+            hovertemplate=(f"<b>%{{y}}</b><br>{nombre}: %{{customdata[0]}}<br>"
+                           "%{customdata[1]} de %{customdata[2]} mensajes<extra></extra>"),
+        ))
     for _, r in dfp.iterrows():
         fig.add_annotation(
-            x=r["plataforma"], y=r["pct_total"], yshift=12, showarrow=False,
-            text=f"<b>{_fmt_pct_es(r['pct_total'])}</b>",
+            x=r["pct_total"], y=r["plataforma"], xanchor="left", xshift=10, showarrow=False,
+            text=f"<b>{fmt_pct(r['pct_total'])}</b>", font=dict(size=16, color="#14202E"),
         )
     fig.update_layout(
-        barmode="stack", height=380,
-        title="Odio identificado por plataforma"
-              "<br><sup>% sobre los mensajes procesados de cada plataforma</sup>",
-        legend=dict(orientation="h", yanchor="top", y=-0.12, x=0.5, xanchor="center"),
-        margin=dict(l=10, r=10, t=70, b=40),
+        barmode="stack", height=60 * len(dfp) + 50, bargap=0.5, showlegend=False,
+        margin=dict(l=8, r=80, t=6, b=6),
+        xaxis=dict(visible=False, range=[0, float(dfp["pct_total"].max()) * 1.15], fixedrange=True),
+        yaxis=dict(showgrid=False, fixedrange=True, ticksuffix="   ",
+                   tickfont=dict(size=15, color="#14202E")),
     )
-    fig.update_yaxes(ticksuffix="%", title_text="", range=[0, float(dfp["pct_total"].max()) * 1.25])
-    fig.update_xaxes(title_text="")
+    _top = dfp.iloc[-1]
+    if len(dfp) > 1:
+        _tit = (f"{_top['plataforma']} registra la mayor proporción de odio identificado "
+                f"({fmt_pct(_top['pct_total'])})")
+    else:
+        _tit = f"Odio identificado en {_top['plataforma']}: {fmt_pct(_top['pct_total'])}"
+    encabezado_grafico(_tit, "% de odio identificado sobre los mensajes procesados de cada plataforma.")
     st.plotly_chart(fig, use_container_width=True, theme=None)
+    st.markdown(
+        "<div style='display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:#5B6675;margin:6px 0 4px'>"
+        f"<span><span style='display:inline-block;width:11px;height:11px;border-radius:3px;"
+        f"background:{_COLOR_ODIO_CONF};margin-right:6px;vertical-align:-1px'></span>"
+        "Confirmado por revisión humana</span>"
+        f"<span><span style='display:inline-block;width:11px;height:11px;border-radius:3px;"
+        f"background:{_COLOR_ODIO_IA};margin-right:6px;vertical-align:-1px'></span>"
+        "Según IA, sin validar</span></div>",
+        unsafe_allow_html=True,
+    )
     return fig
 
 
@@ -863,8 +941,7 @@ def _render_gold_dataset_card() -> None:
 def render_panel_general():
     _render_section_header(
         "Panel general",
-        "Indicadores clave del proyecto ReTo · visión consolidada de volumen, "
-        "clasificaciones y validación humana.",
+        "Indicadores clave del proyecto ReTo: volumen analizado, clasificación y validación humana.",
     )
     render_aviso_cambio_criterio()
 
@@ -905,38 +982,32 @@ def render_panel_general():
     label_raw = "Mensajes totales (raw)" if _access_raw else "Mensajes procesados"
     label_llm = "Etiquetados por IA" if not _access_raw else "Etiquetados por LLM"
 
-    _render_pg_kpi_grid([
-        (label_raw, f"{mensajes_totales:,}", ""),
-        ("Candidatos a odio", f"{candidatos_odio:,}", ""),
-        (label_llm, f"{etiquetados_llm:,}", ""),
-        ("Mensajes validados", f"{mensajes_validados:,}", f"{mensajes_odio:,} odio"),
-        ("Medios monitorizados", f"{medios_monitorizados:,}", ""),
+    kpi_tarjetas([
+        (label_raw, fmt_int(mensajes_totales), ""),
+        ("Candidatos a odio", fmt_int(candidatos_odio), ""),
+        (label_llm, fmt_int(etiquetados_llm), ""),
+        ("Mensajes validados", fmt_int(mensajes_validados),
+         f"{fmt_int(mensajes_odio)} confirmados como odio"),
+        ("Medios monitorizados", fmt_int(medios_monitorizados), ""),
     ])
-    st.markdown(
-        '<div class="pg-kpi-section-label">Actividad reciente</div>',
-        unsafe_allow_html=True,
-    )
-    _render_pg_kpi_grid([
-        ("Nuevos X hoy", f"{nuevos_x_hoy:,}", ""),
-        ("Nuevos YouTube hoy", f"{nuevos_yt_hoy:,}", ""),
-        ("Nuevos X ayer", f"{nuevos_x_ayer:,}", ""),
-        ("Nuevos YouTube ayer", f"{nuevos_yt_ayer:,}", ""),
-    ], secondary=True)
-
-    st.markdown("---")
+    _act = (f"Ayer se incorporaron {fmt_int(nuevos_x_ayer)} mensajes de X y "
+            f"{fmt_int(nuevos_yt_ayer)} de YouTube.")
+    if (nuevos_x_hoy or 0) + (nuevos_yt_hoy or 0) > 0:
+        _act += (f" Hoy, por ahora, {fmt_int(nuevos_x_hoy)} de X y "
+                 f"{fmt_int(nuevos_yt_hoy)} de YouTube.")
+    linea_actividad(_act + " Datos actualizados cada día.")
 
     _plat_t = tuple(sel_platforms) if sel_platforms else None
     _med_t = tuple(sel_medios) if sel_medios else None
 
     # --- 1. Embudo de detección (base: mensajes procesados) ---
-    fig_embudo = fig_plat = fig_int = fig_cat = fig_avg = None
+    fig_embudo = fig_plat = fig_int = None
     df_emb = load_embudo(platforms=_plat_t, medios=_med_t)
     if df_emb.empty or int(df_emb["procesados"].sum()) == 0:
         st.info("No hay mensajes procesados para los filtros seleccionados.")
     else:
-        fig_embudo = _render_embudo(df_emb)
-
-    st.markdown("---")
+        with tarjeta():
+            fig_embudo = _render_embudo(df_emb)
 
     # --- Datos combinados Gold + LLM (solo para gráficos condicionales a odio) ---
     df_comb = _load_panel_combined(platforms=_plat_t, medios=_med_t)
@@ -952,13 +1023,12 @@ def render_panel_general():
             df_odio["categoria"].astype("string").str.strip().replace("", pd.NA)
         )
         n_odio = len(df_odio)
-        sub_odio = f"<br><sup>Entre mensajes clasificados como odio (n = {_fmt_int(n_odio)})</sup>"
 
         if st.session_state.get("user_role", "admin") == "admin":
             n_gold_odio = int((df_odio["fuente"] == "Gold").sum())
             n_llm_odio = int((df_odio["fuente"] == "LLM").sum())
             st.caption(
-                f"Intensidad y categoría basadas en **{_fmt_int(n_odio)}** mensajes de odio: "
+                f"Intensidad basada en **{_fmt_int(n_odio)}** mensajes de odio: "
                 f"**{_fmt_int(n_gold_odio)}** validados por humanos (Gold) · "
                 f"**{_fmt_int(n_llm_odio)}** etiquetados por IA"
             )
@@ -968,117 +1038,74 @@ def render_panel_general():
         # 2. Odio identificado por plataforma (% sobre procesados de cada plataforma)
         with col_g1:
             if not df_emb.empty:
-                fig_plat = _render_odio_por_plataforma(df_emb)
+                with tarjeta():
+                    fig_plat = _render_odio_por_plataforma(df_emb)
 
-        # 3. Distribución de intensidad
+        # 3. Distribución de intensidad (barra única al 100 %)
         with col_g2:
             df_int = df_odio[df_odio["intensidad"].notna()].copy()
             if not df_int.empty:
-                df_int["intensidad"] = df_int["intensidad"].astype(int)
-                int_data = df_int["intensidad"].value_counts().sort_index().reset_index()
-                int_data.columns = ["Intensidad", "Cantidad"]
-                int_data["Intensidad"] = int_data["Intensidad"].astype(str)
-                int_data["Porcentaje"] = int_data["Cantidad"] / int_data["Cantidad"].sum() * 100
-                int_data["pct_txt"] = int_data["Porcentaje"].map(
-                    lambda v: f"{v:.1f}%".replace(".", ",")
+                df_int["intensidad"] = df_int["intensidad"].astype(int).astype(str)
+                int_data = (
+                    df_int["intensidad"].value_counts()
+                    .reindex(["1", "2", "3"], fill_value=0)
+                    .rename_axis("Intensidad").reset_index(name="Cantidad")
                 )
-                fig_int = px.bar(
-                    int_data, x="Intensidad", y="Porcentaje",
-                    color="Intensidad",
-                    color_discrete_map=INTENSITY_COLORS,
-                    title="Distribución de intensidad" + sub_odio,
-                    text="pct_txt",
-                    custom_data=["Cantidad"],
+                _n_tot = int(int_data["Cantidad"].sum())
+                int_data["Porcentaje"] = int_data["Cantidad"] / (_n_tot or 1) * 100
+                _INT_LABEL = {"1": "Baja (1)", "2": "Media (2)", "3": "Alta (3)"}
+                _INT_COLOR = {"1": "#F4C7C3", "2": "#E0726A", "3": "#A32D2D"}
+                _pct_alta = float(int_data.loc[int_data["Intensidad"] == "3", "Porcentaje"].sum())
+                _media_int = (
+                    sum(int(k) * int(c) for k, c in zip(int_data["Intensidad"], int_data["Cantidad"])) / _n_tot
+                    if _n_tot else 0.0
                 )
-                fig_int.update_traces(
-                    textposition="outside", cliponaxis=False,
-                    hovertemplate="Intensidad %{x}: %{y:.1f}%<br>%{customdata[0]:,} mensajes<extra></extra>",
+
+                fig_int = go.Figure()
+                for _, r in int_data.iterrows():
+                    k = r["Intensidad"]
+                    fig_int.add_trace(go.Bar(
+                        orientation="h", y=[""], x=[r["Porcentaje"]], name=_INT_LABEL[k],
+                        marker_color=_INT_COLOR[k],
+                        customdata=[[fmt_int(r["Cantidad"]), fmt_pct(r["Porcentaje"])]],
+                        hovertemplate=(f"Nivel {_INT_LABEL[k].lower()}: %{{customdata[1]}}"
+                                       "<br>%{customdata[0]} mensajes<extra></extra>"),
+                    ))
+                fig_int.update_layout(
+                    barmode="stack", height=60, showlegend=False,
+                    margin=dict(l=0, r=0, t=4, b=4),
+                    xaxis=dict(visible=False, range=[0, 100], fixedrange=True),
+                    yaxis=dict(visible=False, fixedrange=True),
                 )
-                fig_int.update_layout(height=380, showlegend=False, margin=dict(t=70), bargap=0.15)
-                fig_int.update_xaxes(type="category", categoryorder="array",
-                                     categoryarray=["1", "2", "3"])
-                fig_int.update_yaxes(
-                    range=[0, float(int_data["Porcentaje"].max()) * 1.15],
-                    ticksuffix="%", title_text="% de mensajes de odio",
+                _filas = "".join(
+                    "<div style='display:grid;grid-template-columns:18px 96px 72px 1fr;"
+                    "align-items:center;font-size:14.5px;color:#14202E'>"
+                    f"<span style='width:11px;height:11px;border-radius:3px;background:{_INT_COLOR[k]};"
+                    "display:inline-block'></span>"
+                    f"<span>{_INT_LABEL[k]}</span>"
+                    f"<span style='font-weight:700;text-align:right;padding-right:16px'>{fmt_pct(p)}</span>"
+                    f"<span style='font-size:13px;color:#7A8699'>{fmt_int(c)} mensajes</span></div>"
+                    for k, p, c in zip(int_data["Intensidad"], int_data["Porcentaje"], int_data["Cantidad"])
                 )
-                st.plotly_chart(
-                    fig_int,
-                    use_container_width=True,
-                    theme=None,
-                    config={
-                        "displayModeBar": "hover",
-                        "displaylogo": False,
-                        "modeBarButtonsToRemove": ["select2d", "lasso2d", "autoScale2d"],
-                    },
-                )
+                _media_txt = f"{_media_int:.2f}".replace(".", ",")
+                with tarjeta():
+                    encabezado_grafico(
+                        f"El {fmt_pct(_pct_alta)} del odio identificado es de intensidad alta",
+                        f"Entre los {fmt_int(n_odio)} mensajes clasificados como odio.",
+                    )
+                    st.plotly_chart(fig_int, use_container_width=True, theme=None)
+                    st.markdown(
+                        "<div style='display:grid;gap:10px;margin:6px 0 0'>" + _filas + "</div>"
+                        "<div style='display:flex;align-items:baseline;gap:8px;margin:16px 0 6px;"
+                        "padding-top:14px;border-top:1px solid #EEF1F5;font-size:14px;color:#5B6675'>"
+                        f"<strong style='font-size:22px;color:#14202E'>{_media_txt}</strong>"
+                        "<span>intensidad promedio en una escala de 1 (baja) a 3 (alta)</span></div>",
+                        unsafe_allow_html=True,
+                    )
             else:
                 st.info("Sin datos de intensidad.")
 
-        col_g3, col_g4 = st.columns(2)
-
-        # 4. Distribución por categoría
-        with col_g3:
-            df_cat = df_odio[df_odio["categoria"].notna()].copy()
-            if not df_cat.empty:
-                df_cat["categoria_label"] = df_cat["categoria"].map(
-                    CATEGORIAS_LABELS
-                ).fillna(df_cat["categoria"])
-                cat_data = df_cat["categoria_label"].value_counts().reset_index()
-                cat_data.columns = ["Categoría", "Cantidad"]
-                df_categoria = cat_data.sort_values("Cantidad", ascending=True)
-                fig_cat = px.bar(
-                    df_categoria, x="Cantidad", y="Categoría", orientation="h",
-                    color="Categoría",
-                    color_discrete_map=CAT_COLOR_MAP,
-                    title="Distribución por categoría de odio" + sub_odio,
-                    text_auto=True,
-                )
-                fig_cat.update_layout(
-                    height=380, showlegend=False,
-                    yaxis=dict(autorange="reversed"),
-                )
-                _apply_horizontal_bar_labels(fig_cat)
-                fig_cat.update_yaxes(title_text="", automargin=True, tickfont=dict(size=11))
-                fig_cat.update_layout(margin=dict(l=10, r=20, t=70, b=40))
-                st.plotly_chart(fig_cat, use_container_width=True, theme=None)
-            else:
-                st.info("Sin datos de categoría.")
-
-        # 5. Intensidad promedio por categoría
-        with col_g4:
-            df_cat_int = df_odio[
-                df_odio["categoria"].notna() & df_odio["intensidad"].notna()
-            ].copy()
-            if not df_cat_int.empty:
-                df_cat_int["intensidad"] = df_cat_int["intensidad"].astype(float)
-                df_cat_int["categoria_label"] = df_cat_int["categoria"].map(
-                    CATEGORIAS_LABELS
-                ).fillna(df_cat_int["categoria"])
-                avg_int = (
-                    df_cat_int.groupby("categoria_label")["intensidad"]
-                    .mean().round(2).sort_values(ascending=False)
-                    .reset_index()
-                )
-                avg_int.columns = ["Categoría", "Intensidad promedio"]
-                fig_avg = px.bar(
-                    avg_int, x="Intensidad promedio", y="Categoría", orientation="h",
-                    color="Intensidad promedio",
-                    color_continuous_scale=[[0, "#FBD38D"], [0.5, "#F59E0B"], [1, "#C0392B"]],
-                    title="Intensidad promedio por categoría" + sub_odio,
-                    text_auto=".2f",
-                )
-                fig_avg.update_layout(
-                    height=380,
-                    yaxis=dict(autorange="reversed"),
-                    coloraxis_showscale=False,
-                )
-                _apply_horizontal_bar_labels(fig_avg)
-                fig_avg.update_yaxes(title_text="", automargin=True, tickfont=dict(size=11))
-                fig_avg.update_xaxes(range=[0, 3], dtick=0.5,
-                                     title_text="1 = baja · 3 = alta")
-                fig_avg.update_layout(margin=dict(l=10, r=60, t=70, b=40))
-                st.plotly_chart(fig_avg, use_container_width=True, theme=None)
-
+        nota_fuente()
         render_section_exports(
             section_key="panel_general",
             section_title="Panel general",
@@ -1091,8 +1118,6 @@ def render_panel_general():
                 {"title": "Embudo de detección", "fig": fig_embudo, "kind": "plotly"},
                 {"title": "Odio identificado por plataforma", "fig": fig_plat, "kind": "plotly"},
                 {"title": "Intensidad del odio", "fig": fig_int, "kind": "plotly"},
-                {"title": "Categorías de odio", "fig": fig_cat, "kind": "plotly"},
-                {"title": "Intensidad promedio por categoría", "fig": fig_avg, "kind": "plotly"},
             ],
         )
 

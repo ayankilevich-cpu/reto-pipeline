@@ -11,10 +11,19 @@ def render_aviso_cambio_criterio(con_umbral: bool = False) -> None:
     provisional (solo tiene sentido en Análisis contextual semanal)."""
     if date.today() < CRITERIO_CORTE_SEMANA:
         return
-    st.info(
-        f"Desde el {CRITERIO_CORTE_SEMANA.strftime('%d/%m/%Y')} el criterio de etiquetado "
-        "de X (Twitter) cambió (v1 → v22bcrit). Los porcentajes de odio de X no son "
-        "directamente comparables entre ambos períodos. YouTube no se ve afectado."
+    _txt = (
+        f"Desde el {CRITERIO_CORTE_SEMANA.strftime('%d/%m/%Y')} cambió el criterio de etiquetado "
+        "de X (v1 → v22bcrit). Los porcentajes de odio de X no son directamente comparables "
+        "entre ambos períodos. YouTube no se ve afectado."
+    )
+    st.markdown(
+        "<div style='display:flex;gap:10px;align-items:flex-start;background:#F6F8FB;"
+        "border:1px solid #E3E8EF;border-radius:10px;padding:10px 14px;font-size:14px;"
+        "color:#3B4757;margin:0 0 16px;max-width:900px'>"
+        "<span style='flex:none;width:18px;height:18px;border-radius:50%;background:#1F4E79;"
+        "color:#fff;font:700 12px/18px Inter,sans-serif;text-align:center'>i</span>"
+        f"<span>{_txt}</span></div>",
+        unsafe_allow_html=True,
     )
     if con_umbral:
         umbral = f"{UMBRAL_PROVISIONAL_PCT:.2f}".replace(".", ",")
