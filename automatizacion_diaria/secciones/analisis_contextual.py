@@ -17,6 +17,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from components.anonimizacion import enmascarar_texto_ui
 from components.aviso_criterio import render_aviso_cambio_criterio
 from components.db_helpers import _pooled_conn
 from components.exports import render_descargas_menu
@@ -355,12 +356,16 @@ def render_analisis_contextual():
         _mask_corte = df_chart["semana_lunes"] == _lunes_corte
         if _mask_corte.any():
             _x_corte = df_chart[_mask_corte].iloc[0]["semana_label"]
-            fig_ev.add_vline(
-                x=_x_corte,
-                line=dict(dash="dot", color=MUTED, width=1.5),
-                annotation_text="cambio de criterio X",
-                annotation_position="top right",
-                annotation_font=dict(size=11, color=MUTED),
+            fig_ev.add_shape(
+                type="line", x0=_x_corte, x1=_x_corte, xref="x",
+                y0=0, y1=1, yref="paper",
+                line=dict(color="#A0AEC0", width=1, dash="dot"),
+            )
+            fig_ev.add_annotation(
+                x=_x_corte, xref="x", y=1.02, yref="paper",
+                text="cambio de criterio X", showarrow=False,
+                xanchor="right", yanchor="bottom",
+                font=dict(size=11, color=MUTED),
             )
 
         fig_ev.update_layout(
@@ -441,7 +446,7 @@ def render_analisis_contextual():
 
             with col_res:
                 st.markdown(f"<p style='font-size:15px;font-weight:600;color:{INK};margin:0 0 8px'>Resumen de la semana</p>", unsafe_allow_html=True)
-                resumen_txt = _resumen_contextual_para_ui(row_sel)
+                resumen_txt = enmascarar_texto_ui(_resumen_contextual_para_ui(row_sel))
                 if resumen_txt:
                     st.info(resumen_txt)
                 else:
@@ -476,10 +481,11 @@ def render_analisis_contextual():
 
                 if cambios:
                     for name, diff in cambios[:8]:
+                        name = _html.escape(enmascarar_texto_ui(name))
                         if diff >= 0:
-                            st.markdown(f"<div style='font-size:14px;margin:3px 0;color:#A32D2D'>▲ +{diff:.0f} pp {_html.escape(name)}</div>", unsafe_allow_html=True)
+                            st.markdown(f"<div style='font-size:14px;margin:3px 0;color:#A32D2D'>▲ +{diff:.0f} pp {name}</div>", unsafe_allow_html=True)
                         else:
-                            st.markdown(f"<div style='font-size:14px;margin:3px 0;color:#2F855A'>▼ {diff:.0f} pp {_html.escape(name)}</div>", unsafe_allow_html=True)
+                            st.markdown(f"<div style='font-size:14px;margin:3px 0;color:#2F855A'>▼ {diff:.0f} pp {name}</div>", unsafe_allow_html=True)
                 else:
                     st.caption("Sin datos de colectivos para comparar.")
 
@@ -492,7 +498,7 @@ def render_analisis_contextual():
             ev_txt = _eventos_relacionados_para_ui(row_sel) if row_sel.get("eventos_relacionados") else ""
             if ev_txt:
                 with st.expander("Eventos relacionados"):
-                    st.markdown(ev_txt)
+                    st.markdown(enmascarar_texto_ui(ev_txt))
 
         # CSV de la semana seleccionada
         df_semana_sel_csv = pd.DataFrame([{
@@ -520,13 +526,13 @@ def render_analisis_contextual():
                 if _cats:
                     cat_items = sorted(_cats.items(), key=lambda x: x[1], reverse=True)
                     lead_cat_key, lead_cat_cnt = cat_items[0]
-                    lead_cat_label = CATEGORIAS_DISPLAY.get(lead_cat_key, lead_cat_key)
+                    lead_cat_label = enmascarar_texto_ui(CATEGORIAS_DISPLAY.get(lead_cat_key, lead_cat_key))
                     lead_cat_pct = round(100.0 * lead_cat_cnt / max(_odio_sel, 1), 1)
                     encabezado_grafico(
                         f"El odio de {lead_cat_label} fue el más frecuente ({fmt_pct(lead_cat_pct)})",
                         "Mensajes de odio de la semana por categoría.",
                     )
-                    _cat_names = [CATEGORIAS_DISPLAY.get(k, k) for k, _ in cat_items]
+                    _cat_names = [enmascarar_texto_ui(CATEGORIAS_DISPLAY.get(k, k)) for k, _ in cat_items]
                     _cat_vals = [v for _, v in cat_items]
                     _cat_colors = [NAVY] + ["#8AA4BF"] * (len(_cat_names) - 1)
                     fig_cat = go.Figure(go.Bar(
@@ -547,22 +553,29 @@ def render_analisis_contextual():
                 if _targets_grid:
                     top_tgt = dict(sorted(_targets_grid.items(), key=lambda x: x[1], reverse=True)[:10])
                     tgt_items = list(top_tgt.items())
-                    lead_tgt, lead_tgt_cnt = tgt_items[0]
+                    _tgt_names = [enmascarar_texto_ui(k) for k, _ in tgt_items]
+                    _tgt_ids = [str(i) for i in range(len(tgt_items))]
+                    lead_tgt_cnt = tgt_items[0][1]
                     encabezado_grafico(
-                        f"{lead_tgt}, el colectivo más atacado ({fmt_int(lead_tgt_cnt)} menciones)",
+                        f"{_tgt_names[0]}, el colectivo más atacado ({fmt_int(lead_tgt_cnt)} menciones)",
                         "Menciones en los motivos clasificados (un mensaje puede citar varios).",
                     )
-                    _tgt_names = [k for k, _ in tgt_items]
                     _tgt_vals = [v for _, v in tgt_items]
                     _tgt_colors = [NAVY] + ["#8AA4BF"] * (len(_tgt_names) - 1)
                     fig_tgt = go.Figure(go.Bar(
-                        orientation="h", y=_tgt_names, x=_tgt_vals,
+                        orientation="h", y=_tgt_ids, x=_tgt_vals,
                         marker_color=_tgt_colors,
                         text=[fmt_int(v) for v in _tgt_vals],
                         textposition="outside", cliponaxis=False,
-                        hovertemplate="%{y}: %{x}<extra></extra>",
+                        customdata=_tgt_names,
+                        hovertemplate="%{customdata}: %{x}<extra></extra>",
                     ))
-                    fig_tgt.update_layout(height=max(300, len(_tgt_names) * 36), showlegend=False, margin=dict(l=4, r=40, t=4, b=4), xaxis=dict(visible=False), yaxis=dict(autorange="reversed", showgrid=False, automargin=True))
+                    fig_tgt.update_layout(
+                        height=max(300, len(_tgt_names) * 36), showlegend=False,
+                        margin=dict(l=4, r=40, t=4, b=4), xaxis=dict(visible=False),
+                        yaxis=dict(type="category", autorange="reversed", showgrid=False,
+                                   automargin=True, tickvals=_tgt_ids, ticktext=_tgt_names),
+                    )
                     st.plotly_chart(fig_tgt, use_container_width=True, theme=None, key="ctx_targets_v2")
                 else:
                     st.info("Sin datos de colectivos.")
@@ -573,22 +586,28 @@ def render_analisis_contextual():
                 if _temas_grid:
                     top_tem = dict(sorted(_temas_grid.items(), key=lambda x: x[1], reverse=True)[:10])
                     tem_items = list(top_tem.items())
-                    lead_tem, _ = tem_items[0]
+                    _tem_names = [enmascarar_texto_ui(k) for k, _ in tem_items]
+                    _tem_ids = [str(i) for i in range(len(tem_items))]
                     encabezado_grafico(
-                        f"{lead_tem}, tema dominante en los mensajes de odio",
+                        f"{_tem_names[0]}, tema dominante en los mensajes de odio",
                         "Apariciones en los mensajes de odio de la semana.",
                     )
-                    _tem_names = [k for k, _ in tem_items]
                     _tem_vals = [v for _, v in tem_items]
                     _tem_colors = [NAVY] + ["#8AA4BF"] * (len(_tem_names) - 1)
                     fig_tema = go.Figure(go.Bar(
-                        orientation="h", y=_tem_names, x=_tem_vals,
+                        orientation="h", y=_tem_ids, x=_tem_vals,
                         marker_color=_tem_colors,
                         text=[fmt_int(v) for v in _tem_vals],
                         textposition="outside", cliponaxis=False,
-                        hovertemplate="%{y}: %{x}<extra></extra>",
+                        customdata=_tem_names,
+                        hovertemplate="%{customdata}: %{x}<extra></extra>",
                     ))
-                    fig_tema.update_layout(height=max(300, len(_tem_names) * 36), showlegend=False, margin=dict(l=4, r=40, t=4, b=4), xaxis=dict(visible=False), yaxis=dict(autorange="reversed", showgrid=False, automargin=True))
+                    fig_tema.update_layout(
+                        height=max(300, len(_tem_names) * 36), showlegend=False,
+                        margin=dict(l=4, r=40, t=4, b=4), xaxis=dict(visible=False),
+                        yaxis=dict(type="category", autorange="reversed", showgrid=False,
+                                   automargin=True, tickvals=_tem_ids, ticktext=_tem_names),
+                    )
                     st.plotly_chart(fig_tema, use_container_width=True, theme=None, key="ctx_temas_v2")
                 else:
                     st.info("Sin datos de temas.")
