@@ -867,8 +867,7 @@ def load_matriz_confusion() -> pd.DataFrame:
 
 
 def _render_gold_dataset_card() -> None:
-    st.markdown("---")
-    st.subheader("📋 Gold Dataset")
+    """Rendimiento de la IA frente a la revisión humana (solo admin)."""
     try:
         g = load_gold_stats()
     except Exception:
@@ -883,59 +882,102 @@ def _render_gold_dataset_card() -> None:
         if g["fecha_validacion"] is not None else "—"
     )
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Total mensajes gold", f"{g['total_gold']:,}")
-    c2.metric("Etiquetados con LLM", f"{g['total_llm']:,}")
-    c3.metric("Última validación", fecha_str)
+    def _etiqueta(txt: str) -> None:
+        st.markdown(
+            f"<p style='font-size:13px;font-weight:600;color:#5B6675;margin:18px 0 8px'>{html.escape(txt)}</p>",
+            unsafe_allow_html=True,
+        )
 
-    st.markdown(
-        f"**Calidad del etiquetado LLM** *(sobre los {g['total_llm']:,} mensajes llm_validated)*"
-    )
+    with tarjeta():
+        encabezado_grafico(
+            "Rendimiento de la IA frente a la revisión humana",
+            "Solo visible para administración. Gold Dataset: mensajes validados por personas.",
+        )
 
-    c4, c5, c6, c7 = st.columns(4)
-    def fmt_pct(v):
-        return f"{v:.1f}%" if v is not None else "—"
+        _etiqueta("Gold Dataset")
+        kpi_tarjetas([
+            ("Mensajes validados (Gold)", fmt_int(g["total_gold"]), ""),
+            ("Con etiqueta previa de IA", fmt_int(g["total_llm"]), ""),
+            ("Última validación", fecha_str, ""),
+        ])
 
-    c4.metric("Concordancia LLM",     fmt_pct(g["pct_concordancia_llm"]))
-    c5.metric("Corrección odio",      fmt_pct(g["pct_corrigio_odio"]))
-    c6.metric("Corrección categoría", fmt_pct(g["pct_corrigio_categoria"]))
-    c7.metric("Corrección intensidad",fmt_pct(g["pct_corrigio_intensidad"]))
+        _etiqueta(f"Calidad del etiquetado de la IA · sobre {fmt_int(g['total_llm'])} mensajes revisados")
+        kpi_tarjetas([
+            ("Concordancia IA–humano", fmt_pct(g["pct_concordancia_llm"]), ""),
+            ("Corrección de odio", fmt_pct(g["pct_corrigio_odio"]), ""),
+            ("Corrección de categoría", fmt_pct(g["pct_corrigio_categoria"]), ""),
+            ("Corrección de intensidad", fmt_pct(g["pct_corrigio_intensidad"]), ""),
+        ], destacar_primero=False)
+        st.markdown(
+            "<p style='font-size:13px;color:#7A8699;margin:8px 0 0'>"
+            f"Corrección de intensidad sobre {fmt_int(g['total_con_intensidad'])} mensajes con intensidad registrada.</p>",
+            unsafe_allow_html=True,
+        )
 
-    st.caption(
-        f"Correcciones calculadas sobre {g['total_llm']:,} mensajes llm_validated · "
-        f"Corrección de intensidad sobre {g['total_con_intensidad']:,} con intensidad registrada"
-    )
+        try:
+            dfm = load_matriz_confusion()
+        except Exception:
+            dfm = pd.DataFrame()
+        if dfm.empty:
+            st.info("Sin mensajes con etiqueta de IA y revisión humana.")
+            return
 
-    st.markdown("**Matriz de confusión: LLM vs revisión humana**")
-    try:
-        dfm = load_matriz_confusion()
-    except Exception:
-        dfm = pd.DataFrame()
-    if dfm.empty:
-        st.info("Sin mensajes con etiqueta LLM y revisión humana.")
-        return
-    orden = ["Odio", "No Odio", "Dudoso"]
-    piv = (
-        dfm.pivot_table(index="llm", columns="humano", values="n", aggfunc="sum", fill_value=0)
-        .reindex(index=orden, columns=orden, fill_value=0)
-    )
-    total_m = int(piv.values.sum())
-    diag = int(sum(piv.loc[c, c] for c in orden if c in piv.index and c in piv.columns))
-    tp = int(piv.loc["Odio", "Odio"]) if "Odio" in piv.index and "Odio" in piv.columns else 0
-    llm_odio = int(piv.loc["Odio"].sum()) if "Odio" in piv.index else 0
-    hum_odio = int(piv["Odio"].sum()) if "Odio" in piv.columns else 0
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Concordancia global", fmt_pct(diag / total_m * 100 if total_m else None))
-    m2.metric("Precisión LLM en odio", fmt_pct(tp / llm_odio * 100 if llm_odio else None))
-    m3.metric("Recall LLM en odio", fmt_pct(tp / hum_odio * 100 if hum_odio else None))
-    piv.index.name = "LLM ↓ / Humano →"
-    piv["Total"] = piv.sum(axis=1)
-    st.dataframe(piv, use_container_width=True)
-    st.caption(
-        f"Sobre {total_m:,} mensajes con etiqueta LLM y revisión humana (todo el Gold, no solo "
-        "llm_validated). Precisión: de lo que el LLM marcó como odio, cuánto confirmó la revisión "
-        "humana. Recall: del odio confirmado por humanos, cuánto había detectado el LLM."
-    )
+        orden = ["Odio", "No Odio", "Dudoso"]
+        piv = (
+            dfm.pivot_table(index="llm", columns="humano", values="n", aggfunc="sum", fill_value=0)
+            .reindex(index=orden, columns=orden, fill_value=0)
+        )
+        total_m = int(piv.values.sum())
+        diag = int(sum(piv.loc[c, c] for c in orden))
+        tp = int(piv.loc["Odio", "Odio"])
+        llm_odio = int(piv.loc["Odio"].sum())
+        hum_odio = int(piv["Odio"].sum())
+
+        _etiqueta(f"Matriz de confusión · {fmt_int(total_m)} mensajes con etiqueta de IA y revisión humana")
+        kpi_tarjetas([
+            ("Concordancia global", fmt_pct(diag / total_m * 100 if total_m else None), ""),
+            ("Precisión de la IA en odio", fmt_pct(tp / llm_odio * 100 if llm_odio else None), ""),
+            ("Recall de la IA en odio", fmt_pct(tp / hum_odio * 100 if hum_odio else None), ""),
+        ], destacar_primero=False)
+
+        _max = max(int(piv.values.max()), 1)
+        _th = "text-align:right;padding:8px 14px;font-size:13px;color:#5B6675;font-weight:600"
+        cabecera = (
+            "<tr><th style='text-align:left;padding:8px 14px;font-size:12px;color:#7A8699;font-weight:500'>"
+            "IA ↓ · Humano →</th>"
+            + "".join(f"<th style='{_th}'>{c}</th>" for c in orden)
+            + f"<th style='{_th}'>Total</th></tr>"
+        )
+        filas = []
+        for r in orden:
+            celdas = []
+            for c in orden:
+                v = int(piv.loc[r, c])
+                a = 0.08 + 0.55 * v / _max
+                bg = f"rgba(31,78,121,{a:.2f})" if r == c else f"rgba(163,45,45,{a:.2f})"
+                fg = "#FFFFFF" if a > 0.4 else "#14202E"
+                celdas.append(
+                    f"<td style='background:{bg};color:{fg};text-align:right;padding:10px 14px;"
+                    f"font-weight:600;border-radius:6px'>{fmt_int(v)}</td>"
+                )
+            filas.append(
+                f"<tr><th style='text-align:left;padding:10px 14px;font-weight:600;color:#14202E'>{r}</th>"
+                + "".join(celdas)
+                + f"<td style='text-align:right;padding:10px 14px;color:#5B6675'>{fmt_int(int(piv.loc[r].sum()))}</td></tr>"
+            )
+        st.markdown(
+            "<table style='border-collapse:separate;border-spacing:4px;font-size:14.5px;"
+            "font-variant-numeric:tabular-nums;margin-top:14px'>"
+            + cabecera + "".join(filas) + "</table>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            "<p style='font-size:13px;color:#7A8699;margin:10px 0 4px;max-width:90ch'>"
+            "Azul: coincidencias (diagonal); rojo: discrepancias. Precisión: de lo que la IA marcó como odio, "
+            "cuánto confirmó la revisión humana. Recall: del odio confirmado por personas, cuánto había "
+            "detectado la IA. Incluye todo el Gold, no solo los mensajes revisados tras la IA.</p>",
+            unsafe_allow_html=True,
+        )
 
 
 def render_panel_general():
