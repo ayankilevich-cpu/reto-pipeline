@@ -27,7 +27,8 @@ from components.ui import (
 )
 from components.exports import render_descargas_menu
 from components.chart_style import (
-    NAVY, encabezado_grafico, fmt_int, fmt_pct, kpi_tarjetas, linea_actividad, nota_fuente, tarjeta,
+    NAVY, INT_COLOR as _INT_COLOR, INT_LABEL as _INT_LABEL,
+    encabezado_grafico, fmt_int, fmt_pct, kpi_tarjetas, linea_actividad, nota_fuente, tarjeta,
 )
 from components.db_helpers import (
     _public_medio_label, load_filter_options, _pooled_conn,
@@ -163,8 +164,6 @@ _SQL_LLM_ULTIMA_CAT = """
 
 _SOLO_X = ("x",)   # la sección solo muestra X (YouTube no tiene clasificación completa desde 30/09/2026)
 _COLORES_CLASIF = {"Odio": "#A32D2D", "No Odio": "#8AA4BF", "Dudoso": "#D69E2E"}
-_INT_COLOR = {"1": "#F4C7C3", "2": "#E0726A", "3": "#A32D2D"}
-_INT_LABEL = {"1": "Baja (1)", "2": "Media (2)", "3": "Alta (3)"}
 
 
 @st.cache_data(ttl=86400, max_entries=64)
