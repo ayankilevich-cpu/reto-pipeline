@@ -74,13 +74,22 @@ def tarjeta():
     return st.container(border=True)
 
 
-def kpi_tarjetas(items, destacar_primero: bool = True, value_colors: Optional[List[str]] = None) -> None:
-    """KPIs en tarjetas blancas. items: lista de (etiqueta, valor_f, detalle_o_vacío). value_colors: color opcional por tarjeta."""
+def kpi_tarjetas(
+    items,
+    destacar_primero: bool = True,
+    value_colors: Optional[List[str]] = None,
+    *,
+    color_detalle: str = ACCENT,
+) -> None:
+    """Renderiza tarjetas KPI con colores independientes para el valor y el detalle."""
     cards = []
     for i, (lab, val, det) in enumerate(items):
         hi = destacar_primero and i == 0
         vc = (value_colors[i] if value_colors and i < len(value_colors) and value_colors[i] else (NAVY if hi else INK))
-        det_html = (f"<div style='font-size:13px;color:{ACCENT};margin-top:2px;font-weight:500'>{html.escape(det)}</div>" if det else "")
+        det_html = (
+            f"<div style='font-size:13px;color:{color_detalle};margin-top:2px;font-weight:500'>"
+            f"{html.escape(det)}</div>" if det else ""
+        )
         cards.append(f"<div style='border:1px solid {'#C9D8E8' if hi else '#E3E8EF'};background:{'#F7FAFD' if hi else '#FFFFFF'};border-radius:12px;padding:16px 18px'><div style='font-size:13px;color:{MUTED}'>{html.escape(lab)}</div><div style='font-size:30px;font-weight:700;letter-spacing:-0.02em;margin-top:4px;color:{vc};font-variant-numeric:tabular-nums;white-space:nowrap'>{html.escape(val)}</div>{det_html}</div>")
     st.markdown("<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px'>" + "".join(cards) + "</div>", unsafe_allow_html=True)
 

@@ -6,6 +6,7 @@ import json
 import re
 import sys
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -437,15 +438,21 @@ def render_analisis_contextual():
             _prom_sel = row_sel.get("promedio_referencia_pct")
             _alerta_color = "#A32D2D" if _es_alerta_sel else "#2F855A"
             _alerta_det = ""
-            if _um_sel is not None and not (isinstance(_um_sel, float) and pd.isna(_um_sel)) and _prom_sel is not None and not (isinstance(_prom_sel, float) and pd.isna(_prom_sel)):
-                _alerta_det = f"Umbral {fmt_pct(float(_um_sel), dec=2)} (1,5 × {fmt_pct(float(_prom_sel), dec=2)})"
+            if pd.notna(_um_sel) and pd.notna(_prom_sel):
+                umbral = Decimal(str(_um_sel))
+                promedio = Decimal(str(_prom_sel))
+                umbral_fmt = fmt_pct(umbral, dec=2)
+                if abs(umbral - Decimal("1.5") * promedio) <= Decimal("0.01"):
+                    _alerta_det = f"Umbral {umbral_fmt} (1,5 × {fmt_pct(promedio, dec=2)})"
+                else:
+                    _alerta_det = f"Umbral provisional {umbral_fmt} (criterio nuevo de X)"
 
             kpi_tarjetas([
                 ("Mensajes analizados", fmt_int(_total_sel), ""),
                 ("Mensajes de odio", fmt_int(_odio_sel), ""),
                 ("% de odio", fmt_pct(_pct_sel, dec=2), ""),
                 ("Alerta", "Sí" if _es_alerta_sel else "No", _alerta_det),
-            ], value_colors=[None, None, None, _alerta_color])
+            ], value_colors=[None, None, None, _alerta_color], color_detalle=MUTED)
 
             st.markdown("<div style='margin-top:16px'></div>", unsafe_allow_html=True)
 
