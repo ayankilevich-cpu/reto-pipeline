@@ -122,7 +122,7 @@ def _prepare_ranking_df(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _render_ranking_simple(
-    df: pd.DataFrame, top_n: int, key_suffix: str
+    df: pd.DataFrame, top_n: int, key_suffix: str, plataforma_label: str = "la plataforma"
 ) -> Optional[go.Figure]:
     if df.empty:
         st.info("No hay datos de medios para esta vista.")
@@ -190,7 +190,7 @@ def _render_ranking_simple(
     )
     st.plotly_chart(fig, use_container_width=True, theme=None, key=f"rm_pct_{key_suffix}")
     nota_fuente("% de odio: mensajes marcados como odio por al menos una fuente (modelo automático, clasificación IA o validación humana).")
-    st.caption(f"Medios con al menos {_MIN_MSGS} mensajes en el período.")
+    st.caption(f"Se comparan los {len(_ids)} medios con más mensajes de {plataforma_label} en el período.")
     return fig
 
 
@@ -351,7 +351,7 @@ def render_ranking_medios():
             "Los porcentajes de YouTube no son comparables con los de X."
         )
 
-    fig = _render_ranking_simple(df_plat, top_n=10, key_suffix=plat_key)
+    fig = _render_ranking_simple(df_plat, top_n=10, key_suffix=plat_key, plataforma_label=plataforma)
     _render_explorar_medio(df_plat, plat_key)
 
     _, _h2n = _load_valid_media_map()
