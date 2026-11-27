@@ -25,7 +25,7 @@ from components.ui import (
     _render_section_header,
     _role_can_access_raw,
 )
-from components.exports import render_section_exports
+from components.exports import render_descargas_menu
 from components.chart_style import (
     NAVY, encabezado_grafico, fmt_int, fmt_pct, kpi_tarjetas, linea_actividad, nota_fuente, tarjeta,
 )
@@ -276,16 +276,20 @@ def _render_recuadro_youtube() -> None:
         return
     pct_an = yt["analizados"] / yt["total"] * 100
     pct_rel = yt["relevantes"] / yt["analizados"] * 100 if yt["analizados"] else 0.0
-    cifras = [
-        (fmt_int(yt["total"]), "comentarios recogidos"),
-        (fmt_int(yt["analizados"]), f"analizados por el filtro ({fmt_pct(pct_an)} del total)"),
-        (fmt_int(yt["relevantes"]), f"marcados como relevantes ({fmt_pct(pct_rel)} de los analizados)"),
-        (fmt_int(yt["odio_confirmado"]), f"odio confirmado por personas, de {fmt_int(yt['validados'])} validados"),
+    pasos = [
+        (fmt_int(yt["total"]), "comentarios recogidos", "#14202E"),
+        (fmt_int(yt["analizados"]), f"analizados por el filtro de odio de la IA ({fmt_pct(pct_an)} del total)", "#1F4E79"),
+        (fmt_int(yt["relevantes"]), f"señalados como posible odio ({fmt_pct(pct_rel)} de los analizados)", "#A32D2D"),
     ]
-    celdas = "".join(
-        "<div style='font-size:13px;color:#5B6675'>"
-        f"<b style='display:block;font-size:22px;color:#14202E;letter-spacing:-0.01em'>{v}</b>{html.escape(t)}</div>"
-        for v, t in cifras
+    flecha = (
+        "<div style='align-self:center;color:#A0AEC0;font-size:22px;line-height:1;padding:0 4px'>→</div>"
+    )
+    celdas = flecha.join(
+        "<div style='flex:1 1 180px;min-width:0'>"
+        f"<div style='font-size:26px;font-weight:700;letter-spacing:-0.02em;color:{color};"
+        f"font-variant-numeric:tabular-nums'>{v}</div>"
+        f"<div style='font-size:13.5px;color:#5B6675;line-height:1.35'>{html.escape(t)}</div></div>"
+        for v, t, color in pasos
     )
     st.markdown(
         "<div style='border:1px solid #E3E8EF;background:#F6F8FB;border-radius:12px;padding:16px 18px;margin:0 0 22px'>"
@@ -295,11 +299,11 @@ def _render_recuadro_youtube() -> None:
         "<div><strong style='color:#14202E'>YouTube sigue otro proceso</strong>"
         "<p style='margin:2px 0 0;font-size:14px;color:#3B4757;max-width:95ch'>"
         f"Desde el {fecha_fin_clasificacion_yt(yt)} los comentarios de YouTube no se clasifican por categoría con IA. "
-        "Un filtro de IA revisa los comentarios más recientes, con un límite por ejecución, y marca los que "
-        "merecen revisión; el equipo valida después si contienen odio. Por eso esta sección muestra solo X. "
+        "Un filtro de IA analiza los comentarios más recientes, con un límite por ejecución, y señala los que "
+        "pueden contener odio para que el equipo los revise. Por eso esta sección muestra solo X. "
         "Las categorías de YouTube validadas por personas están en <em>Dataset validado</em>.</p></div></div>"
-        "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;"
-        f"margin-top:14px;padding-left:28px'>{celdas}</div></div>",
+        "<div style='display:flex;flex-wrap:wrap;gap:12px;margin-top:16px;padding-left:28px'>"
+        f"{celdas}</div></div>",
         unsafe_allow_html=True,
     )
 
@@ -450,17 +454,20 @@ def _render_muestra_ultima_corrida_llm_section(*, key_suffix: str = "") -> None:
 
 
 def render_categorias():
-    if _is_viewer():
-        _render_section_header(
-            "Categorías de odio",
-            "Clasificación por IA de los mensajes de X en las 6 categorías del proyecto ReTo, y su intensidad.",
-        )
-    else:
-        _render_section_header(
-            "Categorías de odio",
-            "Clasificación del LLM en las 6 categorías del proyecto ReTo. "
-            "<strong>Primero</strong> la muestra de mensajes; <strong>debajo</strong>, métricas y gráficos.",
-        )
+    _col_tit, _col_dl = st.columns([6, 1])
+    with _col_tit:
+        if _is_viewer():
+            _render_section_header(
+                "Categorías de odio",
+                "Clasificación por IA de los mensajes de X en las 6 categorías del proyecto ReTo, y su intensidad.",
+            )
+        else:
+            _render_section_header(
+                "Categorías de odio",
+                "Clasificación del LLM en las 6 categorías del proyecto ReTo. "
+                "<strong>Primero</strong> la muestra de mensajes; <strong>debajo</strong>, métricas y gráficos.",
+            )
+    if not _is_viewer():
         _render_muestra_ultima_corrida_llm_section(key_suffix="")
         st.markdown("---")
 
@@ -611,16 +618,17 @@ def render_categorias():
 
     nota_fuente()
 
-    render_section_exports(
-        section_key="categorias_odio",
-        section_title="Categorías de odio",
-        csv_items=[
-            ("categorias", df),
-            ("intensidad_categoria", df_int),
-        ],
-        fig_items=[
-            {"title": "Resultado de la clasificación por IA", "fig": fig_res, "kind": "plotly"},
-            {"title": "Mensajes por categoría", "fig": fig if "fig" in locals() else None, "kind": "plotly"},
-            {"title": "Intensidad por categoría", "fig": fig3 if "fig3" in locals() else None, "kind": "plotly"},
-        ],
-    )
+    with _col_dl:
+        render_descargas_menu(
+            section_key="categorias_odio",
+            section_title="Categorías de odio",
+            csv_items=[
+                ("categorias", df),
+                ("intensidad_categoria", df_int),
+            ],
+            fig_items=[
+                {"title": "Resultado de la clasificación por IA", "fig": fig_res, "kind": "plotly"},
+                {"title": "Mensajes por categoría", "fig": fig if "fig" in locals() else None, "kind": "plotly"},
+                {"title": "Intensidad por categoría", "fig": fig3 if "fig3" in locals() else None, "kind": "plotly"},
+            ],
+        )
