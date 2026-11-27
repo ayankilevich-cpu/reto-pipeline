@@ -31,7 +31,7 @@ from components.chart_style import (
     NAVY, NEUTRAL, encabezado_grafico, fmt_int, fmt_pct, kpi_tarjetas, linea_actividad,
     nota_fuente, tarjeta,
 )
-from components.db_helpers import load_filter_options, _pooled_conn
+from components.db_helpers import load_filter_options, _pooled_conn, fecha_fin_clasificacion_yt, load_youtube_recorrido
 
 
 @st.cache_data(ttl=86400, show_spinner="Cargando datos…", max_entries=64)
@@ -435,6 +435,20 @@ def _render_odio_por_plataforma(df_emb: pd.DataFrame):
         "Según IA, sin validar</span></div>",
         unsafe_allow_html=True,
     )
+    if dfp["plataforma"].astype(str).str.lower().str.contains("youtube").any():
+        try:
+            _yt = load_youtube_recorrido()
+            _pct_an = fmt_pct(_yt["analizados"] / _yt["total"] * 100) if _yt["total"] else "—"
+            st.markdown(
+                "<p style='font-size:13px;color:#7A8699;margin:8px 0 2px;max-width:80ch'>"
+                f"En YouTube la IA no clasifica odio desde el {fecha_fin_clasificacion_yt(_yt)}, y su filtro "
+                f"de relevancia ha analizado el {_pct_an} de los comentarios. Su porcentaje suma el odio "
+                "confirmado por personas y la clasificación anterior a esa fecha, por lo que no es "
+                "comparable con X.</p>",
+                unsafe_allow_html=True,
+            )
+        except Exception:
+            pass
     return fig
 
 
