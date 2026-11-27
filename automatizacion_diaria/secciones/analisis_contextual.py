@@ -288,7 +288,9 @@ def render_analisis_contextual():
         # Título dinámico basado en alertas de las últimas 4 semanas cerradas
         ultimas4 = df_cerradas.sort_values("semana_inicio").tail(4)
         n_alertas_4 = sum(1 for _, r in ultimas4.iterrows() if _es_alerta(r, spike_fallback))
-        if n_alertas_4 > 0:
+        if n_alertas_4 == 1:
+            titulo_ev = "1 de las últimas 4 semanas cerradas superó el umbral de alerta"
+        elif n_alertas_4 > 1:
             titulo_ev = f"{n_alertas_4} de las últimas 4 semanas cerradas superaron el umbral de alerta"
         else:
             titulo_ev = "Ninguna de las últimas 4 semanas cerradas superó el umbral de alerta"
