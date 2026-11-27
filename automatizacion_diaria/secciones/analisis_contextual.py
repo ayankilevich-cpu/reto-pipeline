@@ -157,7 +157,7 @@ def _fmt_dia_pico(val) -> str:
 
 
 def _formatear_resumen(texto: str) -> str:
-    """Convierte fechas ISO y miles en formato inglés al estilo español."""
+    """Convierte fechas ISO, separadores de miles y porcentajes al formato español."""
     if not texto:
         return texto
     texto = re.sub(
@@ -170,6 +170,8 @@ def _formatear_resumen(texto: str) -> str:
         lambda m: f"{m.group(1)}.{m.group(2)}",
         texto,
     )
+    texto = re.sub(r'(\d+)\.(\d+)\s?%', lambda m: f"{m.group(1)},{m.group(2)} %", texto)
+    texto = re.sub(r'(?<=\d)%', ' %', texto)
     return texto
 
 
