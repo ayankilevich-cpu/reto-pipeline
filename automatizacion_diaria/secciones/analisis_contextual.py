@@ -271,6 +271,7 @@ def render_analisis_contextual():
     df_chart["semana_label"] = df_chart["semana_inicio"].apply(
         lambda d: d.strftime("%d/%m/%y") if hasattr(d, "strftime") else str(d)
     )
+    assert df_chart["semana_label"].is_unique, "Las etiquetas de semana deben ser únicas"
 
     # Semana en curso
     hoy = date.today()
@@ -374,7 +375,12 @@ def render_analisis_contextual():
             yaxis=dict(title="% de odio", tickformat=".1f", ticksuffix=" %"),
             showlegend=True,
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
-            xaxis=dict(tickangle=-45, tickfont=dict(size=10), automargin=True),
+            xaxis=dict(
+                type="category",
+                categoryorder="array",
+                categoryarray=list(df_chart["semana_label"]),
+                tickangle=-45, tickfont=dict(size=10), automargin=True,
+            ),
             margin=dict(b=60, t=20),
             bargap=0.3,
         )
