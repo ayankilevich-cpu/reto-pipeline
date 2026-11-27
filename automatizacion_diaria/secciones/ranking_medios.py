@@ -13,9 +13,10 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from components.anonimizacion import enmascarar_texto_ui
 from components.constants import EXCLUDED_SOURCE_MEDIA, PLATFORM_DISPLAY
 from components.db_helpers import (
-    _load_valid_media_map, _public_medio_label, _pooled_conn,
+    _public_medio_label, _pooled_conn,
     load_youtube_recorrido, fecha_fin_clasificacion_yt,
 )
 from components.ui import _render_section_header
@@ -118,6 +119,7 @@ def _prepare_ranking_df(df: pd.DataFrame) -> pd.DataFrame:
     df["pct_odio_gold"] = (df["odio_gold"] / safe_total * 100).round(1)
     df["pct_odio_any"] = (df["odio_cualquiera"] / safe_total * 100).round(1)
     df["plataforma"] = df["platform"].map(PLATFORM_DISPLAY).fillna(df["platform"])
+    df["medio"] = df["source_media"].map(_public_medio_label).map(enmascarar_texto_ui)
     return df
 
 
@@ -128,16 +130,14 @@ def _render_ranking_simple(
         st.info("No hay datos de medios para esta vista.")
         return None
 
-    _, _h2n = _load_valid_media_map()
     df_vol = df.sort_values("total_mensajes", ascending=False).head(top_n).copy()
-    df_vol["medio"] = df_vol["source_media"].map(lambda sm: _h2n.get(sm, sm))
     df_vol["medio_corto"] = df_vol["medio"].map(_nombre_corto)
 
     _tot = df_vol["total_mensajes"].sum()
     _media = (df_vol["odio_cualquiera"].sum() / _tot * 100) if _tot else 0.0
 
     df_plot = df_vol.sort_values("pct_odio_any", ascending=False).reset_index(drop=True)
-    _ids = df_plot["source_media"].astype(str).tolist()
+    _ids = [str(i) for i in df_plot.index]
     _top3 = set(_ids[:3])
     _lider = df_plot.iloc[0]
     _xmax = max(float(df_plot["pct_odio_any"].max()), _media) * 1.25 or 1
@@ -160,20 +160,25 @@ def _render_ranking_simple(
             "<extra></extra>"
         ),
     ))
-    fig.add_vline(
-        x=_media, line=dict(color=NAVY, width=1.5, dash="dot"),
-        annotation_text=f"Media del grupo: {fmt_pct(_media)}",
-        annotation_position="top right",
-        annotation_font=dict(size=12, color=NAVY),
+    fig.add_shape(
+        type="line", x0=_media, x1=_media, xref="x",
+        y0=0, y1=1, yref="paper",
+        line=dict(color=NAVY, width=1, dash="dot"),
+    )
+    fig.add_annotation(
+        x=_media, xref="x", y=1.0, yref="paper",
+        text=f"Media del grupo: {fmt_pct(_media)}", showarrow=False,
+        yanchor="bottom", xanchor="left", xshift=4,
+        font=dict(size=11, color=MUTED),
     )
     fig.update_layout(
         height=max(380, len(_ids) * 46),
         showlegend=False,
         bargap=0.42,
-        margin=dict(l=8, r=64, t=28, b=8),
+        margin=dict(l=8, r=64, t=36, b=8),
         xaxis=dict(visible=False, range=[0, _xmax], fixedrange=True),
         yaxis=dict(
-            autorange="reversed", showgrid=False, fixedrange=True, automargin=True,
+            type="category", autorange="reversed", showgrid=False, fixedrange=True, automargin=True,
             tickvals=_ids,
             ticktext=[etiqueta_doble(mc, f"{fmt_int(t)} mensajes")
                       for mc, t in zip(df_plot["medio_corto"], df_plot["total_mensajes"])],
@@ -201,32 +206,22 @@ def _render_explorar_medio(df_plat: pd.DataFrame, plat_key: str) -> None:
     st.markdown("---")
     st.markdown(f"<p style='font-size:17px;font-weight:600;color:{INK};margin:4px 0 12px'>Explorar medio</p>", unsafe_allow_html=True)
 
-    _, _h2n = _load_valid_media_map()
-    df_e = df_plat.copy()
-    df_e["medio"] = df_e["source_media"].map(lambda sm: _h2n.get(sm, sm))
-    df_e = df_e.sort_values("total_mensajes", ascending=False).reset_index(drop=True)
-
-    medios_lista = df_e["medio"].tolist()
-    if not medios_lista:
-        st.info("No hay medios disponibles.")
+    df_e = df_plat.sort_values("total_mensajes", ascending=False).reset_index(drop=True)
+    medio_idx = st.selectbox(
+        "Medio", df_e.index, format_func=lambda i: df_e.at[i, "medio"],
+        key=f"explorar_medio_{plat_key}",
+    )
+    if medio_idx is None:
         return
-
-    medio_sel = st.selectbox("Medio", medios_lista, key=f"explorar_medio_{plat_key}")
-
-    mask = df_e["medio"] == medio_sel
-    if not mask.any():
-        return
-    r = df_e[mask].iloc[0]
-    sel_sm = r["source_media"]
+    r = df_e.loc[medio_idx]
 
     total = int(r["total_mensajes"])
     odio = int(r["odio_cualquiera"])
     pct = round(odio / max(total, 1) * 100, 2)
 
-    df_ranked = df_e.sort_values("pct_odio_any", ascending=False).reset_index(drop=True)
-    pos_arr = df_ranked.index[df_ranked["medio"] == medio_sel].tolist()
-    pos_num = pos_arr[0] + 1 if pos_arr else None
-    pos_str = _ordinal(pos_num) + f" de {len(df_e)}" if pos_num else "—"
+    df_ranked = df_e.sort_values("pct_odio_any", ascending=False)
+    pos_num = int(df_ranked.index.get_loc(medio_idx)) + 1
+    pos_str = _ordinal(pos_num) + f" de {len(df_e)}"
 
     kpi_tarjetas([
         ("Mensajes", fmt_int(total), ""),
@@ -236,9 +231,9 @@ def _render_explorar_medio(df_plat: pd.DataFrame, plat_key: str) -> None:
     ])
 
     top15 = df_e.head(15).copy()
-    top15 = top15.sort_values("total_mensajes", ascending=True).reset_index(drop=True)
-    _ids15 = top15["source_media"].tolist()
-    colors15 = [NAVY if sm == sel_sm else NEUTRAL for sm in _ids15]
+    top15 = top15.sort_values("total_mensajes", ascending=True)
+    _ids15 = [str(i) for i in top15.index]
+    colors15 = [NAVY if i == medio_idx else NEUTRAL for i in top15.index]
     _xmax15 = float(top15["total_mensajes"].max()) * 1.2 or 1
 
     fig_e = go.Figure(go.Bar(
@@ -263,7 +258,7 @@ def _render_explorar_medio(df_plat: pd.DataFrame, plat_key: str) -> None:
         margin=dict(l=8, r=64, t=16, b=8),
         xaxis=dict(visible=False, range=[0, _xmax15], fixedrange=True),
         yaxis=dict(
-            showgrid=False, fixedrange=True, automargin=True,
+            type="category", showgrid=False, fixedrange=True, automargin=True,
             tickvals=_ids15,
             ticktext=[etiqueta_doble(_nombre_corto(m), f"{fmt_int(t)} mensajes · {fmt_pct(p)}")
                       for m, t, p in zip(top15["medio"], top15["total_mensajes"], top15["pct_odio_any"])],
@@ -354,13 +349,9 @@ def render_ranking_medios():
     fig = _render_ranking_simple(df_plat, top_n=10, key_suffix=plat_key, plataforma_label=plataforma)
     _render_explorar_medio(df_plat, plat_key)
 
-    _, _h2n = _load_valid_media_map()
-
     def _prep_csv(df: pd.DataFrame) -> pd.DataFrame:
-        if df.empty:
-            return df
-        out = df.copy()
-        out.insert(0, "Medio", out["source_media"].map(lambda sm: _h2n.get(sm, sm)))
+        out = df.drop(columns=["source_media", "medio"])
+        out.insert(0, "Medio", df["medio"])
         return out
 
     csv_items = []
