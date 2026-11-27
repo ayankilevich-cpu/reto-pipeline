@@ -138,7 +138,7 @@ def _precalentar_cache() -> None:
         load_intensidad_por_categoria, load_resultado_clasificacion,
         _SOLO_X,
     )
-    from secciones.ranking_medios import load_ranking_medios, _load_ranking_medios_raw
+    from secciones.ranking_medios import load_ranking_medios
     from secciones.analisis_contextual import load_analisis_semanal
     from secciones.semaforo_diario import load_semaforo_diario
     from secciones.terminos_frecuentes import load_terminos, compute_terminos_counter, generate_wordcloud_array
@@ -161,7 +161,6 @@ def _precalentar_cache() -> None:
         ("load_youtube_recorrido",        lambda: load_youtube_recorrido()),
         ("load_ranking_medios",           lambda: load_ranking_medios(fecha_desde=None, fecha_hasta=None)),
         ("_load_valid_media_map",         lambda: _load_valid_media_map()),
-        ("_load_ranking_medios_raw",      lambda: _load_ranking_medios_raw(min_msgs=1)),
         ("load_analisis_semanal",         lambda: load_analisis_semanal()),
         ("load_semaforo_diario",          lambda: load_semaforo_diario()),
         ("load_terminos",                 lambda: load_terminos(platforms=None, medios=None, categorias=None, solo_candidatos=True, ultimas_horas=None)),

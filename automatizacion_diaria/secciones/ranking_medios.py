@@ -3,35 +3,52 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Optional, Tuple
 
 _HERE = Path(__file__).resolve().parent.parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from components.constants import COLORS, EXCLUDED_SOURCE_MEDIA, PLATFORM_DISPLAY
-from components.db_helpers import _load_valid_media_map, _public_medio_label, _pooled_conn
-from components.ui import (
-    _render_section_header,
-    _render_pg_kpi_grid,
-    _is_viewer,
-    _apply_horizontal_bar_labels,
+from components.constants import EXCLUDED_SOURCE_MEDIA, PLATFORM_DISPLAY
+from components.db_helpers import (
+    _load_valid_media_map, _public_medio_label, _pooled_conn,
+    load_youtube_recorrido, fecha_fin_clasificacion_yt,
 )
-from components.exports import render_section_exports
+from components.ui import _render_section_header
+from components.exports import render_descargas_menu
 from components.aviso_criterio import render_aviso_cambio_criterio
 from components.chart_style import (
-    ACCENT, MUTED, NAVY, colores_destacados, encabezado_grafico,
-    etiqueta_doble, fmt_int, fmt_pct, nota_fuente,
+    ACCENT, INK, MUTED, NAVY, NEUTRAL,
+    colores_destacados, encabezado_grafico, etiqueta_doble,
+    fmt_int, fmt_pct, kpi_tarjetas, nota_fuente,
 )
+
+_MIN_MSGS = 100
+
+
+def _nombre_corto(nombre: str, maxlen: int = 28) -> str:
+    idx = nombre.find(" (")
+    if idx != -1:
+        nombre = nombre[:idx]
+    if len(nombre) > maxlen:
+        nombre = nombre[:maxlen - 1] + "…"
+    return nombre
+
+
+def _ordinal(n: int) -> str:
+    return f"{n}.º"
 
 
 @st.cache_data(ttl=86400, show_spinner="Cargando datos…", max_entries=64)
-def _load_ranking_medios_raw(min_msgs: int = 100, fecha_desde: Optional[str] = None, fecha_hasta: Optional[str] = None) -> pd.DataFrame:
+def _load_ranking_medios_raw(
+    min_msgs: int = 100,
+    fecha_desde: Optional[str] = None,
+    fecha_hasta: Optional[str] = None,
+) -> pd.DataFrame:
     conds = ["pm.source_media IS NOT NULL AND pm.source_media != ''",
              "pm.source_media NOT IN %s"]
     params: list = [tuple(EXCLUDED_SOURCE_MEDIA)]
@@ -62,6 +79,8 @@ def _load_ranking_medios_raw(min_msgs: int = 100, fecha_desde: Optional[str] = N
                       OR e.clasificacion_principal = 'ODIO'
                       OR g.y_odio_bin = 1
                     THEN pm.message_uuid END) AS odio_cualquiera,
+                COUNT(DISTINCT CASE WHEN pm.relevante_llm = 'SI'
+                    THEN pm.message_uuid END) AS relevante_filtro,
                 ROUND(AVG(s.proba_odio)::numeric, 3) AS score_promedio
             FROM processed.mensajes pm
             LEFT JOIN processed.scores s USING (message_uuid)
@@ -81,17 +100,14 @@ def load_ranking_medios(
     fecha_desde: Optional[str] = None,
     fecha_hasta: Optional[str] = None,
 ) -> pd.DataFrame:
-    df = _load_ranking_medios_raw(min_msgs=100, fecha_desde=fecha_desde, fecha_hasta=fecha_hasta)
-    # Solo incluir medios de la lista maestra validada
+    df = _load_ranking_medios_raw(min_msgs=_MIN_MSGS, fecha_desde=fecha_desde, fecha_hasta=fecha_hasta)
     df = df[df["source_media"].apply(lambda sm: _public_medio_label(sm) is not None)]
     if platforms:
-        platforms_list = list(platforms)
-        df = df[df["platform"].isin(platforms_list)]
+        df = df[df["platform"].isin(list(platforms))]
     return df
 
 
 def _prepare_ranking_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Calcula porcentajes y etiquetas de plataforma sobre el DataFrame de ranking."""
     if df.empty:
         return df
     safe_total = df["total_mensajes"].replace(0, 1)
@@ -105,15 +121,17 @@ def _prepare_ranking_df(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _render_ranking_simple(df: pd.DataFrame, top_n: int, key_suffix: str):
-    """Top N medios: volumen y % odio. Sin filtros."""
+def _render_ranking_simple(
+    df: pd.DataFrame, top_n: int, key_suffix: str, plataforma_label: str = "la plataforma"
+) -> Optional[go.Figure]:
     if df.empty:
         st.info("No hay datos de medios para esta vista.")
-        return
+        return None
 
-    df_vol = df.sort_values("total_mensajes", ascending=False).head(top_n).copy()
     _, _h2n = _load_valid_media_map()
+    df_vol = df.sort_values("total_mensajes", ascending=False).head(top_n).copy()
     df_vol["medio"] = df_vol["source_media"].map(lambda sm: _h2n.get(sm, sm))
+    df_vol["medio_corto"] = df_vol["medio"].map(_nombre_corto)
 
     _tot = df_vol["total_mensajes"].sum()
     _media = (df_vol["odio_cualquiera"].sum() / _tot * 100) if _tot else 0.0
@@ -157,350 +175,204 @@ def _render_ranking_simple(df: pd.DataFrame, top_n: int, key_suffix: str):
         yaxis=dict(
             autorange="reversed", showgrid=False, fixedrange=True, automargin=True,
             tickvals=_ids,
-            ticktext=[etiqueta_doble(m, f"{fmt_int(t)} mensajes")
-                      for m, t in zip(df_plot["medio"], df_plot["total_mensajes"])],
+            ticktext=[etiqueta_doble(mc, f"{fmt_int(t)} mensajes")
+                      for mc, t in zip(df_plot["medio_corto"], df_plot["total_mensajes"])],
             ticksuffix="   ",
             tickfont=dict(size=13, color="#1A202C"),
         ),
     )
 
     encabezado_grafico(
-        f"{_lider['medio']} registra el mayor porcentaje de odio entre los "
+        f"{_nombre_corto(_lider['medio'])} registra el mayor porcentaje de odio entre los "
         f"{len(_ids)} medios con más mensajes ({fmt_pct(_lider['pct_odio_any'])})",
         "Porcentaje de mensajes clasificados como odio sobre el total de cada medio. "
         "Debajo de cada nombre, mensajes analizados. Línea punteada: media del grupo.",
     )
     st.plotly_chart(fig, use_container_width=True, theme=None, key=f"rm_pct_{key_suffix}")
-    nota_fuente()
-
-    detail_cols = {
-        "source_media": "Medio",
-        "total_mensajes": "Total",
-        "odio_cualquiera": "Odio",
-        "pct_odio_any": "% Odio",
-    }
-    available = [c for c in detail_cols if c in df_vol.columns]
-    _column_config: Dict[str, Any] = {}
-    try:
-        _column_config = {
-            "Total": st.column_config.NumberColumn("Total", format="%d"),
-            "Odio": st.column_config.NumberColumn("Odio", format="%d"),
-            "% Odio": st.column_config.ProgressColumn(
-                "% Odio", format="%.1f%%", min_value=0, max_value=100,
-                color=COLORS["danger"],
-            ),
-        }
-    except Exception:
-        _column_config = {}
-    # Tabla del ranking: df_display es la copia mostrada (no el df cargado desde BD).
-    df_display = df_vol.assign(source_media=df_vol["medio"])[available].rename(columns=detail_cols)
-    if st.session_state.get("user_role") == "viewer":
-        df_display = df_display.drop(columns=["odio_gold"], errors="ignore")
-    st.dataframe(
-        df_display,
-        use_container_width=True, hide_index=True,
-        column_config=_column_config if _column_config else None,
-        key=f"rm_table_{key_suffix}",
-    )
+    nota_fuente("% de odio: mensajes marcados como odio por al menos una fuente (modelo automático, clasificación IA o validación humana).")
+    st.caption(f"Se comparan los {len(_ids)} medios con más mensajes de {plataforma_label} en el período.")
+    return fig
 
 
-def _filter_ranking_explore_detail_df(detail_df: pd.DataFrame) -> pd.DataFrame:
-    """Solo admin ve desglose Odio Baseline / LLM / Gold (y score); resto: candidatos + odio agregado."""
-    if st.session_state.get("user_role") == "admin":
-        return detail_df
-    visibles = {"Candidatos (diccionario)", "Odio — Cualquier fuente"}
-    return detail_df[detail_df["Métrica"].isin(visibles)].reset_index(drop=True)
-
-
-@st.fragment
-def _render_explorar_medio():
-    """Pestaña exploratoria: seleccionar un medio y plataforma para ver sus métricas."""
-    st.markdown("Seleccioná un medio y una plataforma para ver sus métricas de odio.")
-
-    valid_names, handle_to_name = _load_valid_media_map()
-
-    df_raw = _load_ranking_medios_raw(min_msgs=1)
-    if df_raw.empty:
-        st.warning("No hay datos de medios.")
+def _render_explorar_medio(df_plat: pd.DataFrame, plat_key: str) -> None:
+    if df_plat.empty:
         return
 
-    df_raw = df_raw.copy()
-    df_raw["source_media"] = df_raw["source_media"].map(
-        lambda sm: handle_to_name.get(sm, sm)
-    )
+    st.markdown("---")
+    st.markdown(f"<p style='font-size:17px;font-weight:600;color:{INK};margin:4px 0 12px'>Explorar medio</p>", unsafe_allow_html=True)
 
-    df_explore = df_raw[df_raw["source_media"].isin(valid_names)].copy()
-    if df_explore.empty:
-        st.warning("No hay datos de medios reconocidos.")
+    _, _h2n = _load_valid_media_map()
+    df_e = df_plat.copy()
+    df_e["medio"] = df_e["source_media"].map(lambda sm: _h2n.get(sm, sm))
+    df_e = df_e.sort_values("total_mensajes", ascending=False).reset_index(drop=True)
+
+    medios_lista = df_e["medio"].tolist()
+    if not medios_lista:
+        st.info("No hay medios disponibles.")
         return
 
-    num_cols = [
-        "total_mensajes", "candidatos_dict", "odio_baseline",
-        "odio_llm", "odio_gold", "odio_cualquiera",
-    ]
-    agg_map = {c: "sum" for c in num_cols}
-    agg_map["score_promedio"] = "mean"
-    df_explore = df_explore.groupby(
-        ["source_media", "platform"], as_index=False,
-    ).agg(agg_map)
-    df_explore = _prepare_ranking_df(df_explore)
+    medio_sel = st.selectbox("Medio", medios_lista, key=f"explorar_medio_{plat_key}")
 
-    df_consol = df_explore.groupby("source_media", as_index=False).agg(
-        {c: "sum" for c in num_cols}
-    )
-    df_consol["platform"] = "consolidado"
-    df_consol = _prepare_ranking_df(df_consol)
-    df_full = pd.concat([df_explore, df_consol], ignore_index=True)
-
-    _TODOS = "Todos"
-    all_medios = [_TODOS] + sorted(df_full["source_media"].unique())
-
-    col_f1, col_f2 = st.columns(2)
-    with col_f1:
-        medio_sel = st.selectbox(
-            "Medio", all_medios,
-            index=0, key="explore_medio_sel",
-        )
-    with col_f2:
-        plat_opts = ["Consolidado", "X", "YouTube"]
-        plat_sel = st.selectbox(
-            "Plataforma", plat_opts,
-            index=0, key="explore_plat_sel",
-        )
-
-    plat_map = {"Consolidado": "consolidado", "X": "x", "YouTube": "youtube"}
-    plat_key = plat_map[plat_sel]
-
-    if medio_sel == _TODOS:
-        if plat_key == "consolidado":
-            agg_row = df_consol[num_cols].sum()
-        else:
-            plat_slice = df_explore[df_explore["platform"] == plat_key]
-            if plat_slice.empty:
-                st.info(f"No hay datos en **{plat_sel}**.")
-                return
-            agg_row = plat_slice[num_cols].sum()
-        total = int(agg_row["total_mensajes"])
-        odio = int(agg_row["odio_cualquiera"])
-        pct = round(odio / max(total, 1) * 100, 1)
-
-        st.markdown("---")
-        # Reutiliza las tarjetas KPI institucionales del Panel general.
-        _render_pg_kpi_grid([
-            ("Total mensajes", f"{total:,}", ""),
-            ("Mensajes con odio", f"{odio:,}", ""),
-            ("% Odio", f"{pct}%", ""),
-        ])
-
-        st.markdown("---")
-        detail_data = {
-            "Métrica": [
-                "Candidatos (diccionario)",
-                "Odio — Baseline",
-                "Odio — LLM",
-                "Odio — Gold (validado)",
-                "Odio — Cualquier fuente",
-            ],
-            "Cantidad": [
-                int(agg_row["candidatos_dict"]),
-                int(agg_row["odio_baseline"]),
-                int(agg_row["odio_llm"]),
-                int(agg_row["odio_gold"]),
-                odio,
-            ],
-            "% del total": [
-                f"{round(agg_row['candidatos_dict'] / max(total, 1) * 100, 1)}%",
-                f"{round(agg_row['odio_baseline'] / max(total, 1) * 100, 1)}%",
-                f"{round(agg_row['odio_llm'] / max(total, 1) * 100, 1)}%",
-                f"{round(agg_row['odio_gold'] / max(total, 1) * 100, 1)}%",
-                f"{pct}%",
-            ],
-        }
-        st.dataframe(
-            _filter_ranking_explore_detail_df(pd.DataFrame(detail_data)),
-            use_container_width=True, hide_index=True,
-            key="explore_detail_table",
-        )
-
-        if plat_key == "consolidado":
-            top_medios = df_consol.sort_values("total_mensajes", ascending=False).head(15)
-            fig = px.bar(
-                top_medios, x="total_mensajes", y="source_media", orientation="h",
-                color="pct_odio_any", color_continuous_scale="Reds",
-                labels={"total_mensajes": "Total mensajes", "source_media": "", "pct_odio_any": "% Odio"},
-                title="Top 15 medios reconocidos — Volumen (color = % Odio)",
-            )
-            fig.update_layout(height=500, yaxis=dict(autorange="reversed"))
-            _apply_horizontal_bar_labels(fig)
-            st.plotly_chart(fig, use_container_width=True, theme=None, key="explore_todos_chart")
+    mask = df_e["medio"] == medio_sel
+    if not mask.any():
         return
+    r = df_e[mask].iloc[0]
+    sel_sm = r["source_media"]
 
-    row = df_full[
-        (df_full["source_media"] == medio_sel) & (df_full["platform"] == plat_key)
-    ]
-
-    if row.empty:
-        st.info(f"No hay datos de **{medio_sel}** en **{plat_sel}**.")
-        return
-
-    r = row.iloc[0]
     total = int(r["total_mensajes"])
     odio = int(r["odio_cualquiera"])
-    pct = round(odio / max(total, 1) * 100, 1)
+    pct = round(odio / max(total, 1) * 100, 2)
 
-    st.markdown("---")
+    df_ranked = df_e.sort_values("pct_odio_any", ascending=False).reset_index(drop=True)
+    pos_arr = df_ranked.index[df_ranked["medio"] == medio_sel].tolist()
+    pos_num = pos_arr[0] + 1 if pos_arr else None
+    pos_str = _ordinal(pos_num) + f" de {len(df_e)}" if pos_num else "—"
 
-    # Mismo componente y mismo formato para la selección de un medio concreto.
-    _render_pg_kpi_grid([
-        ("Total mensajes", f"{total:,}", ""),
-        ("Mensajes con odio", f"{odio:,}", ""),
-        ("% Odio", f"{pct}%", ""),
+    kpi_tarjetas([
+        ("Mensajes", fmt_int(total), ""),
+        ("Mensajes de odio", fmt_int(odio), ""),
+        ("% de odio", fmt_pct(pct, dec=2), ""),
+        ("Posición en el ranking", pos_str, ""),
     ])
 
-    st.markdown("---")
+    top15 = df_e.head(15).copy()
+    top15 = top15.sort_values("total_mensajes", ascending=True).reset_index(drop=True)
+    _ids15 = top15["source_media"].tolist()
+    colors15 = [NAVY if sm == sel_sm else NEUTRAL for sm in _ids15]
+    _xmax15 = float(top15["total_mensajes"].max()) * 1.2 or 1
 
-    detail_data = {
-        "Métrica": [
-            "Candidatos (diccionario)",
-            "Odio — Baseline",
-            "Odio — LLM",
-            "Odio — Gold (validado)",
-            "Odio — Cualquier fuente",
-            "Score promedio (baseline)",
-        ],
-        "Cantidad": [
-            int(r["candidatos_dict"]),
-            int(r["odio_baseline"]),
-            int(r["odio_llm"]),
-            int(r["odio_gold"]),
-            odio,
-            r["score_promedio"] if pd.notna(r.get("score_promedio")) else "—",
-        ],
-        "% del total": [
-            f"{r['pct_dict']}%",
-            f"{r['pct_odio_baseline']}%",
-            f"{r['pct_odio_llm']}%",
-            f"{r['pct_odio_gold']}%",
-            f"{pct}%",
-            "—",
-        ],
-    }
-    st.dataframe(
-        _filter_ranking_explore_detail_df(pd.DataFrame(detail_data)),
-        use_container_width=True, hide_index=True,
-        key="explore_detail_table",
+    fig_e = go.Figure(go.Bar(
+        orientation="h",
+        y=_ids15,
+        x=top15["total_mensajes"],
+        marker_color=colors15,
+        text=[fmt_int(t) for t in top15["total_mensajes"]],
+        textposition="outside",
+        cliponaxis=False,
+        customdata=[[m, fmt_int(t), fmt_pct(p)] for m, t, p in zip(
+            top15["medio"], top15["total_mensajes"], top15["pct_odio_any"])],
+        hovertemplate=(
+            "<b>%{customdata[0]}</b><br>%{customdata[1]} mensajes<br>"
+            "%{customdata[2]} de odio<extra></extra>"
+        ),
+    ))
+    fig_e.update_layout(
+        height=max(420, len(_ids15) * 42),
+        showlegend=False,
+        bargap=0.4,
+        margin=dict(l=8, r=64, t=16, b=8),
+        xaxis=dict(visible=False, range=[0, _xmax15], fixedrange=True),
+        yaxis=dict(
+            showgrid=False, fixedrange=True, automargin=True,
+            tickvals=_ids15,
+            ticktext=[etiqueta_doble(_nombre_corto(m), f"{fmt_int(t)} mensajes · {fmt_pct(p)}")
+                      for m, t, p in zip(top15["medio"], top15["total_mensajes"], top15["pct_odio_any"])],
+            ticksuffix="   ",
+            tickfont=dict(size=13),
+        ),
     )
+    st.plotly_chart(fig_e, use_container_width=True, theme=None, key=f"explorar_top15_{plat_key}")
 
-    plats_disponibles = df_explore[df_explore["source_media"] == medio_sel]["platform"].unique()
-    if len(plats_disponibles) > 1:
-        plat_data = df_explore[df_explore["source_media"] == medio_sel].copy()
-        plat_data["plataforma"] = plat_data["platform"].map(PLATFORM_DISPLAY).fillna(plat_data["platform"])
-        fig = px.bar(
-            plat_data, x="plataforma", y=["total_mensajes", "odio_cualquiera"],
-            barmode="group",
-            labels={"value": "Mensajes", "variable": "", "plataforma": ""},
-            title=f"{medio_sel} — Comparativa por plataforma",
-        )
-        fig.update_layout(height=350)
-        fig.for_each_trace(lambda t: t.update(
-            name="Total" if "total" in t.name else "Odio"
-        ))
-        st.plotly_chart(
-            fig,
-            use_container_width=True,
-            theme=None,
-            key="explore_plat_chart",
-            config={
-                "displayModeBar": "hover",
-                "displaylogo": False,
-                "modeBarButtonsToRemove": ["select2d", "lasso2d", "autoScale2d"],
-            },
-        )
+    with st.expander("Ver tabla completa"):
+        cols_tabla = ["medio", "total_mensajes", "odio_cualquiera", "pct_odio_any"]
+        if plat_key == "youtube" and "relevante_filtro" in df_e.columns:
+            cols_tabla.append("relevante_filtro")
+        df_tabla = df_e[cols_tabla].copy().sort_values("total_mensajes", ascending=False)
+        rename_map = {
+            "medio": "Medio",
+            "total_mensajes": "Mensajes",
+            "odio_cualquiera": "Mensajes de odio",
+            "pct_odio_any": "% de odio",
+            "relevante_filtro": "Señalados por el filtro",
+        }
+        df_tabla = df_tabla.rename(columns={k: v for k, v in rename_map.items() if k in df_tabla.columns})
+        for col in ["Mensajes", "Mensajes de odio"]:
+            if col in df_tabla.columns:
+                df_tabla[col] = df_tabla[col].apply(fmt_int)
+        if "% de odio" in df_tabla.columns:
+            df_tabla["% de odio"] = df_tabla["% de odio"].apply(fmt_pct)
+        if "Señalados por el filtro" in df_tabla.columns:
+            df_tabla["Señalados por el filtro"] = df_tabla["Señalados por el filtro"].apply(fmt_int)
+        st.dataframe(df_tabla, use_container_width=True, hide_index=True, key=f"tabla_completa_{plat_key}")
 
 
 def render_ranking_medios():
-    _render_section_header(
-        "Ranking de medios",
-        "Top 10 medios de comunicación por volumen de mensajes y porcentaje de odio.",
-    )
+    col_titulo, col_dl = st.columns([6, 1])
+    with col_titulo:
+        _render_section_header(
+            "Ranking de medios",
+            "Top medios de comunicación por volumen de mensajes y porcentaje de odio.",
+        )
     render_aviso_cambio_criterio()
 
     col_fd, col_fh = st.columns(2)
     with col_fd:
         fecha_desde = st.date_input(
-            "Desde",
-            value=None,
-            key="ranking_fecha_desde",
-            help="Opcional: deja vacío para ver todo el periodo.",
+            "Desde", value=None, key="ranking_fecha_desde",
+            help="Opcional: deja vacío para ver todo el período.",
             format="DD/MM/YYYY",
         )
     with col_fh:
         fecha_hasta = st.date_input(
-            "Hasta",
-            value=None,
-            key="ranking_fecha_hasta",
-            help="Opcional: deja vacío para ver todo el periodo.",
+            "Hasta", value=None, key="ranking_fecha_hasta",
+            help="Opcional: deja vacío para ver todo el período.",
             format="DD/MM/YYYY",
         )
 
     fd_str = fecha_desde.isoformat() if fecha_desde else None
     fh_str = fecha_hasta.isoformat() if fecha_hasta else None
 
-    top_n = 10
-
     df_all = load_ranking_medios(fecha_desde=fd_str, fecha_hasta=fh_str)
     if df_all.empty:
         st.warning("No hay datos de medios.")
         return
     df_all = _prepare_ranking_df(df_all)
-
     df_x = df_all[df_all["platform"] == "x"].copy()
     df_yt = df_all[df_all["platform"] == "youtube"].copy()
 
-    # Consolidado
-    sum_cols = [
-        "total_mensajes", "candidatos_dict", "odio_baseline",
-        "odio_llm", "odio_gold", "odio_cualquiera",
-    ]
-    agg_dict = {c: "sum" for c in sum_cols}
-    _, _h2n_c = _load_valid_media_map()
-    df_consol = (
-        df_all.assign(source_media=df_all["source_media"].map(lambda sm: _h2n_c.get(sm, sm)))
-        .groupby("source_media", as_index=False).agg(agg_dict)
-    )
-    df_consol["platform"] = "consolidado"
-    df_consol = _prepare_ranking_df(df_consol)
+    try:
+        plataforma = st.segmented_control(
+            "Plataforma", ["X", "YouTube"], default="X", key="ranking_plataforma",
+        )
+    except AttributeError:
+        plataforma = st.radio(
+            "Plataforma", ["X", "YouTube"], index=0, horizontal=True, key="ranking_plataforma",
+        )
+    plataforma = plataforma or "X"
 
-    tab_all, tab_x, tab_yt, tab_explore = st.tabs(["Consolidado", "X", "YouTube", "Explorar medio"])
+    plat_key = "x" if plataforma == "X" else "youtube"
+    df_plat = df_x if plat_key == "x" else df_yt
 
-    with tab_all:
-        _render_ranking_simple(df_consol, top_n, "all")
+    if plataforma == "YouTube":
+        yt_data = load_youtube_recorrido()
+        st.info(
+            f"En YouTube la clasificación IA completa terminó el {fecha_fin_clasificacion_yt(yt_data)}; "
+            "desde entonces solo se aplica el filtro de relevancia. "
+            "Los porcentajes de YouTube no son comparables con los de X."
+        )
 
-    with tab_x:
-        if df_x.empty:
-            st.info("No hay datos de medios en X.")
-        else:
-            _render_ranking_simple(df_x, top_n, "x")
-            if _is_viewer():
-                st.caption("📅 Monitorización activa: lunes y jueves.")
+    fig = _render_ranking_simple(df_plat, top_n=10, key_suffix=plat_key, plataforma_label=plataforma)
+    _render_explorar_medio(df_plat, plat_key)
 
-    with tab_yt:
-        if df_yt.empty:
-            st.info("No hay datos de medios en YouTube.")
-        else:
-            _render_ranking_simple(df_yt, top_n, "yt")
+    _, _h2n = _load_valid_media_map()
 
-    with tab_explore:
-        _render_explorar_medio()
+    def _prep_csv(df: pd.DataFrame) -> pd.DataFrame:
+        if df.empty:
+            return df
+        out = df.copy()
+        out.insert(0, "Medio", out["source_media"].map(lambda sm: _h2n.get(sm, sm)))
+        return out
 
-    render_section_exports(
-        section_key="ranking_medios",
-        section_title="Ranking de medios",
-        csv_items=[
-            ("consolidado", df_consol if "df_consol" in locals() else pd.DataFrame()),
-            ("x", df_x if "df_x" in locals() else pd.DataFrame()),
-            ("youtube", df_yt if "df_yt" in locals() else pd.DataFrame()),
-            ("todos", df_all if "df_all" in locals() else pd.DataFrame()),
-        ],
-        fig_items=[],
-    )
+    csv_items = []
+    if not df_x.empty:
+        csv_items.append(("x", _prep_csv(df_x)))
+    if not df_yt.empty:
+        csv_items.append(("youtube", _prep_csv(df_yt)))
+
+    with col_dl:
+        render_descargas_menu(
+            "ranking_medios",
+            "Ranking de medios",
+            csv_items=csv_items,
+            fig_items=[{"title": f"Ranking {plataforma}", "fig": fig, "kind": "plotly"}] if fig else [],
+        )
