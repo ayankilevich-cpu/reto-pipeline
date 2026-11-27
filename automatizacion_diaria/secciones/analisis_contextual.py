@@ -413,7 +413,8 @@ def render_analisis_contextual():
 
             with col_hdr_sem:
                 _umbral_desc = "por encima del umbral (en alerta)" if _es_alerta_sel else "por debajo del umbral"
-                _titulo_sem = (f"Semana del {_si_sel.strftime('%-d/%m')} al {_sf_sel.strftime('%-d/%m/%Y')}: "
+                _titulo_sem = (f"Semana del {_si_sel.day}/{_si_sel.month:02d} al "
+                               f"{_sf_sel.day}/{_sf_sel.month:02d}/{_sf_sel.year}: "
                                f"{fmt_pct(_pct_sel, dec=2)} de odio, {_umbral_desc}")
                 st.markdown(f"<p style='font-size:17px;font-weight:600;color:{INK};margin:0 0 2px'>{_html.escape(_titulo_sem)}</p>", unsafe_allow_html=True)
                 st.caption("Detalle de la semana seleccionada.")
