@@ -14,6 +14,9 @@ ACCENT = "#C0392B"        # rojo ReTo: solo para lo que importa
 NAVY = "#1F4E79"          # referencias (medias, umbrales)
 FUENTE_RETO = "Fuente: ReTo · Fundación CIEDES."
 
+INT_COLOR = {"1": "#F4C7C3", "2": "#E0726A", "3": "#A32D2D"}
+INT_LABEL = {"1": "Baja (1)", "2": "Media (2)", "3": "Alta (3)"}
+
 
 def fmt_int(n) -> str:
     """Entero con punto de miles (siempre, también 4 cifras)."""
@@ -71,28 +74,15 @@ def tarjeta():
     return st.container(border=True)
 
 
-def kpi_tarjetas(items, destacar_primero: bool = True) -> None:
-    """KPIs en tarjetas blancas. items: lista de (etiqueta, valor_f, detalle_o_vacío)."""
+def kpi_tarjetas(items, destacar_primero: bool = True, value_colors: Optional[List[str]] = None) -> None:
+    """KPIs en tarjetas blancas. items: lista de (etiqueta, valor_f, detalle_o_vacío). value_colors: color opcional por tarjeta."""
     cards = []
     for i, (lab, val, det) in enumerate(items):
         hi = destacar_primero and i == 0
-        det_html = (
-            f"<div style='font-size:13px;color:{ACCENT};margin-top:2px;font-weight:500'>"
-            f"{html.escape(det)}</div>" if det else ""
-        )
-        cards.append(
-            f"<div style='border:1px solid {'#C9D8E8' if hi else '#E3E8EF'};"
-            f"background:{'#F7FAFD' if hi else '#FFFFFF'};border-radius:12px;padding:16px 18px'>"
-            f"<div style='font-size:13px;color:{MUTED}'>{html.escape(lab)}</div>"
-            f"<div style='font-size:30px;font-weight:700;letter-spacing:-0.02em;margin-top:4px;"
-            f"color:{NAVY if hi else INK};font-variant-numeric:tabular-nums;white-space:nowrap'>"
-            f"{html.escape(val)}</div>{det_html}</div>"
-        )
-    st.markdown(
-        "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px'>"
-        + "".join(cards) + "</div>",
-        unsafe_allow_html=True,
-    )
+        vc = (value_colors[i] if value_colors and i < len(value_colors) and value_colors[i] else (NAVY if hi else INK))
+        det_html = (f"<div style='font-size:13px;color:{ACCENT};margin-top:2px;font-weight:500'>{html.escape(det)}</div>" if det else "")
+        cards.append(f"<div style='border:1px solid {'#C9D8E8' if hi else '#E3E8EF'};background:{'#F7FAFD' if hi else '#FFFFFF'};border-radius:12px;padding:16px 18px'><div style='font-size:13px;color:{MUTED}'>{html.escape(lab)}</div><div style='font-size:30px;font-weight:700;letter-spacing:-0.02em;margin-top:4px;color:{vc};font-variant-numeric:tabular-nums;white-space:nowrap'>{html.escape(val)}</div>{det_html}</div>")
+    st.markdown("<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px'>" + "".join(cards) + "</div>", unsafe_allow_html=True)
 
 
 def linea_actividad(texto: str) -> None:

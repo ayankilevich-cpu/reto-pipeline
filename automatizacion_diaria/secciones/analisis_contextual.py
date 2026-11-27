@@ -1,29 +1,32 @@
 """Sección "Análisis contextual" del dashboard RETO."""
-import sys
+from __future__ import annotations
+
+import html as _html
 import json
-from pathlib import Path
+import re
+import sys
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, Optional, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 _HERE = Path(__file__).resolve().parent.parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from components.constants import COLORS
 from components.aviso_criterio import render_aviso_cambio_criterio
 from components.db_helpers import _pooled_conn
-from components.ui import (
-    _render_section_header,
-    _ui_label,
-    _is_viewer,
-    _apply_horizontal_bar_labels,
+from components.exports import render_descargas_menu
+from components.ui import _render_section_header, _is_viewer
+from components.chart_style import (
+    INK, MUTED, NAVY, SUBTLE,
+    INT_COLOR, INT_LABEL,
+    encabezado_grafico, fmt_int, fmt_pct, kpi_tarjetas, nota_fuente,
 )
-from components.exports import render_section_exports
+from criterio_etiquetado import CRITERIO_CORTE_SEMANA, MIN_MENSAJES_SPIKE
 
 try:
     from contexto_resumen_limpieza import (
@@ -32,26 +35,26 @@ try:
         limpiar_eventos_relacionados,
         limpiar_resumen_contexto,
     )
-except ImportError:  # pragma: no cover
+except ImportError:
     generar_resumen_desde_stats = None
     generar_eventos_desde_stats = None
     limpiar_resumen_contexto = lambda t: t or ""
     limpiar_eventos_relacionados = lambda t: t or ""
 
 
-# ============================================================
-# ANÁLISIS CONTEXTUAL SEMANAL
-# ============================================================
-@st.cache_data(ttl=86400, max_entries=64)
-def load_analisis_semanal() -> pd.DataFrame:
-    with _pooled_conn() as conn:
-        df = pd.read_sql("""
-            SELECT *
-            FROM processed.analisis_semanal
-            ORDER BY semana_inicio
-        """, conn)
-    return df
+# ── Constantes ────────────────────────────────────────────────
+_MIN_MSGS_CHART = 100
+_COLOR_NORMAL = "#8AA4BF"
+_COLOR_ALERTA = "#A32D2D"
+_COLOR_ACTUAL = "#D9E2EC"
 
+_DIAS_ES = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+
+_INT_LABEL_DETAIL = {
+    "1": "Baja (1) · leve",
+    "2": "Media (2) · ofensivo",
+    "3": "Alta (3) · hostil",
+}
 
 CATEGORIAS_DISPLAY = {
     "odio_etnico_cultural_religioso": "Étnico / Cultural / Religioso",
@@ -62,6 +65,8 @@ CATEGORIAS_DISPLAY = {
     "odio_profesiones_roles_publicos": "Profesiones / Roles Públicos",
 }
 
+
+# ── Helpers ───────────────────────────────────────────────────
 
 def _parse_json_col(val) -> dict:
     if isinstance(val, dict):
@@ -74,11 +79,112 @@ def _parse_json_col(val) -> dict:
     return {}
 
 
-def _bounds_semana_cal_reto(d: date) -> Tuple[date, date]:
-    """Lunes–domingo, alineado con `DATE_TRUNC('week', ...)` / `analisis_contexto_semanal.py`."""
-    start = d - timedelta(days=d.weekday())
-    return start, start + timedelta(days=6)
+def _normalizar_semana(ts) -> Optional[date]:
+    """Convierte cualquier timestamp a la fecha del lunes de su semana UTC."""
+    if ts is None or (isinstance(ts, float) and pd.isna(ts)):
+        return None
+    try:
+        t = pd.Timestamp(ts)
+        if t.tzinfo is not None:
+            t = t.tz_convert("UTC").tz_localize(None)
+        d = t.date()
+        return d - timedelta(days=d.weekday())
+    except Exception:
+        return None
 
+
+def _preparar_serie_semanal(df: pd.DataFrame) -> pd.DataFrame:
+    """Normaliza semanas a lunes UTC, deduplication por analisis_date más reciente."""
+    if df.empty:
+        return df
+    df = df.copy()
+    df["semana_lunes"] = df["semana_inicio"].apply(_normalizar_semana)
+    df = df.dropna(subset=["semana_lunes"])
+    if "analisis_date" in df.columns:
+        df["analisis_date"] = pd.to_datetime(df["analisis_date"], errors="coerce")
+        df = df.sort_values("analisis_date", na_position="first")
+    df = df.groupby("semana_lunes", as_index=False).last()
+    df["semana_inicio"] = df["semana_lunes"].apply(lambda d: pd.Timestamp(d))
+    df["semana_fin"] = df["semana_lunes"].apply(lambda d: pd.Timestamp(d + timedelta(days=6)))
+    _INICIO = pd.Timestamp("2025-11-24")
+    df = df[df["semana_inicio"] >= _INICIO].copy()
+    return df.sort_values("semana_inicio").reset_index(drop=True)
+
+
+def _es_alerta(row, spike_fallback: float) -> bool:
+    try:
+        if bool(row.get("es_spike")):
+            return True
+    except Exception:
+        pass
+    try:
+        pct = float(row.get("pct_odio"))
+        tot = int(row.get("total_mensajes"))
+    except (TypeError, ValueError):
+        return False
+    if tot < _MIN_MSGS_CHART:
+        return False
+    um = row.get("umbral_spike_pct")
+    if um is not None and not (isinstance(um, float) and pd.isna(um)):
+        try:
+            return pct >= float(um)
+        except (TypeError, ValueError):
+            pass
+    return pct >= spike_fallback
+
+
+def _fmt_semana(si, sf) -> str:
+    """Formato 'Del dd/mm al dd/mm/aaaa'."""
+    try:
+        s = pd.Timestamp(si).strftime("%d/%m")
+        e = pd.Timestamp(sf).strftime("%d/%m/%Y")
+        return f"Del {s} al {e}"
+    except Exception:
+        return str(si)
+
+
+def _fmt_dia_pico(val) -> str:
+    """Convierte dia_pico a 'lunes dd/mm'."""
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return "—"
+    try:
+        t = pd.Timestamp(val)
+        return f"{_DIAS_ES[t.weekday()]} {t.strftime('%d/%m')}"
+    except Exception:
+        return str(val)
+
+
+def _formatear_resumen(texto: str) -> str:
+    """Convierte fechas ISO y miles en formato inglés al estilo español."""
+    if not texto:
+        return texto
+    texto = re.sub(
+        r'\b(\d{4})-(\d{2})-(\d{2})\b',
+        lambda m: f"{m.group(3)}/{m.group(2)}/{m.group(1)}",
+        texto,
+    )
+    texto = re.sub(
+        r'(?<!\d)(\d{1,3}),(\d{3})(?!\d)',
+        lambda m: f"{m.group(1)}.{m.group(2)}",
+        texto,
+    )
+    return texto
+
+
+# ── Loader ────────────────────────────────────────────────────
+
+@st.cache_data(ttl=86400, max_entries=64)
+def load_analisis_semanal() -> pd.DataFrame:
+    with _pooled_conn() as conn:
+        df = pd.read_sql("""
+            SELECT *
+            FROM processed.analisis_semanal
+            ORDER BY semana_inicio
+        """, conn)
+    return df
+
+
+# ── Helpers de stats ──────────────────────────────────────────
 
 def _stats_desde_fila_analisis(row: pd.Series) -> Dict[str, Any]:
     cats = _parse_json_col(row.get("categorias"))
@@ -113,10 +219,10 @@ def _resumen_contextual_para_ui(row: pd.Series) -> str:
     raw = str(row.get("resumen_contexto") or "")
     limpio = limpiar_resumen_contexto(raw)
     if len(limpio) >= 80:
-        return limpio
+        return _formatear_resumen(limpio)
     if generar_resumen_desde_stats is not None:
-        return generar_resumen_desde_stats(_stats_desde_fila_analisis(row))
-    return limpio or raw
+        return _formatear_resumen(generar_resumen_desde_stats(_stats_desde_fila_analisis(row)))
+    return _formatear_resumen(limpio or raw)
 
 
 def _eventos_relacionados_para_ui(row: pd.Series) -> str:
@@ -129,33 +235,29 @@ def _eventos_relacionados_para_ui(row: pd.Series) -> str:
     return limpio or raw
 
 
-def render_analisis_contextual():
-    _render_section_header(
-        "Análisis contextual semanal",
-        _ui_label(
-            "Evolución semanal del discurso de odio con <strong>alertas</strong>, "
-            "<strong>targets</strong> y <strong>temas dominantes</strong>; resumen generado automáticamente "
-            "cada semana a partir de los datos agregados (mensajes clasificados por LLM)."
-        ),
-    )
-    render_aviso_cambio_criterio(con_umbral=True)
-    st.info(
-        _ui_label(
-            "📌 Esta sección analiza exclusivamente mensajes de **X (Twitter)** "
-            "clasificados por el modelo **LLM**. Los datos de YouTube con "
-            "clasificación LLM se visualizan en la sección **Categorías de odio (LLM)**."
-        )
-    )
+# ── Render principal ──────────────────────────────────────────
 
-    df = load_analisis_semanal()
-    if df.empty:
-        st.warning("No hay datos de análisis semanal. Ejecutá `analisis_contexto_semanal.py` para generar el histórico.")
+def render_analisis_contextual():
+    # 2.1 Cabecera
+    col_titulo, col_dl = st.columns([6, 1])
+    with col_titulo:
+        _render_section_header(
+            "Análisis contextual semanal",
+            "Evolución semanal del odio en X, con alertas, colectivos atacados y temas dominantes. "
+            "Resumen generado automáticamente cada semana.",
+        )
+
+    # 2.2 Aviso y alcance
+    render_aviso_cambio_criterio(con_umbral=True)
+    st.caption("Esta sección analiza solo mensajes de X clasificados por IA.")
+
+    # Cargar y preparar datos
+    df_raw = load_analisis_semanal()
+    if df_raw.empty:
+        st.warning("No hay datos de análisis semanal.")
         return
 
-    FECHA_INICIO_MEDICION = pd.Timestamp("2025-11-24")
-    df["semana_inicio"] = pd.to_datetime(df["semana_inicio"], errors="coerce")
-    df["semana_fin"] = pd.to_datetime(df["semana_fin"], errors="coerce")
-    df = df[df["semana_inicio"] >= FECHA_INICIO_MEDICION].copy()
+    df = _preparar_serie_semanal(df_raw)
     if df.empty:
         st.warning("No hay semanas disponibles desde el inicio de medición (24/11/2025).")
         return
@@ -164,506 +266,392 @@ def render_analisis_contextual():
         if _col not in df.columns:
             df[_col] = pd.NA
 
-    MIN_MSGS_CHART = 100
-    df_chart = df[df["total_mensajes"] >= MIN_MSGS_CHART].copy()
-
+    df_chart = df[df["total_mensajes"] >= _MIN_MSGS_CHART].copy()
     df_chart["semana_label"] = df_chart["semana_inicio"].apply(
         lambda d: d.strftime("%d/%m/%y") if hasattr(d, "strftime") else str(d)
     )
 
-    def _semana_incluye_hoy(si, sf, hoy: date) -> bool:
-        if si is None or sf is None or pd.isna(si) or pd.isna(sf):
-            return False
-        if hasattr(si, "date"):
-            si = si.date()
-        if hasattr(sf, "date"):
-            sf = sf.date()
-        try:
-            return si <= hoy <= sf
-        except TypeError:
-            return False
-
-    def _as_date_only_ctx(val) -> Optional[date]:
-        if val is None or pd.isna(val):
-            return None
-        if isinstance(val, datetime):
-            return val.date()
-        if type(val) is date:
-            return val
-        return pd.Timestamp(val).date()
-
-    def _fila_es_lunes_semana_cal_actual(si, hoy_ref: date) -> bool:
-        """Misma semana calendario que hoy aunque semana_fin en BD no cubra hoy (TZ/legacy)."""
-        d = _as_date_only_ctx(si)
-        if d is None:
-            return False
-        cal_ini, _ = _bounds_semana_cal_reto(hoy_ref)
-        return d == cal_ini
-
-    def _es_semana_en_curso(si, sf, hoy_ref: date) -> bool:
-        return _semana_incluye_hoy(si, sf, hoy_ref) or _fila_es_lunes_semana_cal_actual(
-            si, hoy_ref,
-        )
-
+    # Semana en curso
     hoy = date.today()
+    cal_ini = hoy - timedelta(days=hoy.weekday())
+    mask_actual = df_chart["semana_lunes"] == cal_ini
 
-    # --- Timeline ---
-    st.subheader("Evolución semanal del % de odio")
+    # Fallback threshold (para semanas sin umbral congelado)
+    df_cerradas = df_chart[~mask_actual]
+    avg_pct = float(df_cerradas["pct_odio"].mean()) if not df_cerradas.empty else float(df_chart["pct_odio"].mean()) if not df_chart.empty else 0.0
+    spike_fallback = avg_pct * 1.5
 
-    # Promedio y umbral solo sobre semanas cerradas (la semana en curso es parcial y no debería mover la línea base).
-    mask_cerrada = ~df_chart.apply(
-        lambda r: _es_semana_en_curso(r["semana_inicio"], r["semana_fin"], hoy),
-        axis=1,
-    )
-    df_cerradas = df_chart[mask_cerrada]
-    if not df_cerradas.empty:
-        avg_pct = float(df_cerradas["pct_odio"].mean())
+    # 2.4 Gráfico de evolución
+    with st.container(border=True):
+        # Título dinámico basado en alertas de las últimas 4 semanas cerradas
+        ultimas4 = df_cerradas.sort_values("semana_inicio").tail(4)
+        n_alertas_4 = sum(1 for _, r in ultimas4.iterrows() if _es_alerta(r, spike_fallback))
+        if n_alertas_4 > 0:
+            titulo_ev = f"{n_alertas_4} de las últimas 4 semanas cerradas superaron el umbral de alerta"
+        else:
+            titulo_ev = "Ninguna de las últimas 4 semanas cerradas superó el umbral de alerta"
+
+        encabezado_grafico(
+            titulo_ev,
+            "% de mensajes clasificados como odio cada semana. "
+            "Una semana entra en alerta cuando supera 1,5 veces el promedio de las semanas anteriores.",
+        )
+
+        # Colores por barra
+        bar_colors = []
+        bar_customdata: List[List] = []
+        for _, row in df_chart.iterrows():
+            es_act = row["semana_lunes"] == cal_ini
+            es_alerta_row = (not es_act) and _es_alerta(row, spike_fallback)
+            if es_act:
+                bar_colors.append(_COLOR_ACTUAL)
+            elif es_alerta_row:
+                bar_colors.append(_COLOR_ALERTA)
+            else:
+                bar_colors.append(_COLOR_NORMAL)
+            _um = row.get("umbral_spike_pct")
+            um_fmt = fmt_pct(float(_um), dec=2) if (_um is not None and not (isinstance(_um, float) and pd.isna(_um))) else "—"
+            alerta_txt = "<br>En alerta" if es_alerta_row else ""
+            bar_customdata.append([row["semana_label"], fmt_pct(row["pct_odio"], dec=2), um_fmt, alerta_txt])
+
+        fig_ev = go.Figure()
+
+        # Dummy traces para leyenda (deben ir antes del bar para que aparezcan primero)
+        fig_ev.add_trace(go.Scatter(x=[None], y=[None], mode="markers", marker=dict(symbol="square", size=14, color=_COLOR_NORMAL), name="Semana sin alerta", showlegend=True))
+        fig_ev.add_trace(go.Scatter(x=[None], y=[None], mode="markers", marker=dict(symbol="square", size=14, color=_COLOR_ALERTA), name="Semana en alerta", showlegend=True))
+        fig_ev.add_trace(go.Scatter(x=[None], y=[None], mode="markers", marker=dict(symbol="square", size=14, color=_COLOR_ACTUAL), name="Semana en curso", showlegend=True))
+
+        fig_ev.add_trace(go.Bar(
+            x=df_chart["semana_label"],
+            y=df_chart["pct_odio"],
+            marker_color=bar_colors,
+            marker_line=dict(color="#FFFFFF", width=0.5),
+            showlegend=False,
+            customdata=bar_customdata,
+            hovertemplate="Semana del %{customdata[0]} · %{customdata[1]} de odio · umbral %{customdata[2]}%{customdata[3]}<extra></extra>",
+        ))
+
+        # Umbral escalonado en NAVY punteado (sin semanas con umbral=0)
+        _umbral_vals = []
+        for _, row in df_chart.iterrows():
+            _um = row.get("umbral_spike_pct")
+            if _um is not None and not (isinstance(_um, float) and pd.isna(_um)) and float(_um) > 0:
+                _umbral_vals.append(float(_um))
+            else:
+                _umbral_vals.append(None)
+
+        fig_ev.add_trace(go.Scatter(
+            x=df_chart["semana_label"],
+            y=_umbral_vals,
+            mode="lines",
+            line=dict(shape="hv", dash="dot", color=NAVY, width=1.6),
+            name="Umbral de alerta",
+            connectgaps=False,
+            hovertemplate="Umbral: %{y:.2f} %<extra></extra>",
+        ))
+
+        # Línea vertical cambio de criterio
+        _lunes_corte = CRITERIO_CORTE_SEMANA - timedelta(days=CRITERIO_CORTE_SEMANA.weekday())
+        _mask_corte = df_chart["semana_lunes"] == _lunes_corte
+        if _mask_corte.any():
+            _x_corte = df_chart[_mask_corte].iloc[0]["semana_label"]
+            fig_ev.add_vline(
+                x=_x_corte,
+                line=dict(dash="dot", color=MUTED, width=1.5),
+                annotation_text="cambio de criterio X",
+                annotation_position="top right",
+                annotation_font=dict(size=11, color=MUTED),
+            )
+
+        fig_ev.update_layout(
+            height=440,
+            xaxis_title="",
+            yaxis=dict(title="% de odio", tickformat=".1f", ticksuffix=" %"),
+            showlegend=True,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+            xaxis=dict(tickangle=-45, tickfont=dict(size=10), automargin=True),
+            margin=dict(b=60, t=20),
+            bargap=0.3,
+        )
+        st.plotly_chart(fig_ev, use_container_width=True, theme=None, key="ctx_timeline_v2")
+
+        with st.expander("Cómo se calcula el umbral"):
+            st.markdown(
+                f"El umbral de cada semana se fija al cerrarla: 1,5 × el promedio de las semanas cerradas anteriores "
+                f"con al menos {_MIN_MSGS_CHART} mensajes. Por eso la línea cambia de una semana a otra. "
+                f"Desde el cambio de criterio de X se usa un umbral provisional."
+            )
+
+    # 2.5 Semana seleccionada
+    df_selectable = df_chart[~mask_actual].copy()
+    df_selectable = df_selectable.sort_values("semana_inicio", ascending=False)
+
+    if df_selectable.empty:
+        st.info("No hay semanas cerradas con suficientes datos.")
+        row_sel = None
+        fig_cat = fig_tgt = fig_tema = None
+        df_semana_sel_csv = pd.DataFrame()
     else:
-        avg_pct = float(df_chart["pct_odio"].mean()) if not df_chart.empty else 0
-    spike_threshold = avg_pct * 1.5
+        with st.container(border=True):
+            week_labels = [_fmt_semana(r["semana_inicio"], r["semana_fin"]) for _, r in df_selectable.iterrows()]
+            week_starts = df_selectable["semana_inicio"].tolist()
+            label_to_start = dict(zip(week_labels, week_starts))
 
-    def _alerta_spike_segun_cierre(row) -> bool:
-        """Rojo si es_spike en BD, o si pct_odio > umbral (congelado o dinámico) y volumen >= MIN_MSGS_CHART."""
-        try:
-            if bool(row.get("es_spike")):
-                return True
-        except Exception:
-            pass
-        pct_val = row.get("pct_odio")
-        tot_val = row.get("total_mensajes")
-        try:
-            pct = float(pct_val)
-            tot = int(tot_val)
-        except (TypeError, ValueError):
-            return False
-        if tot < MIN_MSGS_CHART:
-            return False
-        um = row.get("umbral_spike_pct")
-        if um is not None and not (isinstance(um, float) and pd.isna(um)):
-            try:
-                return pct >= float(um)
-            except (TypeError, ValueError):
-                pass
-        return pct >= spike_threshold
+            col_hdr_sem, col_sel = st.columns([2, 1])
+            with col_sel:
+                selected_label = st.selectbox("Semana", week_labels, index=0, key="ctx_week_sel_v2")
 
-    st.markdown(
-        f"**Línea gris (promedio):** {avg_pct:.1f}%, informativa. Se recalcula al cargar la página sobre las "
-        f"semanas ya cerradas que ves en este gráfico (≥{MIN_MSGS_CHART} mensajes cada una, sin la semana en curso).\n\n"
-        "**Línea roja (umbral): no es una raya fija, es un umbral distinto por semana.** Cada semana cerrada genera "
-        "y guarda su propio umbral (= 1,5 × el promedio histórico de todas las semanas cerradas hasta ese momento). "
-        "Es un promedio dinámico: el umbral de referencia varía semana a semana, por eso la línea sube y baja en "
-        "vez de ser recta. Al superar ese valor en la semana analizada, la columna se pinta de rojo.\n\n"
-        f"Para semanas sin umbral guardado (previas a esta mejora del pipeline), se usa como aproximación el "
-        f"umbral de hoy: {spike_threshold:.1f}% (= 1,5 × el promedio gris de arriba).\n\n"
-        "El número exacto de cada semana está en la tabla de abajo y en **Detalle semanal**."
-    )
+            selected_start = label_to_start.get(selected_label, week_starts[0])
+            row_sel = df_selectable[df_selectable["semana_inicio"] == selected_start].iloc[0]
 
-    fecha_ini_med = (
-        FECHA_INICIO_MEDICION.date()
-        if hasattr(FECHA_INICIO_MEDICION, "date")
-        else pd.Timestamp(FECHA_INICIO_MEDICION).date()
-    )
-    cal_ini, cal_fin = _bounds_semana_cal_reto(hoy)
-    cubre_hoy_bd = df.apply(
-        lambda r: _es_semana_en_curso(r["semana_inicio"], r["semana_fin"], hoy),
-        axis=1,
-    ).any()
-    cubre_hoy_grafico = df_chart.apply(
-        lambda r: _es_semana_en_curso(r["semana_inicio"], r["semana_fin"], hoy),
-        axis=1,
-    ).any()
-    gap_sin_barra = cal_ini >= fecha_ini_med and not cubre_hoy_bd
+            _total_sel = int(row_sel.get("total_mensajes") or 0)
+            _odio_sel = int(row_sel.get("total_odio") or 0)
+            _pct_sel = float(row_sel.get("pct_odio") or 0)
+            _es_alerta_sel = _es_alerta(row_sel, spike_fallback)
+            _si_sel = pd.Timestamp(row_sel["semana_inicio"])
+            _sf_sel = pd.Timestamp(row_sel["semana_fin"])
 
-    if gap_sin_barra:
-        ultimo_fin = df["semana_fin"].max()
-        if pd.isna(ultimo_fin):
-            ultimo_fin_s = "—"
-        else:
-            ultimo_fin_s = pd.Timestamp(ultimo_fin).strftime("%d/%m/%Y")
-        st.warning(
-            f"**No hay fila en la base para la semana en curso** "
-            f"({cal_ini.strftime('%d/%m/%Y')}–{cal_fin.strftime('%d/%m/%Y')}). "
-            f"La última semana en `analisis_semanal` termina el **{ultimo_fin_s}**; **ningún registro incluye hoy**, "
-            f"así que **no puede pintarse la barra amarilla** ni el cierre con {_ui_label('LLM')} de esta semana. "
-            f"Ejecutá **`analisis_contexto_semanal.py`** (automatización diaria) para generar la semana actual y, "
-            f"si aplica, cerrar la anterior con alerta y resumen."
-        )
-    elif cal_ini >= fecha_ini_med and cubre_hoy_bd and not cubre_hoy_grafico:
-        st.info(
-            f"La semana en curso ({cal_ini.strftime('%d/%m/%Y')}–{cal_fin.strftime('%d/%m/%Y')}) tiene "
-            f"menos de **{MIN_MSGS_CHART}** mensajes; este gráfico solo muestra semanas con ese mínimo, "
-            "así que **no verás barra amarilla** aquí hasta que haya volumen suficiente."
-        )
+            with col_hdr_sem:
+                _umbral_desc = "por encima del umbral (en alerta)" if _es_alerta_sel else "por debajo del umbral"
+                _titulo_sem = (f"Semana del {_si_sel.strftime('%-d/%m')} al {_sf_sel.strftime('%-d/%m/%Y')}: "
+                               f"{fmt_pct(_pct_sel, dec=2)} de odio, {_umbral_desc}")
+                st.markdown(f"<p style='font-size:17px;font-weight:600;color:{INK};margin:0 0 2px'>{_html.escape(_titulo_sem)}</p>", unsafe_allow_html=True)
+                st.caption("Detalle de la semana seleccionada.")
 
-    colors = []
-    text_labels = []
-    for _, row in df_chart.iterrows():
-        es_actual = _es_semana_en_curso(
-            row["semana_inicio"], row["semana_fin"], hoy,
-        )
-        if es_actual:
-            colors.append(COLORS["current_week"])
-        elif _alerta_spike_segun_cierre(row):
-            colors.append(COLORS["danger"])
-        else:
-            colors.append(COLORS["accent"])
-        show_pct = (
-            es_actual or _alerta_spike_segun_cierre(row) or row["pct_odio"] >= avg_pct
-        )
-        text_labels.append(f"{row['pct_odio']}%" if show_pct else "")
+            # KPIs
+            _um_sel = row_sel.get("umbral_spike_pct")
+            _prom_sel = row_sel.get("promedio_referencia_pct")
+            _alerta_color = "#A32D2D" if _es_alerta_sel else "#2F855A"
+            _alerta_det = ""
+            if _um_sel is not None and not (isinstance(_um_sel, float) and pd.isna(_um_sel)) and _prom_sel is not None and not (isinstance(_prom_sel, float) and pd.isna(_prom_sel)):
+                _alerta_det = f"Umbral {fmt_pct(float(_um_sel), dec=2)} (1,5 × {fmt_pct(float(_prom_sel), dec=2)})"
 
-    fig_timeline = go.Figure()
-    fig_timeline.add_trace(go.Bar(
-        x=df_chart["semana_label"],
-        y=df_chart["pct_odio"],
-        marker_color=colors,
-        text=text_labels,
-        textposition="outside",
-        textfont=dict(size=11),
-        hovertemplate=(
-            "<b>Semana %{x}</b><br>"
-            "% Odio: %{y:.1f}%<br>"
-            "Total: %{customdata[0]:,} mensajes<br>"
-            "Odio: %{customdata[1]:,} mensajes<extra></extra>"
-        ),
-        customdata=df_chart[["total_mensajes", "total_odio"]].values,
-    ))
-    fig_timeline.add_hline(
-        y=avg_pct, line_dash="dash", line_color=COLORS["muted"],
-        annotation_text=f"Promedio: {avg_pct:.1f}%",
-        annotation_position="top left",
-    )
-    # Umbral real aplicado a cada semana: el congelado al cierre si existe, si no el vigente
-    # hoy como aproximación. Se dibuja como línea escalonada (no una sola raya fija) para que
-    # coincida exactamente con el criterio que coloreó cada barra — antes una única línea
-    # "vigente hoy" podía quedar por debajo de una barra azul (o encima de una roja) sin que
-    # eso fuera realmente una contradicción, solo dos números distintos mostrados juntos.
-    _umbral_efectivo = df_chart["umbral_spike_pct"].where(
-        df_chart["umbral_spike_pct"].notna(), spike_threshold
-    ).astype(float)
-    fig_timeline.add_trace(go.Scatter(
-        x=df_chart["semana_label"],
-        y=_umbral_efectivo,
-        mode="lines",
-        line=dict(shape="hv", dash="dot", color=COLORS["danger"], width=2),
-        name="Umbral aplicado esa semana",
-        hovertemplate="Umbral aplicado esa semana: %{y:.2f}%<extra></extra>",
-    ))
-    fig_timeline.update_layout(
-        height=420,
-        xaxis_title="",
-        yaxis_title="% Odio",
-        showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        xaxis=dict(tickangle=-45, tickfont=dict(size=10)),
-        margin=dict(b=80),
-    )
-    if gap_sin_barra:
-        fig_timeline.add_annotation(
-            xref="paper",
-            yref="paper",
-            x=0.98,
-            y=0.97,
-            xanchor="right",
-            yanchor="top",
-            text="Semana en curso — datos pendientes de cierre",
-            showarrow=False,
-            bgcolor="rgba(254, 249, 195, 0.95)",
-            bordercolor=COLORS["current_week"],
-            borderwidth=1,
-            font=dict(size=11, color="#1a1a1a"),
-        )
-    st.plotly_chart(fig_timeline, use_container_width=True, theme=None, key="ctx_timeline")
+            kpi_tarjetas([
+                ("Mensajes analizados", fmt_int(_total_sel), ""),
+                ("Mensajes de odio", fmt_int(_odio_sel), ""),
+                ("% de odio", fmt_pct(_pct_sel, dec=2), ""),
+                ("Alerta", "Sí" if _es_alerta_sel else "No", _alerta_det),
+            ], value_colors=[None, None, None, _alerta_color])
 
-    with st.expander("ℹ️ Cómo leer este gráfico"):
-        st.markdown(
-            f"""
-- 🔴 **Rojo**: semana con alerta (% odio ≥ umbral **de esa semana** y ≥300 mensajes)
-- 🔵 **Azul**: semana normal
-- 🟡 **Amarillo**: semana en curso (parcial)
-- **Línea gris (promedio)**: {avg_pct:.1f}%, vigente hoy — informativa, no decide ninguna alerta
-- **Línea roja escalonada (umbral)**: el umbral real que se aplicó a cada semana (congelado al cierre); coincide
-  siempre con el color de la barra. Para semanas sin umbral archivado usa como aproximación el umbral vigente
-  hoy ({spike_threshold:.1f}%)
-- Solo se muestran semanas con ≥{MIN_MSGS_CHART} mensajes
-            """
-        )
+            st.markdown("<div style='margin-top:16px'></div>", unsafe_allow_html=True)
 
-    _tbl = df_chart.sort_values("semana_inicio").copy()
-    _tiene_umbral_archivado = bool(
-        _tbl["umbral_spike_pct"].notna().any()
-        or _tbl["promedio_referencia_pct"].notna().any()
-    )
+            # 3:2 columnas
+            col_res, col_cambios = st.columns([3, 2])
 
-    st.subheader(
-        "Umbral y referencia por semana (congelados al cierre)"
-        if _tiene_umbral_archivado
-        else "Resumen por semana"
-    )
+            with col_res:
+                st.markdown(f"<p style='font-size:15px;font-weight:600;color:{INK};margin:0 0 8px'>Resumen de la semana</p>", unsafe_allow_html=True)
+                resumen_txt = _resumen_contextual_para_ui(row_sel)
+                if resumen_txt:
+                    st.info(resumen_txt)
+                else:
+                    st.caption("Resumen no disponible.")
 
-    def _fmt_pct_cell(v) -> str:
-        if v is None or (isinstance(v, float) and pd.isna(v)):
-            return "—"
-        try:
-            return f"{float(v):.1f}%"
-        except (TypeError, ValueError):
-            return "—"
+                if st.session_state.get("user_role") == "admin":
+                    if st.button("Recargar resumen", key="ctx_reload_resumen", type="secondary"):
+                        load_analisis_semanal.clear()
+                        st.rerun()
 
-    def _fmt_n_base(v) -> str:
-        if v is None or (isinstance(v, float) and pd.isna(v)):
-            return "—"
-        try:
-            return str(int(v))
-        except (TypeError, ValueError):
-            return "—"
+            with col_cambios:
+                st.markdown(f"<p style='font-size:15px;font-weight:600;color:{INK};margin:0 0 8px'>Cambios respecto a la semana anterior</p>", unsafe_allow_html=True)
 
-    _tab_cols: Dict[str, Any] = {
-        "Semana": _tbl["semana_label"],
-        "% odio": _tbl["pct_odio"].map(lambda x: f"{x}%"),
-    }
-    if _tiene_umbral_archivado:
-        _tab_cols["Promedio ref. (al cierre)"] = _tbl["promedio_referencia_pct"].map(_fmt_pct_cell)
-        _tab_cols["Umbral 1,5× (al cierre)"] = _tbl["umbral_spike_pct"].map(_fmt_pct_cell)
-        _tab_cols["Semanas en base"] = _tbl["n_semanas_base"].map(_fmt_n_base)
-    _tab_cols["Alerta"] = _tbl.apply(
-        lambda r: "Sí" if _alerta_spike_segun_cierre(r) else "No",
-        axis=1,
-    )
+                # Semana anterior
+                _prev_lunes = row_sel["semana_lunes"] - timedelta(weeks=1)
+                _prev_rows = df_chart[df_chart["semana_lunes"] == _prev_lunes]
+                row_prev = _prev_rows.iloc[0] if not _prev_rows.empty else None
 
-    def _estilo_alerta(val):
-        if val == "Sí":
-            return "background-color: #FEE2E2; color: #991B1B; font-weight: 600"
-        return "color: #6B7280"
+                targets_curr = _parse_json_col(row_sel.get("targets"))
+                odio_curr = max(_odio_sel, 1)
+                targets_prev = _parse_json_col(row_prev.get("targets")) if row_prev is not None else {}
+                odio_prev = max(int(row_prev.get("total_odio") or 0), 1) if row_prev is not None else 1
 
-    st.dataframe(
-        pd.DataFrame(_tab_cols).style.map(_estilo_alerta, subset=["Alerta"]),
-        use_container_width=True,
-        hide_index=True,
-        key="ctx_umbral_por_semana",
-    )
+                top10_curr = dict(sorted(targets_curr.items(), key=lambda x: x[1], reverse=True)[:10])
+                cambios = []
+                for name, cnt in top10_curr.items():
+                    pct_c = cnt / odio_curr * 100
+                    pct_p = targets_prev.get(name, 0) / odio_prev * 100
+                    diff = pct_c - pct_p
+                    cambios.append((name, diff))
+                cambios.sort(key=lambda x: abs(x[1]), reverse=True)
 
-    st.markdown("---")
+                if cambios:
+                    for name, diff in cambios[:8]:
+                        if diff >= 0:
+                            st.markdown(f"<div style='font-size:14px;margin:3px 0;color:#A32D2D'>▲ +{diff:.0f} pp {_html.escape(name)}</div>", unsafe_allow_html=True)
+                        else:
+                            st.markdown(f"<div style='font-size:14px;margin:3px 0;color:#2F855A'>▼ {diff:.0f} pp {_html.escape(name)}</div>", unsafe_allow_html=True)
+                else:
+                    st.caption("Sin datos de colectivos para comparar.")
 
-    # --- Week selector ---
-    st.subheader("Detalle semanal")
+                _dia_pico = row_sel.get("dia_pico")
+                _odio_pico = int(row_sel.get("dia_pico_odio") or 0)
+                if _dia_pico is not None and not (isinstance(_dia_pico, float) and pd.isna(_dia_pico)):
+                    st.markdown(f"<p style='font-size:13px;color:{MUTED};margin-top:10px'>Día con más odio: {_fmt_dia_pico(_dia_pico)}, con {fmt_int(_odio_pico)} mensajes de odio.</p>", unsafe_allow_html=True)
 
-    @st.fragment
-    def _render_detalle_semanal():
+            # Eventos relacionados
+            ev_txt = _eventos_relacionados_para_ui(row_sel) if row_sel.get("eventos_relacionados") else ""
+            if ev_txt:
+                with st.expander("Eventos relacionados"):
+                    st.markdown(ev_txt)
 
-        df_selectable = df[df["total_mensajes"] >= MIN_MSGS_CHART].copy()
-        inicio_semana_actual = hoy - timedelta(days=hoy.weekday())
-        df_selectable = df_selectable[
-            df_selectable["semana_inicio"] < pd.Timestamp(inicio_semana_actual)
-        ]
-        if df_selectable.empty:
-            st.info("No hay semanas con suficientes datos para mostrar detalle.")
-            return
+        # CSV de la semana seleccionada
+        df_semana_sel_csv = pd.DataFrame([{
+            "Semana": selected_label,
+            "Mensajes": _total_sel,
+            "Mensajes de odio": _odio_sel,
+            "% de odio": fmt_pct(_pct_sel, dec=2),
+            "Alerta": "Sí" if _es_alerta_sel else "No",
+        }])
+        fig_cat = fig_tgt = fig_tema = None
 
-        week_options = []
-        for _, row in df_selectable.sort_values("semana_inicio", ascending=False).iterrows():
-            spike_mark = " ⚠️ ALERTA" if _alerta_spike_segun_cierre(row) else ""
-            label = (
-                f"{row['semana_inicio'].strftime('%d/%m/%Y')} — "
-                f"{row['semana_fin'].strftime('%d/%m/%Y')}"
-                f" | {int(row['total_mensajes']):,} msgs"
-                f" | {row['pct_odio']}% odio{spike_mark}"
-            )
-            week_options.append((label, row["semana_inicio"]))
+    # 2.6 Cuadrícula 2×2
+    if row_sel is not None:
+        _cats = _parse_json_col(row_sel.get("categorias"))
+        _targets_grid = _parse_json_col(row_sel.get("targets"))
+        _temas_grid = _parse_json_col(row_sel.get("temas"))
+        _int_grid = _parse_json_col(row_sel.get("intensidad"))
 
-        selected_label = st.selectbox(
-            "Seleccionar semana",
-            [w[0] for w in week_options],
-            index=0,
-            key="ctx_week_sel",
-        )
-        selected_start = dict(week_options)[selected_label]
-        row = df[df["semana_inicio"] == selected_start].iloc[0]
+        row1_col1, row1_col2 = st.columns(2)
+        row2_col1, row2_col2 = st.columns(2)
 
-        # --- KPIs ---
-        k1, k2, k3, k4 = st.columns(4)
-        k1.metric("Total mensajes", f"{int(row['total_mensajes']):,}")
-        k2.metric("Mensajes de odio", f"{int(row['total_odio']):,}")
-        k3.metric("% Odio", f"{row['pct_odio']}%")
-        alerta_label = "Sí ⚠️" if bool(row.get("es_spike")) else "No"
-        k4.metric("Alerta", alerta_label)
-
-        _um = row.get("umbral_spike_pct")
-        _prom = row.get("promedio_referencia_pct")
-        _nbase = row.get("n_semanas_base")
-        if _um is not None and not (isinstance(_um, float) and pd.isna(_um)):
-            k4.caption(
-                f"Umbral aplicado a esta semana (congelado al cierre): **{float(_um):.2f}%** "
-                f"= 1,5 × promedio de referencia **{float(_prom):.2f}%** "
-                f"({_fmt_n_base(_nbase)} semanas previas con ≥{MIN_MSGS_CHART} msgs). "
-                "No es el mismo número que la línea del gráfico de arriba (esa es aproximada y vigente hoy)."
-            )
-        else:
-            k4.caption("Sin umbral congelado archivado para esta semana (análisis previo a esa mejora del pipeline).")
-
-        st.markdown("---")
-
-        # --- Context summary ---
-        if row.get("resumen_contexto"):
-            st.subheader("Resumen contextual")
-            analisis_dt = row.get("analisis_date")
-            if analisis_dt is not None and not (isinstance(analisis_dt, float) and pd.isna(analisis_dt)):
-                analisis_s = pd.Timestamp(analisis_dt).strftime("%d/%m/%Y %H:%M")
-            else:
-                analisis_s = "—"
-            st.caption(
-                f"Texto generado por el pipeline semanal y guardado en la base de datos "
-                f"(última actualización: **{analisis_s}**). "
-                "Si regeneraste el análisis y no ves cambios, usá **Recargar resumen**."
-            )
-            rc1, _ = st.columns([1, 4])
-            with rc1:
-                if st.button("Recargar resumen", key="ctx_reload_resumen"):
-                    load_analisis_semanal.clear()
-                    st.rerun()
-            st.info(_resumen_contextual_para_ui(row))
-
-        ev_txt = _eventos_relacionados_para_ui(row) if row.get("eventos_relacionados") else ""
-        if ev_txt:
-            st.subheader("Eventos relacionados")
-            st.markdown(ev_txt)
-
-        st.markdown("---")
-
-        # --- Categories & Targets side by side ---
-        col_cat, col_tgt = st.columns(2)
-
-        with col_cat:
-            st.subheader("Categorías de odio (resumen de la semana)")
-            cats = _parse_json_col(row.get("categorias"))
-            if cats:
-                cat_df = pd.DataFrame([
-                    {"Categoría": CATEGORIAS_DISPLAY.get(k, k), "Mensajes": v}
-                    for k, v in cats.items()
-                ]).sort_values("Mensajes", ascending=False)
-                fig_cat = px.bar(
-                    cat_df, x="Mensajes", y="Categoría", orientation="h",
-                    color="Mensajes", color_continuous_scale="Reds",
-                )
-                fig_cat.update_layout(height=300, showlegend=False, yaxis=dict(autorange="reversed"))
-                _apply_horizontal_bar_labels(fig_cat)
-                st.plotly_chart(fig_cat, use_container_width=True, theme=None, key="ctx_cats")
-            else:
-                st.info("Sin datos de categorías.")
-            if not _is_viewer():
-                st.caption(
-                    "Este bloque resume la **semana** elegida. Para ver **texto de mensajes** "
-                    "anonimizados clasificados por el LLM (muestra aleatoria), usá el menú lateral "
-                    "**Categorías de odio (LLM)**."
-                )
-
-        with col_tgt:
-            st.subheader("Colectivos atacados")
-            targets = _parse_json_col(row.get("targets"))
-            if targets:
-                top_targets = dict(list(targets.items())[:10])
-                tgt_df = pd.DataFrame([
-                    {"Target": k, "Menciones": v}
-                    for k, v in top_targets.items()
-                ]).sort_values("Menciones", ascending=False)
-                fig_tgt = px.bar(
-                    tgt_df, x="Menciones", y="Target", orientation="h",
-                    color="Menciones", color_continuous_scale="Oranges",
-                )
-                fig_tgt.update_layout(height=300, showlegend=False, yaxis=dict(autorange="reversed"))
-                _apply_horizontal_bar_labels(fig_tgt)
-                st.plotly_chart(fig_tgt, use_container_width=True, theme=None, key="ctx_targets")
-            else:
-                st.info("Sin datos de targets.")
-
-        st.markdown("---")
-
-        # --- Topics & Intensity ---
-        col_tem, col_int = st.columns(2)
-
-        with col_tem:
-            st.subheader("Temas detectados")
-            temas = _parse_json_col(row.get("temas"))
-            if temas:
-                top_temas = dict(list(temas.items())[:10])
-                tema_df = pd.DataFrame([
-                    {"Tema": k, "Menciones": v}
-                    for k, v in top_temas.items()
-                ]).sort_values("Menciones", ascending=False)
-                fig_tema = px.bar(
-                    tema_df, x="Menciones", y="Tema", orientation="h",
-                    color="Menciones", color_continuous_scale="Blues",
-                )
-                fig_tema.update_layout(height=300, showlegend=False, yaxis=dict(autorange="reversed"))
-                _apply_horizontal_bar_labels(fig_tema)
-                st.plotly_chart(fig_tema, use_container_width=True, theme=None, key="ctx_temas")
-            else:
-                st.info("Sin datos de temas.")
-
-        with col_int:
-            st.subheader("Intensidad del odio")
-            intensidad = _parse_json_col(row.get("intensidad"))
-            if intensidad:
-                int_labels = {"1": "Leve (ironía, burla)", "2": "Ofensivo (insultos)", "3": "Hostil (incitación)"}
-                int_df = pd.DataFrame([
-                    {"Nivel": int_labels.get(k, k), "Mensajes": v}
-                    for k, v in intensidad.items() if v > 0
-                ])
-                if not int_df.empty:
-                    fig_int = px.pie(
-                        int_df, names="Nivel", values="Mensajes",
-                        color="Nivel",
-                        color_discrete_map={
-                            "Leve (ironía, burla)": "#F4D03F",
-                            "Ofensivo (insultos)": "#E67E22",
-                            "Hostil (incitación)": "#C0392B",
-                        },
+        # Categorías
+        with row1_col1:
+            with st.container(border=True):
+                if _cats:
+                    cat_items = sorted(_cats.items(), key=lambda x: x[1], reverse=True)
+                    lead_cat_key, lead_cat_cnt = cat_items[0]
+                    lead_cat_label = CATEGORIAS_DISPLAY.get(lead_cat_key, lead_cat_key)
+                    lead_cat_pct = round(100.0 * lead_cat_cnt / max(_odio_sel, 1), 1)
+                    encabezado_grafico(
+                        f"El odio de {lead_cat_label} fue el más frecuente ({fmt_pct(lead_cat_pct)})",
+                        "Mensajes de odio de la semana por categoría.",
                     )
-                    fig_int.update_traces(
-                        textinfo="percent+label",
-                        textfont_size=12,
-                        marker=dict(line=dict(color="#FFFFFF", width=2)),
+                    _cat_names = [CATEGORIAS_DISPLAY.get(k, k) for k, _ in cat_items]
+                    _cat_vals = [v for _, v in cat_items]
+                    _cat_colors = [NAVY] + ["#8AA4BF"] * (len(_cat_names) - 1)
+                    fig_cat = go.Figure(go.Bar(
+                        orientation="h", y=_cat_names, x=_cat_vals,
+                        marker_color=_cat_colors,
+                        text=[fmt_int(v) for v in _cat_vals],
+                        textposition="outside", cliponaxis=False,
+                        hovertemplate="%{y}: %{x}<extra></extra>",
+                    ))
+                    fig_cat.update_layout(height=max(260, len(_cat_names) * 42), showlegend=False, margin=dict(l=4, r=40, t=4, b=4), xaxis=dict(visible=False), yaxis=dict(autorange="reversed", showgrid=False, automargin=True))
+                    st.plotly_chart(fig_cat, use_container_width=True, theme=None, key="ctx_cats_v2")
+                else:
+                    st.info("Sin datos de categorías.")
+
+        # Colectivos atacados
+        with row1_col2:
+            with st.container(border=True):
+                if _targets_grid:
+                    top_tgt = dict(sorted(_targets_grid.items(), key=lambda x: x[1], reverse=True)[:10])
+                    tgt_items = list(top_tgt.items())
+                    lead_tgt, lead_tgt_cnt = tgt_items[0]
+                    encabezado_grafico(
+                        f"{lead_tgt}, el colectivo más atacado ({fmt_int(lead_tgt_cnt)} menciones)",
+                        "Menciones en los motivos clasificados (un mensaje puede citar varios).",
                     )
-                    fig_int.update_layout(height=300)
-                    st.plotly_chart(fig_int, use_container_width=True, theme=None, key="ctx_intensidad")
+                    _tgt_names = [k for k, _ in tgt_items]
+                    _tgt_vals = [v for _, v in tgt_items]
+                    _tgt_colors = [NAVY] + ["#8AA4BF"] * (len(_tgt_names) - 1)
+                    fig_tgt = go.Figure(go.Bar(
+                        orientation="h", y=_tgt_names, x=_tgt_vals,
+                        marker_color=_tgt_colors,
+                        text=[fmt_int(v) for v in _tgt_vals],
+                        textposition="outside", cliponaxis=False,
+                        hovertemplate="%{y}: %{x}<extra></extra>",
+                    ))
+                    fig_tgt.update_layout(height=max(300, len(_tgt_names) * 36), showlegend=False, margin=dict(l=4, r=40, t=4, b=4), xaxis=dict(visible=False), yaxis=dict(autorange="reversed", showgrid=False, automargin=True))
+                    st.plotly_chart(fig_tgt, use_container_width=True, theme=None, key="ctx_targets_v2")
+                else:
+                    st.info("Sin datos de colectivos.")
+
+        # Temas detectados
+        with row2_col1:
+            with st.container(border=True):
+                if _temas_grid:
+                    top_tem = dict(sorted(_temas_grid.items(), key=lambda x: x[1], reverse=True)[:10])
+                    tem_items = list(top_tem.items())
+                    lead_tem, _ = tem_items[0]
+                    encabezado_grafico(
+                        f"{lead_tem}, tema dominante en los mensajes de odio",
+                        "Apariciones en los mensajes de odio de la semana.",
+                    )
+                    _tem_names = [k for k, _ in tem_items]
+                    _tem_vals = [v for _, v in tem_items]
+                    _tem_colors = [NAVY] + ["#8AA4BF"] * (len(_tem_names) - 1)
+                    fig_tema = go.Figure(go.Bar(
+                        orientation="h", y=_tem_names, x=_tem_vals,
+                        marker_color=_tem_colors,
+                        text=[fmt_int(v) for v in _tem_vals],
+                        textposition="outside", cliponaxis=False,
+                        hovertemplate="%{y}: %{x}<extra></extra>",
+                    ))
+                    fig_tema.update_layout(height=max(300, len(_tem_names) * 36), showlegend=False, margin=dict(l=4, r=40, t=4, b=4), xaxis=dict(visible=False), yaxis=dict(autorange="reversed", showgrid=False, automargin=True))
+                    st.plotly_chart(fig_tema, use_container_width=True, theme=None, key="ctx_temas_v2")
+                else:
+                    st.info("Sin datos de temas.")
+
+        # Intensidad
+        with row2_col2:
+            with st.container(border=True):
+                _total_int = sum(int(_int_grid.get(k, 0)) for k in ["1", "2", "3"])
+                if _total_int > 0:
+                    _pct_alta = round(100.0 * int(_int_grid.get("3", 0)) / _total_int, 1)
+                    encabezado_grafico(f"El {fmt_pct(_pct_alta)} del odio de la semana fue de intensidad alta")
+                    _int_fig = go.Figure()
+                    for k in ["3", "2", "1"]:
+                        v = int(_int_grid.get(k, 0))
+                        _int_fig.add_trace(go.Bar(
+                            orientation="h", y=["Intensidad"], x=[100.0 * v / _total_int],
+                            name=_INT_LABEL_DETAIL[k], marker_color=INT_COLOR[k],
+                            hovertemplate=f"{_INT_LABEL_DETAIL[k]}: {fmt_int(v)} msgs ({round(100.0 * v / _total_int, 1):.1f}%)<extra></extra>",
+                        ))
+                    _int_fig.update_layout(barmode="stack", height=80, showlegend=False, margin=dict(l=0, r=0, t=0, b=0), xaxis=dict(range=[0, 100], visible=False), yaxis=dict(visible=False))
+                    st.plotly_chart(_int_fig, use_container_width=True, theme=None, key="ctx_intensidad_v2")
+                    for k in ["3", "2", "1"]:
+                        v = int(_int_grid.get(k, 0))
+                        pct_v = round(100.0 * v / _total_int, 1) if _total_int > 0 else 0.0
+                        c = INT_COLOR[k]
+                        lbl = _INT_LABEL_DETAIL[k]
+                        st.markdown(f"<div style='display:flex;align-items:center;gap:8px;margin:4px 0'><span style='width:12px;height:12px;border-radius:2px;background:{c};flex:none;display:inline-block'></span><span style='font-size:14px'>{_html.escape(lbl)}</span><span style='margin-left:auto;font-size:14px;font-weight:600'>{fmt_pct(pct_v)} · {fmt_int(v)}</span></div>", unsafe_allow_html=True)
                 else:
                     st.info("Sin datos de intensidad.")
-            else:
-                st.info("Sin datos de intensidad.")
 
-        if _is_viewer():
-            st.caption("📅 Monitorización activa: lunes y jueves.")
+    # 2.8 Tabla al final
+    with st.expander("Ver la tabla de todas las semanas"):
+        def _fmt_pct_cell(v) -> str:
+            if v is None or (isinstance(v, float) and pd.isna(v)):
+                return "—"
+            try:
+                return fmt_pct(float(v), dec=2)
+            except (TypeError, ValueError):
+                return "—"
 
-        # --- Peak day ---
-        if row.get("dia_pico"):
-            st.markdown("---")
-            st.caption(
-                f"📅 **Día pico de la semana**: {row['dia_pico']} — "
-                f"{int(row['dia_pico_odio'])} mensajes de odio ({row['dia_pico_pct']}%)"
-            )
+        _tbl_df = df_chart.sort_values("semana_inicio").copy()
+        _tbl_rows = []
+        for _, r in _tbl_df.iterrows():
+            _tbl_rows.append({
+                "Semana": _fmt_semana(r["semana_inicio"], r["semana_fin"]),
+                "Mensajes": fmt_int(r.get("total_mensajes")),
+                "Mensajes de odio": fmt_int(r.get("total_odio")),
+                "% de odio": _fmt_pct_cell(r.get("pct_odio")),
+                "Umbral": _fmt_pct_cell(r.get("umbral_spike_pct")),
+                "Alerta": "Sí" if _es_alerta(r, spike_fallback) else "No",
+            })
+        st.dataframe(pd.DataFrame(_tbl_rows), use_container_width=True, hide_index=True, key="ctx_tabla_semanas")
 
-        csv_items = [
-            ("semanal_historico", df),
-        ]
-        if "cat_df" in locals() and isinstance(cat_df, pd.DataFrame):
-            csv_items.append(("detalle_categorias", cat_df))
-        if "tgt_df" in locals() and isinstance(tgt_df, pd.DataFrame):
-            csv_items.append(("detalle_targets", tgt_df))
-        if "tema_df" in locals() and isinstance(tema_df, pd.DataFrame):
-            csv_items.append(("detalle_temas", tema_df))
-        if "int_df" in locals() and isinstance(int_df, pd.DataFrame):
-            csv_items.append(("detalle_intensidad", int_df))
+    # Descargas
+    _df_serie_csv = df_chart[["semana_lunes", "total_mensajes", "total_odio", "pct_odio", "umbral_spike_pct", "es_spike"]].copy()
+    _df_serie_csv = _df_serie_csv.rename(columns={"semana_lunes": "Semana (lunes)", "total_mensajes": "Mensajes", "total_odio": "Mensajes de odio", "pct_odio": "% de odio", "umbral_spike_pct": "Umbral", "es_spike": "Alerta"})
 
-        render_section_exports(
-            section_key="analisis_contextual",
-            section_title="Análisis contextual semanal",
-            csv_items=csv_items,
-            fig_items=[
-                {"title": "Evolución semanal % odio", "fig": fig_timeline, "kind": "plotly"},
-                {"title": "Categorías de odio", "fig": fig_cat if "fig_cat" in locals() else None, "kind": "plotly"},
-                {"title": "Colectivos atacados", "fig": fig_tgt if "fig_tgt" in locals() else None, "kind": "plotly"},
-                {"title": "Temas detectados", "fig": fig_tema if "fig_tema" in locals() else None, "kind": "plotly"},
-                {"title": "Intensidad del odio", "fig": fig_int if "fig_int" in locals() else None, "kind": "plotly"},
+    with col_dl:
+        render_descargas_menu(
+            "analisis_contextual",
+            "Análisis contextual semanal",
+            csv_items=[
+                ("serie_semanal", _df_serie_csv),
+                ("semana_seleccionada", df_semana_sel_csv if row_sel is not None else pd.DataFrame()),
             ],
+            fig_items=[{"title": "Evolución semanal % de odio", "fig": fig_ev, "kind": "plotly"}],
         )
-
-    _render_detalle_semanal()
