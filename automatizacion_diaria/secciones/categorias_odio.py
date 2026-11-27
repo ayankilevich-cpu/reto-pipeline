@@ -1,11 +1,13 @@
 """Sección «Categorías de odio (LLM)» del dashboard."""
 from __future__ import annotations
 
+import html
 import sys
 from pathlib import Path
 from typing import Optional, Tuple
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 _HERE = Path(__file__).resolve().parent.parent
@@ -14,21 +16,23 @@ if str(_HERE) not in sys.path:
 
 from components.constants import (
     CATEGORIAS_LABELS,
-    CAT_COLOR_MAP,
-    INTENSITY_COLORS,
-    SEMANTIC_COLORS,
     _expand_platforms,
     platform_label,
 )
 from components.ui import (
     _anonimizar_texto_mensaje,
-    _apply_horizontal_bar_labels,
     _is_viewer,
     _render_section_header,
     _role_can_access_raw,
 )
 from components.exports import render_section_exports
-from components.db_helpers import _public_medio_label, load_filter_options, _pooled_conn
+from components.chart_style import (
+    NAVY, encabezado_grafico, fmt_int, fmt_pct, kpi_tarjetas, linea_actividad, nota_fuente, tarjeta,
+)
+from components.db_helpers import (
+    _public_medio_label, load_filter_options, _pooled_conn,
+    fecha_fin_clasificacion_yt, load_youtube_recorrido,
+)
 
 
 @st.cache_data(ttl=86400, max_entries=64)
@@ -157,9 +161,10 @@ _SQL_LLM_ULTIMA_CAT = """
     ORDER BY message_uuid, etiquetado_date DESC NULLS LAST
 """
 
-
-def _fmt_int_es(n) -> str:
-    return f"{int(n):,}".replace(",", ".")
+_SOLO_X = ("x",)   # la sección solo muestra X (YouTube no tiene clasificación completa desde 30/09/2026)
+_COLORES_CLASIF = {"Odio": "#A32D2D", "No Odio": "#8AA4BF", "Dudoso": "#D69E2E"}
+_INT_COLOR = {"1": "#F4C7C3", "2": "#E0726A", "3": "#A32D2D"}
+_INT_LABEL = {"1": "Baja (1)", "2": "Media (2)", "3": "Alta (3)"}
 
 
 @st.cache_data(ttl=86400, max_entries=64)
@@ -201,12 +206,13 @@ def load_resultado_clasificacion(
     return df, int(prec["revisados"] or 0), int(prec["confirmados"] or 0)
 
 
-def _render_resultado_clasificacion(sel_platforms, sel_medios):
+def _render_resultado_clasificacion(sel_medios):
     df_res, n_rev, n_conf = load_resultado_clasificacion(
-        platforms=tuple(sel_platforms) if sel_platforms else None,
+        platforms=_SOLO_X,
         medios=tuple(sel_medios) if sel_medios else None,
     )
     if df_res.empty:
+        st.info("Sin resultados de clasificación para los filtros seleccionados.")
         return None
     df_res = df_res.copy()
     df_res["Clasificación"] = (
@@ -214,46 +220,88 @@ def _render_resultado_clasificacion(sel_platforms, sel_medios):
         .fillna(df_res["clasificacion_principal"])
     )
     total = int(df_res["total"].sum())
+    orden = ["Odio", "No Odio", "Dudoso"]
+    vals = {e: int(df_res.loc[df_res["Clasificación"] == e, "total"].sum()) for e in orden}
+    pcts = {e: (vals[e] / total * 100 if total else 0.0) for e in orden}
 
-    st.markdown("### Resultado de la clasificación por IA")
-    col_a, col_b = st.columns([3, 2])
-    with col_a:
-        fig = px.pie(
-            df_res, names="Clasificación", values="total",
-            color="Clasificación", color_discrete_map=SEMANTIC_COLORS,
-            hole=0.6, category_orders={"Clasificación": ["Odio", "No Odio", "Dudoso"]},
+    fig = go.Figure()
+    for e in orden:
+        fig.add_trace(go.Bar(
+            orientation="h", y=[""], x=[pcts[e]], name=e, marker_color=_COLORES_CLASIF[e],
+            customdata=[[fmt_int(vals[e]), fmt_pct(pcts[e])]],
+            hovertemplate=f"{e}: %{{customdata[1]}}<br>%{{customdata[0]}} mensajes<extra></extra>",
+        ))
+    fig.update_layout(
+        barmode="stack", height=60, showlegend=False, margin=dict(l=0, r=0, t=4, b=4),
+        xaxis=dict(visible=False, range=[0, 100], fixedrange=True),
+        yaxis=dict(visible=False, fixedrange=True),
+    )
+    filas = "".join(
+        "<div style='display:grid;grid-template-columns:18px 90px 70px 1fr;align-items:center;"
+        "font-size:14.5px;color:#14202E'>"
+        f"<span style='width:11px;height:11px;border-radius:3px;background:{_COLORES_CLASIF[e]};display:inline-block'></span>"
+        f"<span>{e}</span><span style='font-weight:700;text-align:right;padding-right:16px'>{fmt_pct(pcts[e])}</span>"
+        f"<span style='font-size:13px;color:#7A8699'>{fmt_int(vals[e])} mensajes</span></div>"
+        for e in orden
+    )
+    nota = (
+        "No es la proporción de odio en el total de conversaciones: la IA solo analiza los candidatos "
+        "del filtro de términos (ver el recorrido en el Panel general)."
+    )
+    if n_rev >= _MIN_MUESTRA_PRECISION:
+        nota += (
+            f" En la muestra revisada por personas ({fmt_int(n_rev)} mensajes), el "
+            f"{n_conf / n_rev * 100:.0f} % de lo marcado como odio fue confirmado."
         )
-        fig.update_traces(
-            sort=False, textinfo="percent", textposition="inside",
-            textfont_size=14, textfont_color="white",
-            marker=dict(line=dict(color="#FFFFFF", width=2)),
-        )
-        fig.add_annotation(
-            text=f"<b>{_fmt_int_es(total)}</b><br>mensajes", x=0.5, y=0.5,
-            showarrow=False, font=dict(size=16),
-        )
-        fig.update_layout(
-            height=340, margin=dict(l=10, r=10, t=20, b=40),
-            legend=dict(orientation="h", yanchor="top", y=-0.02, x=0.5, xanchor="center"),
-        )
-        st.plotly_chart(fig, use_container_width=True, theme=None)
-    with col_b:
-        for etiqueta in ["Odio", "No Odio", "Dudoso"]:
-            n = int(df_res.loc[df_res["Clasificación"] == etiqueta, "total"].sum())
-            pct = (n / total * 100) if total else 0
-            st.markdown(f"**{etiqueta}:** {_fmt_int_es(n)} ({f'{pct:.1f}'.replace('.', ',')}%)")
-        nota = (
-            "Mensajes revisados por la IA después del filtro de posible odio. No representa la "
-            "proporción de odio en el total de conversaciones (ver el embudo en el Panel general)."
-        )
-        if n_rev >= _MIN_MUESTRA_PRECISION:
-            nota += (
-                f" En la muestra revisada por personas ({_fmt_int_es(n_rev)} mensajes), "
-                f"el {n_conf / n_rev * 100:.0f}% de lo marcado como odio por la IA fue confirmado."
-            )
-        st.caption(nota)
-    st.markdown("---")
+    encabezado_grafico(
+        f"La IA clasificó como odio el {fmt_pct(pcts['Odio'])} de los mensajes analizados",
+        "Mensajes de X analizados por la IA tras el filtro de términos.",
+    )
+    st.plotly_chart(fig, use_container_width=True, theme=None)
+    st.markdown(
+        "<div style='display:grid;gap:10px;margin:6px 0 0'>" + filas + "</div>"
+        "<p style='font-size:13.5px;color:#5B6675;margin:14px 0 4px;border-top:1px solid #EEF1F5;"
+        f"padding-top:12px'>{html.escape(nota)}</p>",
+        unsafe_allow_html=True,
+    )
     return fig
+
+
+def _render_recuadro_youtube() -> None:
+    try:
+        yt = load_youtube_recorrido()
+    except Exception:
+        return
+    if not yt["total"]:
+        return
+    pct_an = yt["analizados"] / yt["total"] * 100
+    pct_rel = yt["relevantes"] / yt["analizados"] * 100 if yt["analizados"] else 0.0
+    cifras = [
+        (fmt_int(yt["total"]), "comentarios recogidos"),
+        (fmt_int(yt["analizados"]), f"analizados por el filtro ({fmt_pct(pct_an)} del total)"),
+        (fmt_int(yt["relevantes"]), f"marcados como relevantes ({fmt_pct(pct_rel)} de los analizados)"),
+        (fmt_int(yt["odio_confirmado"]), f"odio confirmado por personas, de {fmt_int(yt['validados'])} validados"),
+    ]
+    celdas = "".join(
+        "<div style='font-size:13px;color:#5B6675'>"
+        f"<b style='display:block;font-size:22px;color:#14202E;letter-spacing:-0.01em'>{v}</b>{html.escape(t)}</div>"
+        for v, t in cifras
+    )
+    st.markdown(
+        "<div style='border:1px solid #E3E8EF;background:#F6F8FB;border-radius:12px;padding:16px 18px;margin:0 0 22px'>"
+        "<div style='display:flex;gap:10px;align-items:flex-start'>"
+        "<span style='flex:none;width:18px;height:18px;border-radius:50%;background:#1F4E79;color:#fff;"
+        "font:700 12px/18px Inter,sans-serif;text-align:center;margin-top:2px'>i</span>"
+        "<div><strong style='color:#14202E'>YouTube sigue otro proceso</strong>"
+        "<p style='margin:2px 0 0;font-size:14px;color:#3B4757;max-width:95ch'>"
+        f"Desde el {fecha_fin_clasificacion_yt(yt)} los comentarios de YouTube no se clasifican por categoría con IA. "
+        "Un filtro de IA revisa los comentarios más recientes, con un límite por ejecución, y marca los que "
+        "merecen revisión; el equipo valida después si contienen odio. Por eso esta sección muestra solo X. "
+        "Las categorías de YouTube validadas por personas están en <em>Dataset validado</em>.</p></div></div>"
+        "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;"
+        f"margin-top:14px;padding-left:28px'>{celdas}</div></div>",
+        unsafe_allow_html=True,
+    )
 
 
 def load_muestra_ultima_corrida_llm(limit: int = 20) -> Tuple[pd.DataFrame, Optional[object]]:
@@ -404,13 +452,12 @@ def _render_muestra_ultima_corrida_llm_section(*, key_suffix: str = "") -> None:
 def render_categorias():
     if _is_viewer():
         _render_section_header(
-            "Distribución por categoría de odio",
-            "Clasificación por IA en las 6 categorías del proyecto ReTo. "
-            "Métricas y gráficos de distribución por categoría e intensidad.",
+            "Categorías de odio",
+            "Clasificación por IA de los mensajes de X en las 6 categorías del proyecto ReTo, y su intensidad.",
         )
     else:
         _render_section_header(
-            "Distribución por categoría de odio",
+            "Categorías de odio",
             "Clasificación del LLM en las 6 categorías del proyecto ReTo. "
             "<strong>Primero</strong> la muestra de mensajes; <strong>debajo</strong>, métricas y gráficos.",
         )
@@ -420,228 +467,160 @@ def render_categorias():
     llm_stats = load_llm_stats()
 
     uf = llm_stats["ultima_fecha"]
-    total_mensajes_procesados = llm_stats["total_procesados"]
-    agregados_ultima_actualizacion = llm_stats["agregados_ultima"]
     ultima_actualizacion = uf.strftime("%d/%m/%Y") if uf is not None and not pd.isna(uf) else "—"
     x_total = llm_stats["total_x"]
     x_ultimos = llm_stats["agregados_x"]
-    yt_total = llm_stats["total_yt"]
-    yt_ultimos = llm_stats["agregados_yt"]
 
-    st.markdown(f"""
-<style>
-.metric-grid {{
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 16px;
-    margin-bottom: 24px;
-}}
-.metric-card {{
-    background-color: #1B3A6B;
-    border-radius: 12px;
-    padding: 20px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    color: white;
-    text-align: center;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-}}
-.metric-card .label {{
-    font-size: 13px;
-    font-weight: 400;
-    opacity: 0.85;
-    margin-bottom: 8px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}}
-.metric-card .value {{
-    font-size: 28px;
-    font-weight: 700;
-    line-height: 1;
-}}
-.metric-card .sub {{
-    font-size: 12px;
-    opacity: 0.7;
-    margin-top: 6px;
-}}
-</style>
-
-<div class="metric-grid">
-  <div class="metric-card">
-    <div class="label">Total mensajes procesados</div>
-    <div class="value">{total_mensajes_procesados:,}</div>
-  </div>
-  <div class="metric-card">
-    <div class="label">Agregados en última actualización</div>
-    <div class="value">{agregados_ultima_actualizacion:,}</div>
-  </div>
-  <div class="metric-card">
-    <div class="label">Última actualización</div>
-    <div class="value">{ultima_actualizacion}</div>
-  </div>
-  <div class="metric-card">
-    <div class="label">X — Total</div>
-    <div class="value">{x_total:,}</div>
-  </div>
-  <div class="metric-card">
-    <div class="label">X — Últimos agregados</div>
-    <div class="value">{x_ultimos:,}</div>
-  </div>
-  <div class="metric-card">
-    <div class="label">YouTube — Total</div>
-    <div class="value">{yt_total:,}</div>
-  </div>
-  <div class="metric-card">
-    <div class="label">YouTube — Últimos agregados</div>
-    <div class="value">{yt_ultimos:,}</div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
-
-    st.markdown("---")
+    kpi_tarjetas([
+        ("Mensajes de X clasificados por IA", fmt_int(x_total), ""),
+        ("Añadidos en la última actualización", fmt_int(x_ultimos), ""),
+        ("Última clasificación", ultima_actualizacion, ""),
+    ])
+    linea_actividad("Clasificación diaria de los mensajes de X que superan el filtro de términos.")
+    _render_recuadro_youtube()
 
     opts = load_filter_options(_role_can_access_raw())
 
-    fc1, fc2, fc3 = st.columns(3)
-    sel_platforms = fc1.multiselect(
-        "Plataforma", opts["platforms"], default=[], key="cat_plat",
-        format_func=platform_label,
-        placeholder="Todas las plataformas",
-    )
-    sel_medios = fc2.multiselect(
+    fc1, fc2 = st.columns(2)
+    sel_medios = fc1.multiselect(
         "Medio", opts["medios"], default=[], key="cat_med",
         placeholder="Todos los medios",
     )
-    sel_intensidades = fc3.multiselect(
+    sel_intensidades = fc2.multiselect(
         "Intensidad", opts["intensidades"], default=[], key="cat_int",
-        placeholder="Seleccionar…",
+        placeholder="Todas",
     )
 
-    fig_res = _render_resultado_clasificacion(sel_platforms, sel_medios)
-
     df = load_categorias(
-        platforms=tuple(sel_platforms) if sel_platforms else None,
+        platforms=_SOLO_X,
         medios=tuple(sel_medios) if sel_medios else None,
         intensidades=tuple(sel_intensidades) if sel_intensidades else None,
     )
+
+    col_res, col_cat = st.columns([5, 7])
+    with col_res:
+        with tarjeta():
+            fig_res = _render_resultado_clasificacion(sel_medios)
+
     if df.empty:
-        st.warning("No hay datos de categorías con los filtros seleccionados.")
+        with col_cat:
+            st.warning("No hay datos de categorías con los filtros seleccionados.")
         return
 
     df["categoria_label"] = df["categoria_odio_pred"].map(CATEGORIAS_LABELS).fillna(df["categoria_odio_pred"])
+    df_c = df.sort_values("total", ascending=False).reset_index(drop=True)
+    _tot_c = int(df_c["total"].sum()) or 1
+    df_c["pct"] = df_c["total"] / _tot_c * 100
 
-    col1, col2 = st.columns(2)
+    with col_cat:
+        with tarjeta():
+            fig = go.Figure(go.Bar(
+                orientation="h", y=df_c["categoria_label"], x=df_c["total"],
+                marker_color=[NAVY if i == 0 else "#8AA4BF" for i in range(len(df_c))],
+                text=[f"<b>{fmt_int(t)}</b>  {fmt_pct(p)}" for t, p in zip(df_c["total"], df_c["pct"])],
+                textposition="outside", cliponaxis=False, textfont=dict(size=13, color="#14202E"),
+                customdata=[[fmt_int(t), fmt_pct(p)] for t, p in zip(df_c["total"], df_c["pct"])],
+                hovertemplate="<b>%{y}</b><br>%{customdata[0]} mensajes · %{customdata[1]} del odio<extra></extra>",
+            ))
+            fig.update_layout(
+                height=70 + 48 * len(df_c), showlegend=False, bargap=0.4,
+                margin=dict(l=8, r=120, t=6, b=6),
+                xaxis=dict(visible=False, range=[0, float(df_c["total"].max()) * 1.35], fixedrange=True),
+                yaxis=dict(autorange="reversed", showgrid=False, fixedrange=True, ticksuffix="  ",
+                           tickfont=dict(size=13, color="#14202E")),
+            )
+            encabezado_grafico(
+                f"La categoría «{df_c.loc[0, 'categoria_label']}» concentra el "
+                f"{fmt_pct(df_c.loc[0, 'pct'])} del odio identificado",
+                "Mensajes de X clasificados como odio en cada categoría y su peso sobre el total de odio.",
+            )
+            st.plotly_chart(fig, use_container_width=True, theme=None)
 
-    with col1:
-        df_categoria = df.sort_values("total", ascending=True)
-        fig = px.bar(
-            df_categoria, x="total", y="categoria_label", orientation="h",
-            color="categoria_label", color_discrete_map=CAT_COLOR_MAP,
-            labels={"total": "Mensajes", "categoria_label": ""},
-            title="Mensajes de odio por categoría",
-            text_auto=True,
+    df_int = pd.DataFrame()
+    with tarjeta():
+        sel_cats_int = st.multiselect(
+            "Filtrar categorías",
+            options=list(CATEGORIAS_LABELS.keys()),
+            format_func=lambda x: CATEGORIAS_LABELS.get(x, x),
+            default=[],
+            key="cat_int_filter",
+            placeholder="Todas las categorías",
         )
-        fig.update_layout(showlegend=False, height=400, yaxis=dict(autorange="reversed"))
-        _apply_horizontal_bar_labels(fig)
-        # Evita recortes de las etiquetas en media columna con el sidebar abierto.
-        fig.update_yaxes(automargin=True, tickfont=dict(size=11))
-        fig.update_layout(margin=dict(l=10, r=20, t=40, b=40))
-        st.plotly_chart(fig, use_container_width=True, theme=None)
+        df_int = load_intensidad_por_categoria(
+            platforms=_SOLO_X,
+            medios=tuple(sel_medios) if sel_medios else None,
+            categorias=tuple(sel_cats_int) if sel_cats_int else None,
+        )
+        if df_int.empty:
+            st.info("Sin datos de intensidad para los filtros seleccionados.")
+        else:
+            df_int["categoria_label"] = df_int["categoria_odio_pred"].map(CATEGORIAS_LABELS).fillna(df_int["categoria_odio_pred"])
+            df_int["intensidad_pred"] = df_int["intensidad_pred"].astype(str)
+            df_int["total_categoria"] = df_int.groupby("categoria_label")["total"].transform("sum")
+            df_int["pct"] = (df_int["total"] / df_int["total_categoria"] * 100).round(1)
+            df_int["pct_txt"] = df_int["pct"].map(lambda v: f"{v:.0f} %" if v >= 12 else "")
+            _alta = (
+                df_int[df_int["intensidad_pred"] == "3"].set_index("categoria_label")["pct"]
+                .reindex(df_int["categoria_label"].unique(), fill_value=0)
+                .sort_values(ascending=False)
+            )
+            orden_cat = _alta.index.tolist()
 
-    with col2:
-        fig2 = px.pie(
-            df, values="total", names="categoria_label",
-            color="categoria_label", color_discrete_map=CAT_COLOR_MAP,
-            title="Proporción por categoría", hole=0.5,
-        )
-        fig2.update_traces(
-            textposition="inside",
-            textinfo="percent",
-            textfont_color="white",
-            marker=dict(line=dict(color="#FFFFFF", width=2)),
-        )
-        fig2.update_layout(height=400)
-        st.plotly_chart(fig2, use_container_width=True, theme=None)
+            fig3 = px.bar(
+                df_int, x="pct", y="categoria_label", color="intensidad_pred",
+                orientation="h", barmode="stack", text="pct_txt",
+                category_orders={"intensidad_pred": ["1", "2", "3"], "categoria_label": orden_cat},
+                color_discrete_map=_INT_COLOR,
+                custom_data=["total", "total_categoria"],
+            )
+            fig3.for_each_trace(lambda t: t.update(name=_INT_LABEL.get(t.name, t.name)))
+            fig3.update_traces(
+                textposition="inside", insidetextanchor="middle",
+                textfont=dict(color="#FFFFFF", size=12),
+                hovertemplate=("<b>%{y}</b><br>Nivel %{fullData.name}: %{x:.1f} %"
+                               "<br>%{customdata[0]:,} de %{customdata[1]:,} mensajes<extra></extra>"),
+            )
+            fig3.for_each_trace(lambda t: t.update(textfont_color="#1A202C") if t.name == "Baja (1)" else None)
+            for cat, v in _alta.items():
+                fig3.add_annotation(
+                    x=100, y=cat, xanchor="left", xshift=10, showarrow=False,
+                    text=f"<b>{fmt_pct(v, 0)}</b>", font=dict(size=14, color="#A32D2D"),
+                )
+            fig3.update_layout(
+                height=70 + 46 * len(orden_cat), bargap=0.35, showlegend=False,
+                margin=dict(l=8, r=70, t=6, b=6),
+                xaxis=dict(visible=False, range=[0, 100], fixedrange=True),
+                yaxis=dict(autorange="reversed", automargin=True, showgrid=False, fixedrange=True,
+                           ticksuffix="  ", tickfont=dict(size=13, color="#14202E"), title=None),
+            )
+            _sw = lambda c: (f"<span style='display:inline-block;width:11px;height:11px;border-radius:3px;"
+                             f"background:{c};margin-right:6px;vertical-align:-1px'></span>")
+            encabezado_grafico(
+                f"«{orden_cat[0]}» es la categoría con más odio de intensidad alta "
+                f"({fmt_pct(_alta.iloc[0], 0)})",
+                "Distribución de la intensidad dentro de cada categoría, ordenada por % de intensidad alta "
+                "(cifra en rojo a la derecha).",
+            )
+            st.markdown(
+                "<div style='display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:#5B6675;margin:2px 0 6px'>"
+                + "".join(f"<span>{_sw(_INT_COLOR[k])}{_INT_LABEL[k]}</span>" for k in ["1", "2", "3"])
+                + "</div>",
+                unsafe_allow_html=True,
+            )
+            st.plotly_chart(fig3, use_container_width=True, theme=None)
 
-    st.markdown("### Intensidad por categoría")
-
-    sel_cats_int = st.multiselect(
-        "Filtrar categorías",
-        options=list(CATEGORIAS_LABELS.keys()),
-        format_func=lambda x: CATEGORIAS_LABELS.get(x, x),
-        default=[],
-        key="cat_int_filter",
-        placeholder="Todas las categorías",
-    )
-
-    df_int = load_intensidad_por_categoria(
-        platforms=tuple(sel_platforms) if sel_platforms else None,
-        medios=tuple(sel_medios) if sel_medios else None,
-        categorias=tuple(sel_cats_int) if sel_cats_int else None,
-    )
-    if not df_int.empty:
-        df_int["categoria_label"] = df_int["categoria_odio_pred"].map(CATEGORIAS_LABELS).fillna(df_int["categoria_odio_pred"])
-        df_int["intensidad_pred"] = df_int["intensidad_pred"].astype(str)
-        df_int["total_categoria"] = df_int.groupby("categoria_label")["total"].transform("sum")
-        df_int["pct"] = (df_int["total"] / df_int["total_categoria"] * 100).round(1)
-        df_int["pct_txt"] = df_int["pct"].map(lambda v: f"{v:.0f}%" if v >= 5 else "")
-
-        orden_cat = (
-            df_int[df_int["intensidad_pred"] == "3"]
-            .set_index("categoria_label")["pct"]
-            .reindex(df_int["categoria_label"].unique(), fill_value=0)
-            .sort_values(ascending=False)
-            .index.tolist()
-        )
-
-        fig3 = px.bar(
-            df_int, x="pct", y="categoria_label", color="intensidad_pred",
-            orientation="h", barmode="stack", text="pct_txt",
-            category_orders={"intensidad_pred": ["1", "2", "3"], "categoria_label": orden_cat},
-            color_discrete_map=INTENSITY_COLORS,
-            custom_data=["total", "total_categoria"],
-            labels={
-                "pct": "% de los mensajes de odio de cada categoría",
-                "categoria_label": "",
-                "intensidad_pred": "Intensidad",
-            },
-            title="Distribución de intensidad por categoría (1=baja, 2=media, 3=alta)",
-        )
-        fig3.update_traces(
-            textposition="inside",
-            insidetextanchor="middle",
-            textfont=dict(color="#FFFFFF", size=12),
-            hovertemplate=(
-                "<b>%{y}</b><br>Intensidad %{fullData.name}: %{x:.1f}%"
-                "<br>%{customdata[0]:,} de %{customdata[1]:,} mensajes<extra></extra>"
-            ),
-        )
-        fig3.for_each_trace(
-            lambda t: t.update(textfont_color="#1A202C") if t.name == "1" else None
-        )
-        fig3.update_layout(
-            height=420,
-            bargap=0.3,
-            margin=dict(l=10, r=10, t=90, b=10),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        )
-        fig3.update_xaxes(range=[0, 100], ticksuffix="%", automargin=True)
-        fig3.update_yaxes(autorange="reversed", automargin=True, tickfont=dict(size=12))
-        st.plotly_chart(fig3, use_container_width=True, theme=None)
+    nota_fuente()
 
     render_section_exports(
         section_key="categorias_odio",
-        section_title="Distribución por categoría de odio",
+        section_title="Categorías de odio",
         csv_items=[
             ("categorias", df),
-            ("intensidad_categoria", df_int if "df_int" in locals() else pd.DataFrame()),
+            ("intensidad_categoria", df_int),
         ],
         fig_items=[
             {"title": "Resultado de la clasificación por IA", "fig": fig_res, "kind": "plotly"},
             {"title": "Mensajes por categoría", "fig": fig if "fig" in locals() else None, "kind": "plotly"},
-            {"title": "Proporción por categoría", "fig": fig2 if "fig2" in locals() else None, "kind": "plotly"},
             {"title": "Intensidad por categoría", "fig": fig3 if "fig3" in locals() else None, "kind": "plotly"},
         ],
     )
