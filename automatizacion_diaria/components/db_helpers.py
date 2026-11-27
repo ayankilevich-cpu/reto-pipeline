@@ -440,3 +440,35 @@ def load_gold_full() -> pd.DataFrame:
     df["split"] = df["split"].fillna("sin_asignar")
     df["annotator_id"] = df["annotator_id"].fillna("sin_asignar")
     return df
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def load_youtube_recorrido() -> dict:
+    """Recorrido actual de YouTube: filtro de relevancia por IA + validación humana."""
+    with _pooled_conn() as conn:
+        row = pd.read_sql("""
+            SELECT
+              (SELECT COUNT(*) FROM processed.mensajes
+                 WHERE platform = 'youtube')                                         AS total,
+              (SELECT COUNT(*) FROM processed.mensajes
+                 WHERE platform = 'youtube' AND relevante_score IS NOT NULL)         AS analizados,
+              (SELECT COUNT(*) FROM processed.mensajes
+                 WHERE platform = 'youtube' AND relevante_llm = 'SI')                AS relevantes,
+              (SELECT COUNT(*) FROM processed.gold_dataset g
+                 JOIN processed.mensajes pm USING (message_uuid)
+                 WHERE pm.platform = 'youtube')                                      AS validados,
+              (SELECT COUNT(*) FROM processed.gold_dataset g
+                 JOIN processed.mensajes pm USING (message_uuid)
+                 WHERE pm.platform = 'youtube' AND g.y_odio_final = 'Odio')          AS odio_confirmado,
+              (SELECT MAX(e.etiquetado_date)::date FROM processed.etiquetas_llm e
+                 JOIN processed.mensajes pm USING (message_uuid)
+                 WHERE pm.platform = 'youtube')                                      AS fin_clasificacion
+        """, conn).iloc[0]
+    out = {k: int(row[k] or 0) for k in ["total", "analizados", "relevantes", "validados", "odio_confirmado"]}
+    out["fin_clasificacion"] = row["fin_clasificacion"]
+    return out
+
+
+def fecha_fin_clasificacion_yt(yt: dict) -> str:
+    fin = yt.get("fin_clasificacion")
+    return pd.Timestamp(fin).strftime("%d/%m/%Y") if fin is not None and not pd.isna(fin) else "septiembre de 2026"
