@@ -128,7 +128,7 @@ def _precalentar_cache() -> None:
     la primera visita del viewer (sin filtros aplicados). Best-effort —
     un fallo individual no detiene el resto.
     """
-    from components.db_helpers import _load_valid_media_map, load_filter_options, load_gold_full
+    from components.db_helpers import _load_valid_media_map, load_filter_options, load_gold_full, load_youtube_recorrido
     from secciones.panel_general import (
         load_kpis, load_embudo, _load_panel_combined,
         load_gold_stats, load_matriz_confusion,
@@ -136,6 +136,7 @@ def _precalentar_cache() -> None:
     from secciones.categorias_odio import (
         load_llm_stats, load_categorias,
         load_intensidad_por_categoria, load_resultado_clasificacion,
+        _SOLO_X,
     )
     from secciones.ranking_medios import load_ranking_medios, _load_ranking_medios_raw
     from secciones.analisis_contextual import load_analisis_semanal
@@ -154,9 +155,10 @@ def _precalentar_cache() -> None:
         ("load_gold_stats",               lambda: load_gold_stats()),
         ("load_matriz_confusion",         lambda: load_matriz_confusion()),
         ("load_llm_stats",                lambda: load_llm_stats()),
-        ("load_categorias",               lambda: load_categorias(None, None, None)),
-        ("load_intensidad_por_categoria", lambda: load_intensidad_por_categoria(None, None, None)),
-        ("load_resultado_clasificacion",  lambda: load_resultado_clasificacion(None, None)),
+        ("load_categorias",               lambda: load_categorias(_SOLO_X, None, None)),
+        ("load_intensidad_por_categoria", lambda: load_intensidad_por_categoria(_SOLO_X, None, None)),
+        ("load_resultado_clasificacion",  lambda: load_resultado_clasificacion(_SOLO_X, None)),
+        ("load_youtube_recorrido",        lambda: load_youtube_recorrido()),
         ("load_ranking_medios",           lambda: load_ranking_medios(fecha_desde=None, fecha_hasta=None)),
         ("_load_valid_media_map",         lambda: _load_valid_media_map()),
         ("_load_ranking_medios_raw",      lambda: _load_ranking_medios_raw(min_msgs=1)),

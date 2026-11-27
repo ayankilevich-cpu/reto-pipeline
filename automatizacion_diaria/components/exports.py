@@ -173,3 +173,66 @@ def render_section_exports(
             st.caption("Avisos de exportación PDF: " + " | ".join(pdf_errors[:4]))
 
     st.markdown("</div>", unsafe_allow_html=True)
+
+
+_NOMBRES_DESCARGA = {
+    "kpis": "Indicadores (KPIs)",
+    "embudo": "Recorrido de los mensajes",
+    "datos_combinados": "Mensajes clasificados (IA + revisión humana)",
+    "categorias": "Mensajes de odio por categoría",
+    "intensidad_categoria": "Intensidad por categoría",
+}
+
+
+def _nombre_descarga(name: str) -> str:
+    return _NOMBRES_DESCARGA.get(name, name.replace("_", " ").capitalize())
+
+
+def render_descargas_menu(
+    section_key: str,
+    section_title: str,
+    csv_items: List[Tuple[str, pd.DataFrame]],
+    fig_items: List[Dict[str, Any]],
+) -> None:
+    """Menú compacto de descargas (st.popover). Avisos técnicos solo para admin."""
+    clean_csv = [(n, df) for n, df in csv_items if isinstance(df, pd.DataFrame) and not df.empty]
+    clean_figs = [f for f in fig_items if f.get("fig") is not None]
+    if not clean_csv and not clean_figs:
+        return
+    es_admin = st.session_state.get("user_role") == "admin"
+
+    with st.popover(":material/download: Descargar", use_container_width=False):
+        if clean_csv:
+            st.caption("Datos (CSV, se abre en Excel)")
+            for idx, (name, df) in enumerate(clean_csv):
+                st.download_button(
+                    label=_nombre_descarga(name),
+                    data=df_to_csv_bytes(df),
+                    file_name=f"reto_{section_key}_{name}.csv",
+                    mime="text/csv",
+                    key=f"dlm_csv_{section_key}_{idx}",
+                    icon=":material/table_view:",
+                    use_container_width=True,
+                )
+        if clean_figs:
+            pdf_bytes, pdf_errors = build_section_pdf_bytes(section_title, clean_figs)
+            if pdf_bytes:
+                st.caption("Gráficos")
+                st.download_button(
+                    label="Gráficos de la sección (PDF)",
+                    data=pdf_bytes,
+                    file_name=f"reto_{section_key}_graficos.pdf",
+                    mime="application/pdf",
+                    key=f"dlm_pdf_{section_key}",
+                    icon=":material/picture_as_pdf:",
+                    use_container_width=True,
+                )
+            elif es_admin:
+                st.caption("Gráficos")
+                st.button(
+                    "Gráficos de la sección (PDF)", disabled=True,
+                    key=f"dlm_pdf_off_{section_key}", icon=":material/picture_as_pdf:",
+                    use_container_width=True,
+                )
+                if pdf_errors:
+                    st.caption("No disponible: " + " | ".join(pdf_errors[:3]))

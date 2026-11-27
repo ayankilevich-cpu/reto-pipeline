@@ -25,13 +25,13 @@ from components.ui import (
     _role_can_access_raw,
     _ui_label,
 )
-from components.exports import render_section_exports
+from components.exports import render_descargas_menu
 from components.aviso_criterio import render_aviso_cambio_criterio
 from components.chart_style import (
     NAVY, NEUTRAL, encabezado_grafico, fmt_int, fmt_pct, kpi_tarjetas, linea_actividad,
     nota_fuente, tarjeta,
 )
-from components.db_helpers import load_filter_options, _pooled_conn
+from components.db_helpers import load_filter_options, _pooled_conn, fecha_fin_clasificacion_yt, load_youtube_recorrido
 
 
 @st.cache_data(ttl=86400, show_spinner="Cargando datos…", max_entries=64)
@@ -435,6 +435,20 @@ def _render_odio_por_plataforma(df_emb: pd.DataFrame):
         "Según IA, sin validar</span></div>",
         unsafe_allow_html=True,
     )
+    if dfp["plataforma"].astype(str).str.lower().str.contains("youtube").any():
+        try:
+            _yt = load_youtube_recorrido()
+            _pct_an = fmt_pct(_yt["analizados"] / _yt["total"] * 100) if _yt["total"] else "—"
+            st.markdown(
+                "<p style='font-size:13px;color:#7A8699;margin:8px 0 2px;max-width:80ch'>"
+                f"En YouTube la IA no clasifica odio desde el {fecha_fin_clasificacion_yt(_yt)}, y su filtro "
+                f"de relevancia ha analizado el {_pct_an} de los comentarios. Su porcentaje suma el odio "
+                "confirmado por personas y la clasificación anterior a esa fecha, por lo que no es "
+                "comparable con X.</p>",
+                unsafe_allow_html=True,
+            )
+        except Exception:
+            pass
     return fig
 
 
@@ -981,10 +995,12 @@ def _render_gold_dataset_card() -> None:
 
 
 def render_panel_general():
-    _render_section_header(
-        "Panel general",
-        "Indicadores clave del proyecto ReTo: volumen analizado, clasificación y validación humana.",
-    )
+    _col_tit, _col_dl = st.columns([6, 1])
+    with _col_tit:
+        _render_section_header(
+            "Panel general",
+            "Indicadores clave del proyecto ReTo: volumen analizado, clasificación y validación humana.",
+        )
     render_aviso_cambio_criterio()
 
     if st.session_state.get("user_role") != "viewer":
@@ -1148,20 +1164,21 @@ def render_panel_general():
                 st.info("Sin datos de intensidad.")
 
         nota_fuente()
-        render_section_exports(
-            section_key="panel_general",
-            section_title="Panel general",
-            csv_items=[
-                ("embudo", df_emb),
-                ("datos_combinados", df_comb),
-                ("kpis", pd.DataFrame([kpis])),
-            ],
-            fig_items=[
-                {"title": "Embudo de detección", "fig": fig_embudo, "kind": "plotly"},
-                {"title": "Odio identificado por plataforma", "fig": fig_plat, "kind": "plotly"},
-                {"title": "Intensidad del odio", "fig": fig_int, "kind": "plotly"},
-            ],
-        )
+        with _col_dl:
+            render_descargas_menu(
+                section_key="panel_general",
+                section_title="Panel general",
+                csv_items=[
+                    ("embudo", df_emb),
+                    ("datos_combinados", df_comb),
+                    ("kpis", pd.DataFrame([kpis])),
+                ],
+                fig_items=[
+                    {"title": "Recorrido de los mensajes", "fig": fig_embudo, "kind": "plotly"},
+                    {"title": "Odio identificado por plataforma", "fig": fig_plat, "kind": "plotly"},
+                    {"title": "Intensidad del odio", "fig": fig_int, "kind": "plotly"},
+                ],
+            )
 
     # Tarjeta de rendimiento del modelo: solo admin (no viewer ni editor)
     if st.session_state.get("user_role") == "admin":
